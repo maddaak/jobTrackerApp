@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+
+# local-only planning docs, never shared
+IMPLEMENTATION_PLAN.md
+SESSION_SUMMARY.md
+
+# secrets & deps
+.env
+certs/
+node_modules/
+web/node_modules/
+bff/node_modules/
+# builds
+core/target/
+scraper/scraper-bin
+scraper/scraper
+web/dist/
+bff/dist/

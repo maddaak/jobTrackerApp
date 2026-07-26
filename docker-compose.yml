@@ -1,0 +1,60 @@
+services:
+  web:
+    build: ./web
+    ports: ["5173:443"]
+    volumes: ["./certs:/etc/nginx/certs:ro"]
+    depends_on: [bff]
+
+  bff:
+    build: ./bff
+    environment:
+      PORT: "3000"
+      CORE_URL: http://core:8080
+      SCRAPER_URL: http://scraper:8081
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
+    expose: ["3000"]
+    depends_on: [core, scraper]
+
+  core:
+    build: ./core
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
+    expose: ["8080"]
+    depends_on: [postgres, mongo]
+
+  scraper:
+    build: ./scraper
+    environment:
+      PORT: "8081"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+    expose: ["8081"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose: ["5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    expose: ["27017"]
+    volumes: ["mongodata:/data/db"]
+
+volumes:
+  pgdata:
+  mongodata:

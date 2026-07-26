@@ -1,0 +1,16 @@
+package com.jobtracker.core.model;
+
+public enum InterviewType {
+    RECRUITER_PHONE_SCREEN,
+    TECHNICAL_PHONE_SCREEN,
+    HIRING_MANAGER_SCREEN,
+    SYSTEM_DESIGN,
+    BEHAVIOR,
+    CULTURE_FIT,
+    VALUES,
+    PANEL_CODING,
+    PANEL_SYSTEM_DESIGN,
+    PANEL_BEHAVIOR,
+    PANEL_CULTURE_FIT,
+    PANEL_VALUES
+}

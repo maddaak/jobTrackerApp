@@ -37,6 +37,11 @@ public class InterviewController {
         return interviewService.listInterviews(ownerId);
     }
 
+    @GetMapping("/upcoming")
+    public List<InterviewResponse> upcoming(@RequestHeader("X-User-Id") Long ownerId) {
+        return interviewService.listUpcomingInterviews(ownerId);
+    }
+
     @DeleteMapping("/{id}")
     public Map<String, Boolean> delete(@RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id) {
         interviewService.deleteInterview(ownerId, id);

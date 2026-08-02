@@ -17,6 +17,10 @@ import java.util.Optional;
 @Service
 public class AuthService {
 
+    // A valid BCrypt hash used only to spend the same hashing time when the username is unknown,
+    // so a caller cannot tell "no such user" from "wrong password" by response timing.
+    private static final String DUMMY_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
     private final UserRepository users;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -42,7 +46,12 @@ public class AuthService {
 
     public AuthResponse login(LoginRequest request) {
         Optional<User> user = users.findByUsername(normalize(request.username()));
-        if (user.isEmpty() || !passwordEncoder.matches(request.password(), user.get().getPasswordHash())) {
+        if (user.isEmpty()) {
+            // Run a dummy compare so an unknown username takes the same time as a wrong password.
+            passwordEncoder.matches(request.password(), DUMMY_HASH);
+            throw new InvalidCredentialsException();
+        }
+        if (!passwordEncoder.matches(request.password(), user.get().getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
         return new AuthResponse(jwtService.issue(user.get().getId(), user.get().getUsername()), user.get().getUsername());

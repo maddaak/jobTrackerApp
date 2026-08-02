@@ -10,6 +10,7 @@ import {
 } from "../api/jobsApi";
 import { scrapeJob } from "../api/scrapeApi";
 import { matchResumeToJob, type MatchResult } from "../api/resumesApi";
+import { useAuth } from "../context/AuthContext";
 
 const inputClass =
   "w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
@@ -18,6 +19,7 @@ const labelClass = "mb-1 block text-sm font-medium";
 type Step = "url" | "form";
 
 export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
+  const { aiConfigured } = useAuth();
   const [step, setStep] = useState<Step>("url");
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
@@ -37,16 +39,20 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
   const [pastedJdText, setPastedJdText] = useState("");
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
-  // Distinguishes "you chose to skip" (a normal, expected path) from "the fetch actually
-  // failed" (a real problem) so the manual-paste box's tone matches which one happened,
-  // instead of always reading like a warning.
-  const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | null>(null);
+  // Distinguish "skipped" (expected) from "fetch_failed" (a problem) so the manual-paste box's tone matches.
+  const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | "insufficient_jd" | null>(null);
 
   async function runMatch(jobDescriptionText: string) {
     setMatching(true);
     setMatchResult(null);
     try {
-      setMatchResult(await matchResumeToJob(jobDescriptionText));
+      const result = await matchResumeToJob(jobDescriptionText);
+      // Scraped text isn't a real JD (nav markup, JSON, cookie text); prompt for a manual paste instead of a red "do not apply" verdict on garbage.
+      if (result.status === "insufficient_jd") {
+        setManualEntryReason("insufficient_jd");
+        return;
+      }
+      setMatchResult(result);
     } catch {
       setMatchResult({ status: "unavailable" });
     } finally {
@@ -78,12 +84,9 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
     }
     if (raw) {
       setManualEntryReason(null);
-      if (useAi) runMatch(raw);
+      if (aiConfigured && useAi) runMatch(raw);
     } else {
-      // The scrape call itself succeeded (no network/HTTP error) but came back with no
-      // usable content — a dead posting, a page the scraper can't parse, etc. Route it
-      // through the same manual-entry prompt as a hard fetch failure rather than leaving
-      // the form silently blank with no explanation.
+      // Scrape succeeded but returned no usable content (dead posting, unparseable page); route to the manual-entry prompt instead of leaving the form blank.
       setManualEntryReason("fetch_failed");
     }
   }
@@ -98,6 +101,10 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (compMin && compMax && Number(compMin) > Number(compMax)) {
+      setError("Comp min can't be greater than comp max.");
+      return;
+    }
     try {
       const job = await createJob({
         company,
@@ -109,21 +116,26 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
         compMax: compMax ? Number(compMax) : undefined,
         notes: notes || undefined,
       });
+      // Just the resume name (not the reasoning), so Job Details can show which was recommended.
+      const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
       if (scrapedRaw) {
-        // Best-effort — the job is already created either way, this just seeds the
-        // Job Detail JD text from the scrape so it doesn't need re-pasting later.
-        updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "" }).catch(() => {});
+        // Best-effort: seed the Job Detail JD text so nothing needs re-pasting later.
+        updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "", recommendedResume }).catch(() => {});
       } else if (url) {
-        // A URL was entered manually (Skip path, or typed straight into the revealed
-        // form) without ever going through Fetch details — still worth a best-effort
-        // background scrape so the Job Detail JD text gets populated automatically.
+        // URL entered manually without a Fetch: best-effort background scrape to populate the JD text.
         scrapeJob(url)
           .then(result => {
-            if (result.raw) {
-              updateJobDetail(job.id, { jdText: result.raw, interviewNotes: "" }).catch(() => {});
+            if (result.raw || recommendedResume) {
+              updateJobDetail(job.id, { jdText: result.raw ?? "", interviewNotes: "", recommendedResume }).catch(() => {});
             }
           })
-          .catch(() => {});
+          .catch(() => {
+            if (recommendedResume) {
+              updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume }).catch(() => {});
+            }
+          });
+      } else if (recommendedResume) {
+        updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume }).catch(() => {});
       }
       setStep("url");
       setScrapeError(null);
@@ -158,10 +170,16 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
             placeholder="https://..."
           />
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={useAi} onChange={e => setUseAi(e.target.checked)} />
-          Use AI and get a recommendation
-        </label>
+        {aiConfigured ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useAi} onChange={e => setUseAi(e.target.checked)} />
+            Use AI and get a recommendation
+          </label>
+        ) : (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            AI features are disabled: no Anthropic API key found.
+          </p>
+        )}
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -188,20 +206,22 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       {scrapeError && <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">{scrapeError}</p>}
 
-      <RecommendationPanel
-        useAi={useAi}
-        manualEntryReason={manualEntryReason}
-        hasScrapedRaw={!!scrapedRaw}
-        matching={matching}
-        matchResult={matchResult}
-        pastedJdText={pastedJdText}
-        onPastedJdTextChange={setPastedJdText}
-        onGetRecommendation={() => runMatch(pastedJdText)}
-        onGetRecommendationFromScrape={() => runMatch(scrapedRaw)}
-      />
+      {aiConfigured && (
+        <RecommendationPanel
+          useAi={useAi}
+          manualEntryReason={manualEntryReason}
+          hasScrapedRaw={!!scrapedRaw}
+          matching={matching}
+          matchResult={matchResult}
+          pastedJdText={pastedJdText}
+          onPastedJdTextChange={setPastedJdText}
+          onGetRecommendation={() => runMatch(pastedJdText)}
+          onGetRecommendationFromScrape={() => runMatch(scrapedRaw)}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -262,7 +282,7 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
 
 interface RecommendationPanelProps {
   useAi: boolean;
-  manualEntryReason: "skipped" | "fetch_failed" | null;
+  manualEntryReason: "skipped" | "fetch_failed" | "insufficient_jd" | null;
   hasScrapedRaw: boolean;
   matching: boolean;
   matchResult: MatchResult | null;
@@ -282,6 +302,17 @@ function RecommendationPanel({
         <ManualJdBox
           tone="warning"
           heading="Couldn't fetch the job description automatically — paste it below for a recommendation."
+          pastedJdText={pastedJdText}
+          onPastedJdTextChange={onPastedJdTextChange}
+          onGetRecommendation={onGetRecommendation}
+          matching={matching}
+        />
+      )}
+
+      {manualEntryReason === "insufficient_jd" && (
+        <ManualJdBox
+          tone="warning"
+          heading="This posting didn't include a readable job description. Paste it below for a recommendation."
           pastedJdText={pastedJdText}
           onPastedJdTextChange={onPastedJdTextChange}
           onGetRecommendation={onGetRecommendation}

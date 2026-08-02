@@ -1,5 +1,6 @@
 package com.jobtracker.core.service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -16,6 +17,11 @@ class PasswordPolicy {
     static Optional<String> violation(String password) {
         if (password.length() < 8) {
             return Optional.of("password must be at least 8 characters");
+        }
+        // BCrypt silently truncates input past 72 bytes, so two passwords sharing the first 72
+        // bytes would be treated as identical at login. Reject anything longer up front.
+        if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            return Optional.of("password must be at most 72 characters");
         }
         if (!UPPERCASE.matcher(password).find()) {
             return Optional.of("password must contain an uppercase letter");

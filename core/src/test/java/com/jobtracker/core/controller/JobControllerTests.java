@@ -4,10 +4,13 @@ import tools.jackson.databind.ObjectMapper;
 import com.jobtracker.core.dto.JobDetailResponse;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.UserRepository;
+import com.jobtracker.core.support.InMemoryMongo;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,12 @@ class JobControllerTests {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    // The delete path calls Mongo, so point it at the in-memory server instead of a real one.
+    @DynamicPropertySource
+    static void mongoProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.mongodb.uri", InMemoryMongo::connectionString);
+    }
 
     private Long createUser(String username) {
         return users.save(new User(username, "hash")).getId();
@@ -106,7 +115,7 @@ class JobControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_SCHEDULING","interviewDateTime":"2026-08-01T18:00:00Z",
+                        {"jobId":%d,"stage":"INTERVIEW_REQUEST","interviewDateTime":"2026-08-01T18:00:00Z",
                          "interviewType":"RECRUITER_PHONE_SCREEN"}
                         """.formatted(jobWithInterviews)))
             .andExpect(status().isOk());
@@ -126,7 +135,7 @@ class JobControllerTests {
                 .header("X-User-Id", ownerId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(2)))
-            // listJobs orders by createdAt DESC — "NoInterviewsCo" was created second, so it's index 0.
+            // listJobs orders by createdAt DESC, so "NoInterviewsCo" (created second) is index 0.
             .andExpect(jsonPath("$[0].company").value("NoInterviewsCo"))
             .andExpect(jsonPath("$[0].latestInterview").doesNotExist())
             .andExpect(jsonPath("$[1].company").value("Acme"))
@@ -176,11 +185,11 @@ class JobControllerTests {
                 .contentType("application/json")
                 .content("""
                         {"company":"New Co","role":"Engineer","sourceCategory":"SELF_APPLIED",
-                         "currentStage":"RECRUITER_CHAT_INVITE","outcome":"ACTIVE"}
+                         "currentStage":"INTERVIEW_REQUEST","outcome":"ACTIVE"}
                         """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.company").value("New Co"))
-            .andExpect(jsonPath("$.currentStage").value("RECRUITER_CHAT_INVITE"));
+            .andExpect(jsonPath("$.currentStage").value("INTERVIEW_REQUEST"));
     }
 
     @Test
@@ -194,7 +203,7 @@ class JobControllerTests {
                 .contentType("application/json")
                 .content("""
                         {"company":"Acme","role":"Engineer","sourceCategory":"SELF_APPLIED",
-                         "currentStage":"RECRUITER_CHAT_INVITE","outcome":"ACTIVE"}
+                         "currentStage":"INTERVIEW_REQUEST","outcome":"ACTIVE"}
                         """))
             .andExpect(status().isOk());
 
@@ -203,7 +212,7 @@ class JobControllerTests {
                 .header("X-User-Id", ownerId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.stageEvents", hasSize(2)))
-            .andExpect(jsonPath("$.stageEvents[1].stage").value("RECRUITER_CHAT_INVITE"));
+            .andExpect(jsonPath("$.stageEvents[1].stage").value("INTERVIEW_REQUEST"));
     }
 
     @Test

@@ -4,6 +4,8 @@ import type { Stage } from "./jobsClient.js";
 export type InterviewType =
   | "RECRUITER_PHONE_SCREEN"
   | "TECHNICAL_PHONE_SCREEN"
+  | "TAKE_HOME_ASSIGNMENT"
+  | "TECHNICAL_CODE_REVIEW"
   | "HIRING_MANAGER_SCREEN"
   | "SYSTEM_DESIGN"
   | "BEHAVIOR"
@@ -64,7 +66,7 @@ export function createInterview(userId: string, request: CreateInterviewData) {
 }
 
 export function updateInterview(userId: string, stageEventId: string, patch: UpdateInterviewData) {
-  return callCore<InterviewData & Partial<ErrorResponseData>>(`/interviews/${stageEventId}`, {
+  return callCore<InterviewData & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(stageEventId)}`, {
     method: "PATCH", userId, body: patch,
   });
 }
@@ -73,8 +75,12 @@ export function listInterviews(userId: string) {
   return callCore<InterviewData[] & Partial<ErrorResponseData>>("/interviews", { userId });
 }
 
+export function listUpcomingInterviews(userId: string) {
+  return callCore<InterviewData[] & Partial<ErrorResponseData>>("/interviews/upcoming", { userId });
+}
+
 export function deleteInterview(userId: string, stageEventId: string) {
-  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/interviews/${stageEventId}`, {
+  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(stageEventId)}`, {
     method: "DELETE", userId,
   });
 }

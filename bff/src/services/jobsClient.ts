@@ -9,16 +9,11 @@ export type SourceCategory =
 
 export type Stage =
   | "RESUME_CHECK"
-  | "RECRUITER_CHAT_INVITE"
-  | "RECRUITER_CHAT_SCHEDULED"
-  | "WAITING_RECRUITER_RESPONSE"
-  | "INTERVIEW_SCHEDULING"
+  | "INTERVIEW_REQUEST"
   | "INTERVIEW_STAGE"
   | "WAITING_INTERVIEW_RESULTS"
-  | "OFFER_EXTENDED"
-  | "WAITING_OFFER_DETAILS"
-  | "NEGOTIATION"
-  | "WAITING_FINAL_DETAILS";
+  | "OFFER_STAGE"
+  | "FINALIZED";
 
 export type Outcome =
   | "ACTIVE"
@@ -87,7 +82,7 @@ export function listJobs(userId: string) {
 }
 
 export function getJob(userId: string, jobId: string) {
-  return callCore<JobDetailData & Partial<ErrorResponseData>>(`/jobs/${jobId}`, { userId });
+  return callCore<JobDetailData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}`, { userId });
 }
 
 export interface UpdateJobData {
@@ -105,13 +100,13 @@ export interface UpdateJobData {
 }
 
 export function updateJob(userId: string, jobId: string, patch: UpdateJobData) {
-  return callCore<JobSummaryData & Partial<ErrorResponseData>>(`/jobs/${jobId}`, {
+  return callCore<JobSummaryData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}`, {
     method: "PATCH", userId, body: patch,
   });
 }
 
 export function deleteJob(userId: string, jobId: string) {
-  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/jobs/${jobId}`, {
+  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE", userId,
   });
 }
@@ -120,19 +115,41 @@ export interface JobDetailDocumentData {
   jobId: number;
   jdText: string;
   interviewNotes: string;
+  recommendedResume: string | null;
 }
 
 export interface UpdateJobDetailData {
   jdText: string;
   interviewNotes: string;
+  recommendedResume?: string;
 }
 
 export function getJobDetail(userId: string, jobId: string) {
-  return callCore<JobDetailDocumentData & Partial<ErrorResponseData>>(`/jobs/${jobId}/detail`, { userId });
+  return callCore<JobDetailDocumentData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}/detail`, { userId });
 }
 
 export function updateJobDetail(userId: string, jobId: string, patch: UpdateJobDetailData) {
-  return callCore<JobDetailDocumentData & Partial<ErrorResponseData>>(`/jobs/${jobId}/detail`, {
+  return callCore<JobDetailDocumentData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}/detail`, {
     method: "PUT", userId, body: patch,
+  });
+}
+
+export interface ResumeVariantSummaryData {
+  id: string;
+  displayName: string;
+  blurb: string;
+}
+
+export interface ResumeRecommendationData {
+  recommendedVariantId: string;
+  recommendedDisplayName: string;
+  scores: Record<string, number>;
+  reason: string;
+  variants: ResumeVariantSummaryData[];
+}
+
+export function getResumeRecommendation(userId: string, jobId: string) {
+  return callCore<ResumeRecommendationData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}/resume-recommendation`, {
+    userId,
   });
 }

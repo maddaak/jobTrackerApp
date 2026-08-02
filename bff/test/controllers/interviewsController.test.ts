@@ -6,7 +6,7 @@ import { app } from "../../src/app.js";
 const JWT_SECRET = "test-secret-not-for-production";
 
 function authCookie(userId = "1", username = "alice") {
-  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
   return `token=${token}`;
 }
 
@@ -115,6 +115,27 @@ describe("GET /interviews", () => {
     expect(res.body).toEqual(interviews);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/interviews"),
+      expect.objectContaining({ headers: expect.objectContaining({ "X-User-Id": "42" }) }),
+    );
+  });
+});
+
+describe("GET /interviews/upcoming", () => {
+  it("returns 401 with no auth cookie", async () => {
+    const res = await request(app).get("/interviews/upcoming");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the caller's upcoming interviews", async () => {
+    const interviews = [{ stageEventId: 5, jobId: 1, company: "Acme" }];
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, interviews));
+
+    const res = await request(app).get("/interviews/upcoming").set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(interviews);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/interviews/upcoming"),
       expect.objectContaining({ headers: expect.objectContaining({ "X-User-Id": "42" }) }),
     );
   });

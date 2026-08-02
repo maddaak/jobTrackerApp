@@ -1,6 +1,9 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import AddJobForm from "../../src/components/AddJobForm";
+import { useAuth } from "../../src/context/AuthContext";
+
+vi.mock("../../src/context/AuthContext", () => ({ useAuth: vi.fn() }));
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -13,9 +16,18 @@ const scrapeSuccess = {
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
+  vi.mocked(useAuth).mockReturnValue({ aiConfigured: true } as ReturnType<typeof useAuth>);
 });
 
 describe("AddJobForm", () => {
+  it("hides the AI option and shows a disclaimer when no Anthropic key is configured", () => {
+    vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
+    render(<AddJobForm onCreated={vi.fn()} />);
+
+    expect(screen.queryByText("Use AI and get a recommendation")).not.toBeInTheDocument();
+    expect(screen.getByText(/AI features are disabled/)).toBeInTheDocument();
+  });
+
   it("opens on the url-only step with both Fetch and Skip visible, and no other fields", () => {
     render(<AddJobForm onCreated={vi.fn()} />);
 
@@ -197,6 +209,19 @@ describe("AddJobForm", () => {
 
       expect(await screen.findByText(/You should apply/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Get AI recommendation" })).not.toBeInTheDocument();
+    });
+
+    it("shows the paste-real-JD box (not a do-not-apply banner) when the match comes back insufficient_jd", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { status: "insufficient_jd" }));
+
+      render(<AddJobForm onCreated={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+      expect(await screen.findByText(/didn't include a readable job description/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Paste the job description")).toBeInTheDocument();
+      expect(screen.queryByText(/You should not apply/)).not.toBeInTheDocument();
     });
 
     it("shows a manual paste box when the scrape succeeds but comes back empty (e.g. a 404 page)", async () => {

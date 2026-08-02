@@ -1,4 +1,4 @@
 package com.jobtracker.core.dto;
 
-public record ApplyResumeAnalysisRequest(String analysisJson, String status) {
+public record ApplyResumeAnalysisRequest(String analysisJson, String status, String source) {
 }

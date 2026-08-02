@@ -141,4 +141,13 @@ public class Job {
             this.currentStage = newStage;
         }
     }
+
+    // Lower currentStage to the furthest stage still supported by the job's events, e.g. after
+    // deleting the interview that advanced it. Never raises the stage, so a stage deliberately
+    // set below the event history (a manual downgrade) is left untouched.
+    public void lowerStageTo(Stage furthestRemaining) {
+        if (furthestRemaining.ordinal() < this.currentStage.ordinal()) {
+            this.currentStage = furthestRemaining;
+        }
+    }
 }

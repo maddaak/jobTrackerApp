@@ -34,7 +34,11 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
   const today = new Date();
 
   return (
-    <div className="grid grid-cols-7 gap-px overflow-hidden rounded border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800">
+    <div
+      role="grid"
+      aria-label="Calendar"
+      className="grid grid-cols-7 gap-px overflow-hidden rounded border border-neutral-200 bg-neutral-200 dark:border-neutral-800 dark:bg-neutral-800"
+    >
       {WEEKDAY_LABELS.map(label => (
         <div
           key={label}
@@ -50,8 +54,17 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
           <div
             key={day.toISOString()}
             role="gridcell"
+            tabIndex={0}
             aria-label={day.toDateString()}
             onClick={() => onSelectDay(day)}
+            onKeyDown={e => {
+              // Only handle the cell's own key events; otherwise Enter/Space on a focused interview button bubbles here and opens the create modal instead of editing.
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectDay(day);
+              }
+            }}
             className={`min-h-24 cursor-pointer bg-white p-1 dark:bg-neutral-950 ${inMonth ? "" : "opacity-40"} ${
               isSameDay(day, today) ? "ring-2 ring-inset ring-blue-400" : ""
             }`}

@@ -1,15 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { uploadResume, listResumes, deleteResume, type ResumeSummary } from "../api/resumesApi";
+import {
+  uploadResume,
+  summarizeResume,
+  setCustomResumeSummary,
+  listResumes,
+  deleteResume,
+  type ResumeSummary,
+} from "../api/resumesApi";
+import { useAuth } from "../context/AuthContext";
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: "Analyzing…",
   ok: "",
-  not_configured: "Add an Anthropic API key to enable analysis",
-  unavailable: "Analysis failed — try re-uploading",
+  not_configured: "Add an Anthropic API key to enable AI summaries",
+  unavailable: "AI summary failed — try again or write your own below",
 };
 
+const SUMMARY_DISCLAIMER =
+  "This summary is used to match your resume against job postings — generate it automatically with AI, or write your own for full control.";
+
+// The dropzone's accept attribute only constrains the click-to-browse picker; a drag-drop can
+// still hand us any file, so validate the extension and size here before uploading.
+const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
 export default function ResumesPage() {
+  const { aiConfigured } = useAuth();
   const [searchParams] = useSearchParams();
   const onboarding = searchParams.get("onboarding") === "1";
 
@@ -17,21 +33,42 @@ export default function ResumesPage() {
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({});
+  const [summarizingId, setSummarizingId] = useState<string | null>(null);
+  const [savingCustomId, setSavingCustomId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tag each refresh so a slower earlier load can't resolve last and overwrite newer data.
+  const reqId = useRef(0);
 
   useEffect(() => {
-    refresh();
+    // Ignore a mount-time load that resolves after this page has unmounted.
+    let ignore = false;
+    listResumes()
+      .then(loaded => { if (!ignore) setResumes(loaded); })
+      .catch(err => { if (!ignore) setError(err instanceof Error ? err.message : "failed to load resumes"); });
+    return () => { ignore = true; };
   }, []);
 
   async function refresh() {
+    const id = ++reqId.current;
     try {
-      setResumes(await listResumes());
+      const loaded = await listResumes();
+      if (id === reqId.current) setResumes(loaded);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load resumes");
+      if (id === reqId.current) setError(err instanceof Error ? err.message : "failed to load resumes");
     }
   }
 
   async function handleFile(file: File) {
+    const hasAllowedExtension = ALLOWED_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext));
+    if (!hasAllowedExtension) {
+      setError("Unsupported file type — upload a PDF, DOCX, or TXT.");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setError("File is too large — the maximum is 10 MB.");
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -48,6 +85,39 @@ export default function ResumesPage() {
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) handleFile(file);
+  }
+
+  async function handleSummarizeWithAi(id: string) {
+    setSummarizingId(id);
+    setError(null);
+    try {
+      await summarizeResume(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to summarize resume");
+    } finally {
+      setSummarizingId(null);
+    }
+  }
+
+  async function handleSaveCustomSummary(id: string) {
+    const summary = customDrafts[id]?.trim();
+    if (!summary) return;
+    setSavingCustomId(id);
+    setError(null);
+    try {
+      await setCustomResumeSummary(id, summary);
+      setCustomDrafts(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to save custom summary");
+    } finally {
+      setSavingCustomId(null);
+    }
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
@@ -149,11 +219,57 @@ export default function ResumesPage() {
                 Uploaded {new Date(resume.uploadedAt).toLocaleDateString()}
               </div>
               {resume.analysisStatus === "ok" && resume.summary ? (
-                <p className="mt-1 text-neutral-700 dark:text-neutral-300">{resume.summary}</p>
-              ) : (
-                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {STATUS_LABEL[resume.analysisStatus]}
+                <p className="mt-1 text-neutral-700 dark:text-neutral-300">
+                  {resume.summary}{" "}
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                    ({resume.analysisSource === "ai" ? "AI-generated" : "Custom"})
+                  </span>
                 </p>
+              ) : (
+                <div className="mt-2 rounded border border-dashed border-neutral-300 p-2 dark:border-neutral-700">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                    {!aiConfigured
+                      ? "AI summaries are disabled: no Anthropic API key found. Write your own below."
+                      : resume.analysisStatus === "not_configured"
+                        ? STATUS_LABEL.not_configured
+                        : resume.analysisStatus === "unavailable"
+                          ? STATUS_LABEL.unavailable
+                          : SUMMARY_DISCLAIMER}
+                  </p>
+                  {/* Without a key, or when flagged not_configured, the custom-summary box is the only real option. */}
+                  {aiConfigured && resume.analysisStatus !== "not_configured" && (
+                    <button
+                      type="button"
+                      onClick={() => handleSummarizeWithAi(resume.id)}
+                      disabled={summarizingId === resume.id}
+                      className="mt-2 rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {summarizingId === resume.id
+                        ? "Summarizing…"
+                        : resume.analysisStatus === "unavailable"
+                          ? "Retry with AI"
+                          : "Summarize with AI"}
+                    </button>
+                  )}
+                  <div className="mt-2 flex items-center gap-2">
+                    <textarea
+                      aria-label={`Custom summary for ${resume.fileName}`}
+                      rows={2}
+                      placeholder="Or write your own summary"
+                      value={customDrafts[resume.id] ?? ""}
+                      onChange={e => setCustomDrafts(prev => ({ ...prev, [resume.id]: e.target.value }))}
+                      className="w-full rounded border border-neutral-300 bg-white px-2 py-1 text-xs text-neutral-900 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveCustomSummary(resume.id)}
+                      disabled={!customDrafts[resume.id]?.trim() || savingCustomId === resume.id}
+                      className="shrink-0 rounded border border-neutral-300 px-3 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                    >
+                      {savingCustomId === resume.id ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
             <button

@@ -1,4 +1,4 @@
-import { CORE_URL, INTERNAL_TOKEN } from "../config.js";
+import { CORE_URL, INTERNAL_TOKEN, CORE_TIMEOUT_MS } from "../config.js";
 import { callCore, type ErrorResponseData, type CoreResult } from "./coreClient.js";
 
 export interface CreateResumeData {
@@ -13,10 +13,16 @@ export interface ResumeSummaryData {
   fileName: string;
   uploadedAt: string;
   analysisStatus: "pending" | "ok" | "not_configured" | "unavailable";
+  analysisSource: "ai" | "custom" | null;
   summary: string | null;
   skills: string[] | null;
   seniority: string | null;
   roles: string[] | null;
+}
+
+export interface ResumeTextData {
+  id: string;
+  extractedText: string;
 }
 
 // Multipart upload can't go through callCore (which always JSON.stringifies its body), so
@@ -34,15 +40,28 @@ export async function createResume(
     method: "POST",
     headers: { "X-Internal-Token": INTERNAL_TOKEN, "X-User-Id": userId },
     body: form,
+    signal: AbortSignal.timeout(CORE_TIMEOUT_MS),
   });
-  const data = await res.json();
+  // Parse defensively, matching callCore: an empty or non-JSON upstream body must not
+  // throw and swallow the real status.
+  const data = await res.json().catch(() => undefined);
   return { ok: res.ok, status: res.status, data };
 }
 
-export function applyResumeAnalysis(userId: string, resumeId: string, analysisJson: string | null, status: string) {
-  return callCore<ResumeSummaryData & Partial<ErrorResponseData>>(`/resumes/${resumeId}/analysis`, {
-    method: "PATCH", userId, body: { analysisJson, status },
+export function applyResumeAnalysis(
+  userId: string,
+  resumeId: string,
+  analysisJson: string | null,
+  status: string,
+  source: string | null,
+) {
+  return callCore<ResumeSummaryData & Partial<ErrorResponseData>>(`/resumes/${encodeURIComponent(resumeId)}/analysis`, {
+    method: "PATCH", userId, body: { analysisJson, status, source },
   });
+}
+
+export function getResumeText(userId: string, resumeId: string) {
+  return callCore<ResumeTextData & Partial<ErrorResponseData>>(`/resumes/${encodeURIComponent(resumeId)}/text`, { userId });
 }
 
 export function listResumes(userId: string) {
@@ -50,7 +69,7 @@ export function listResumes(userId: string) {
 }
 
 export function deleteResume(userId: string, resumeId: string) {
-  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/resumes/${resumeId}`, {
+  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/resumes/${encodeURIComponent(resumeId)}`, {
     method: "DELETE", userId,
   });
 }

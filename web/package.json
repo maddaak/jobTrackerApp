@@ -13,6 +13,8 @@
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
     "@tanstack/react-table": "^8.21.3",
+    "@types/d3-sankey": "^0.12.5",
+    "d3-sankey": "^0.12.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",
@@ -29,7 +31,7 @@
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "~6.0.2",
+    "typescript": "^7.0.2",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"
   }

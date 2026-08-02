@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.mock.web.MockMultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
@@ -33,7 +34,7 @@ class ResumeServiceTests {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        resumeService = new ResumeService(resumeRepository, extractor, new ObjectMapper());
+        resumeService = new ResumeService(resumeRepository, extractor, new ResumeAnalysisParser(new ObjectMapper()));
     }
 
     @Test
@@ -41,8 +42,8 @@ class ResumeServiceTests {
         when(extractor.extract("text/plain", "hello world".getBytes())).thenReturn("hello world");
         when(resumeRepository.save(any(Resume.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CreateResumeResponse response =
-                resumeService.createResume(1L, "resume.txt", "text/plain", "hello world".getBytes());
+        MockMultipartFile file = new MockMultipartFile("file", "resume.txt", "text/plain", "hello world".getBytes());
+        CreateResumeResponse response = resumeService.createResume(1L, file);
 
         assertThat(response.fileName()).isEqualTo("resume.txt");
         assertThat(response.extractedText()).isEqualTo("hello world");
@@ -65,16 +66,50 @@ class ResumeServiceTests {
         String analysisJson = """
                 {"summary":"Backend engineer","skills":["Go","Java"],"seniority":"senior","roles":["Backend Engineer"]}
                 """;
-        resumeService.applyAnalysis(1L, "abc", new ApplyResumeAnalysisRequest(analysisJson, Resume.AnalysisStatus.OK));
+        resumeService.applyAnalysis(1L, "abc",
+                new ApplyResumeAnalysisRequest(analysisJson, Resume.AnalysisStatus.OK, Resume.AnalysisSource.AI));
 
         List<ResumeSummaryResponse> list = resumeService.listResumes(1L);
 
         assertThat(list).hasSize(1);
         ResumeSummaryResponse summary = list.get(0);
         assertThat(summary.analysisStatus()).isEqualTo(Resume.AnalysisStatus.OK);
+        assertThat(summary.analysisSource()).isEqualTo(Resume.AnalysisSource.AI);
         assertThat(summary.summary()).isEqualTo("Backend engineer");
         assertThat(summary.skills()).containsExactly("Go", "Java");
         assertThat(summary.seniority()).isEqualTo("senior");
+    }
+
+    @Test
+    void applyAnalysisAcceptsACustomSummaryAsAnAlternativeToAiAnalysis() {
+        Resume resume = new Resume(1L, "resume.pdf", "application/pdf", new byte[0]);
+        when(resumeRepository.findByIdAndOwnerId("abc", 1L)).thenReturn(Optional.of(resume));
+        when(resumeRepository.save(any(Resume.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String customJson = """
+                {"summary":"Wrote this myself.","skills":[],"seniority":null,"roles":[]}
+                """;
+        ResumeSummaryResponse response = resumeService.applyAnalysis(1L, "abc",
+                new ApplyResumeAnalysisRequest(customJson, Resume.AnalysisStatus.OK, Resume.AnalysisSource.CUSTOM));
+
+        assertThat(response.analysisSource()).isEqualTo(Resume.AnalysisSource.CUSTOM);
+        assertThat(response.summary()).isEqualTo("Wrote this myself.");
+    }
+
+    @Test
+    void getExtractedTextReturnsTheDecompressedStoredText() {
+        when(extractor.extract("text/plain", "hello world".getBytes())).thenReturn("hello world");
+        when(resumeRepository.save(any(Resume.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        MockMultipartFile file = new MockMultipartFile("file", "resume.pdf", "text/plain", "hello world".getBytes());
+        resumeService.createResume(1L, file);
+
+        ArgumentCaptor<Resume> captor = ArgumentCaptor.forClass(Resume.class);
+        verify(resumeRepository).save(captor.capture());
+        when(resumeRepository.findByIdAndOwnerId("abc", 1L)).thenReturn(Optional.of(captor.getValue()));
+
+        var textResponse = resumeService.getExtractedText(1L, "abc");
+
+        assertThat(textResponse.extractedText()).isEqualTo("hello world");
     }
 
     @Test
@@ -83,8 +118,8 @@ class ResumeServiceTests {
         when(resumeRepository.findByIdAndOwnerId("abc", 1L)).thenReturn(Optional.of(resume));
         when(resumeRepository.save(any(Resume.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ResumeSummaryResponse response = resumeService.applyAnalysis(
-                1L, "abc", new ApplyResumeAnalysisRequest(null, Resume.AnalysisStatus.NOT_CONFIGURED));
+        ResumeSummaryResponse response = resumeService.applyAnalysis(1L, "abc",
+                new ApplyResumeAnalysisRequest(null, Resume.AnalysisStatus.NOT_CONFIGURED, null));
 
         assertThat(response.analysisStatus()).isEqualTo(Resume.AnalysisStatus.NOT_CONFIGURED);
         assertThat(response.summary()).isNull();
@@ -93,7 +128,7 @@ class ResumeServiceTests {
     @Test
     void listResumesToleratesMalformedCachedAnalysisJson() {
         Resume resume = new Resume(1L, "resume.pdf", "application/pdf", new byte[0]);
-        resume.applyAnalysis("not valid json", Resume.AnalysisStatus.OK);
+        resume.applyAnalysis("not valid json", Resume.AnalysisStatus.OK, Resume.AnalysisSource.AI);
         when(resumeRepository.findByOwnerId(1L)).thenReturn(List.of(resume));
 
         List<ResumeSummaryResponse> list = resumeService.listResumes(1L);
@@ -107,7 +142,7 @@ class ResumeServiceTests {
         when(resumeRepository.findByIdAndOwnerId("abc", 999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> resumeService.applyAnalysis(
-                999L, "abc", new ApplyResumeAnalysisRequest("{}", Resume.AnalysisStatus.OK)))
+                999L, "abc", new ApplyResumeAnalysisRequest("{}", Resume.AnalysisStatus.OK, Resume.AnalysisSource.AI)))
                 .isInstanceOf(ResumeNotFoundException.class);
     }
 

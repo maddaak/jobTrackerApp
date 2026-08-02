@@ -33,15 +33,18 @@ public class JobService {
     private final SourceRepository sources;
     private final StageEventRepository stageEvents;
     private final UserRepository users;
+    private final JobDetailService jobDetails;
 
     public JobService(JobRepository jobs, SourceRepository sources,
-            StageEventRepository stageEvents, UserRepository users) {
+            StageEventRepository stageEvents, UserRepository users, JobDetailService jobDetails) {
         this.jobs = jobs;
         this.sources = sources;
         this.stageEvents = stageEvents;
         this.users = users;
+        this.jobDetails = jobDetails;
     }
 
+    @Transactional
     public JobDetailResponse createJob(Long ownerId, CreateJobRequest request) {
         User owner = users.getReferenceById(ownerId);
         Source source = sources.save(new Source(request.sourceCategory()));
@@ -54,9 +57,10 @@ public class JobService {
     }
 
     public List<JobSummaryResponse> listJobs(Long ownerId) {
-        List<Job> ownerJobs = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId);
-        // One query for every job's interview history instead of 2-3 queries per job
-        // (latest interview + round count + lazy interviewers) — see the repository method.
+        // Fetch-joins source so buildSummaryResponse's job.getSource() fires no per-job select.
+        List<Job> ownerJobs = jobs.findByOwnerIdWithSourceOrderByCreatedAtDesc(ownerId);
+        // One query for every job's interview history instead of 2-3 queries per job (latest
+        // interview + round count + lazy interviewers).
         Map<Long, List<StageEvent>> interviewsByJobId = stageEvents
                 .findAllWithInterviewersByJobOwnerId(ownerId).stream()
                 .collect(Collectors.groupingBy(e -> e.getJob().getId()));
@@ -95,12 +99,21 @@ public class JobService {
     @Transactional
     public void deleteJob(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        Source source = job.getSource();
         stageEvents.deleteByJobId(job.getId());
         jobs.delete(job);
+        // createJob mints a dedicated Source per job (never shared), so it would otherwise be
+        // orphaned here forever. Flush the job delete before removing the Source so the FK from
+        // jobs.source is already gone when the Source row is deleted.
+        jobs.flush();
+        sources.delete(source);
+        // The JobDetail lives in Mongo, outside this JPA transaction, so removing it here
+        // stops the scraped-JD document from being orphaned after the SQL rows are gone.
+        jobDetails.deleteDetail(job.getId());
     }
 
-    // Single-job path (create/update) — a couple of targeted queries here is fine, this
-    // only ever runs for one job at a time, never in a per-row loop over a list.
+    // Single-job path (create/update): a couple of targeted queries here is fine, this only
+    // ever runs for one job at a time, never in a per-row loop over a list.
     private JobSummaryResponse toSummaryResponse(Job job) {
         LatestInterviewSummary latestInterview = stageEvents
                 .findTopByJobIdAndInterviewDateTimeIsNotNullOrderByInterviewDateTimeDesc(job.getId())
@@ -109,8 +122,8 @@ public class JobService {
         return buildSummaryResponse(job, latestInterview);
     }
 
-    // List path (listJobs) — interviewEvents is this job's slice of the single batched
-    // query in listJobs, interviewers already eager-loaded, so this does zero queries.
+    // List path (listJobs): interviewEvents is this job's slice of the single batched query
+    // in listJobs, interviewers already eager-loaded, so this does zero queries.
     private JobSummaryResponse toSummaryResponse(Job job, List<StageEvent> interviewEvents) {
         LatestInterviewSummary latestInterview = interviewEvents.stream()
                 .max(Comparator.comparing(StageEvent::getInterviewDateTime))

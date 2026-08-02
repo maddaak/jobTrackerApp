@@ -1,8 +1,14 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactElement } from "react";
 import JobsTable from "../../src/components/JobsTable";
 import type { JobSummary } from "../../src/api/jobsApi";
+
+// JobsTable's tree reaches InterviewFormModal, which calls useLocation(), so wrap every render in a router.
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 const jobs: JobSummary[] = [
   {
@@ -71,6 +77,83 @@ describe("JobsTable", () => {
     }
   });
 
+  it("filters rows to a selection via the company filter popover", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+    expect(screen.getByText("Zeta Co")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Filter by Company"));
+    fireEvent.click(screen.getByLabelText("Zeta Co"));
+    fireEvent.click(screen.getByText("OK"));
+
+    expect(screen.queryByText("Zeta Co")).not.toBeInTheDocument();
+    expect(screen.getByText("Acme Co")).toBeInTheDocument();
+  });
+
+  it("filters by typing in the popover search then clicking OK", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Filter by Company"));
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "Acme" } });
+    fireEvent.click(screen.getByText("OK"));
+
+    expect(screen.getByText("Acme Co")).toBeInTheDocument();
+    expect(screen.queryByText("Zeta Co")).not.toBeInTheDocument();
+  });
+
+  it("filters by selecting stages in the filter popover", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Filter by Stage"));
+    fireEvent.click(screen.getByLabelText("Interview Stage")); // uncheck, leaving Resume Check
+    fireEvent.click(screen.getByText("OK"));
+
+    expect(screen.getByText("Zeta Co")).toBeInTheDocument();
+    expect(screen.queryByText("Acme Co")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 2")).toBeInTheDocument();
+  });
+
+  it("shows an empty state and clears filters after deselecting everything", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Filter by Company"));
+    fireEvent.click(screen.getByText("Clear"));
+    fireEvent.click(screen.getByText("OK"));
+    expect(screen.getByText("No jobs match your filters.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Clear filters"));
+    expect(screen.getByText("Zeta Co")).toBeInTheDocument();
+    expect(screen.getByText("Acme Co")).toBeInTheDocument();
+  });
+
+  it("moves a job to the Finalized stage when its outcome is set to Rejected", async () => {
+    const onSaved = vi.fn();
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 1 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, { jobId: 1, jdText: "", interviewNotes: "" }),
+    );
+    render(<JobsTable jobs={jobs} onSaved={onSaved} onDeleted={vi.fn()} />);
+
+    fireEvent.change(screen.getAllByLabelText("Outcome")[0], { target: { value: "REJECTED" } });
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/jobs/1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining("\"currentStage\":\"FINALIZED\""),
+        }),
+      ),
+    );
+  });
+
+  it("does not render a javascript: position URL as a clickable link", () => {
+    const jsJob: JobSummary = { ...jobs[0], id: 3, role: "Evil Role", url: "javascript:alert(1)" };
+    render(<JobsTable jobs={[jsJob]} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    expect(screen.getByText("Evil Role")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Evil Role" })).not.toBeInTheDocument();
+  });
+
   it("sorts by clicking a column header, toggling direction on repeat click", () => {
     const { container } = render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
 
@@ -123,7 +206,7 @@ describe("JobsTable", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 1 }));
     render(<JobsTable jobs={jobs} onSaved={onSaved} onDeleted={vi.fn()} />);
 
-    fireEvent.change(screen.getAllByLabelText("Stage")[0], { target: { value: "RECRUITER_CHAT_INVITE" } });
+    fireEvent.change(screen.getAllByLabelText("Stage")[0], { target: { value: "INTERVIEW_REQUEST" } });
 
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith("/jobs/1", expect.objectContaining({ method: "PATCH" })),
@@ -160,7 +243,7 @@ describe("JobsTable", () => {
     (fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(
       () => new Promise(resolve => { resolveStageSave = () => resolve(fakeResponse(200, { id: 1 })); }),
     );
-    fireEvent.change(screen.getAllByLabelText("Stage")[0], { target: { value: "RECRUITER_CHAT_INVITE" } });
+    fireEvent.change(screen.getAllByLabelText("Stage")[0], { target: { value: "INTERVIEW_REQUEST" } });
 
     // A newer edit lands on the same field while the stage-triggered save is still in flight.
     fireEvent.change(screen.getByLabelText("Company"), { target: { value: "second draft" } });
@@ -222,9 +305,9 @@ describe("JobsTable", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows the Add interview link for a job at Recruiter Chat Scheduled too", () => {
-    const recruiterScheduledJob = { ...jobs[0], currentStage: "RECRUITER_CHAT_SCHEDULED" as const };
-    render(<JobsTable jobs={[recruiterScheduledJob, jobs[1]]} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+  it("shows the Add interview link for a job at Interview Request too", () => {
+    const interviewRequestJob = { ...jobs[0], currentStage: "INTERVIEW_REQUEST" as const };
+    render(<JobsTable jobs={[interviewRequestJob, jobs[1]]} onSaved={vi.fn()} onDeleted={vi.fn()} />);
 
     expect(screen.getAllByText("+ Add interview")).toHaveLength(2);
   });
@@ -326,11 +409,7 @@ describe("JobsTable", () => {
       ...jobs[1],
       latestInterview: { ...jobs[1].latestInterview!, roundCount: 3 },
     };
-    render(
-      <MemoryRouter>
-        <JobsTable jobs={[jobs[0], multiRoundJob]} onSaved={vi.fn()} onDeleted={vi.fn()} />
-      </MemoryRouter>,
-    );
+    render(<JobsTable jobs={[jobs[0], multiRoundJob]} onSaved={vi.fn()} onDeleted={vi.fn()} />);
 
     expect(screen.getByText(/3 rounds · latest/)).toBeInTheDocument();
     expect(screen.getByText("See all rounds on calendar")).toBeInTheDocument();

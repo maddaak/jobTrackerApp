@@ -28,7 +28,7 @@ describe("MetricsPage", () => {
             ],
             outcomeCounts: [],
             interviewRoundCounts: [],
-            sankeyLinks: [{ source: "RESUME_CHECK", target: "RECRUITER_CHAT_INVITE", value: 2 }],
+            sankeyLinks: [{ source: "RESUME_CHECK", target: "INTERVIEW_REQUEST", value: 2 }],
           }),
         ),
       ),
@@ -83,7 +83,7 @@ describe("MetricsPage", () => {
 
     renderMetricsPage();
 
-    expect(await screen.findByText(/No jobs have moved past Resume Check yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No pipeline flow yet/)).toBeInTheDocument();
   });
 
   it("labels stage/outcome ids with their human-readable name", () => {
@@ -91,21 +91,30 @@ describe("MetricsPage", () => {
     expect(nodeLabel("REJECTED")).toBe("Rejected");
   });
 
-  it("appends the funnel's true reached-count to a stage node's label, so it never looks smaller than the funnel table for the same stage", () => {
+  it("labels the interview-journey nodes (types, panel, offer splits)", () => {
+    expect(nodeLabel("SYSTEM_DESIGN")).toBe("System Design");
+    expect(nodeLabel("PANEL")).toBe("Panel");
+    expect(nodeLabel("OFFER")).toBe("Offer");
+    expect(nodeLabel("ACCEPTED")).toBe("Accepted");
+    expect(nodeLabel("DECLINED")).toBe("Declined");
+  });
+
+  it("sizes each node by its actual flow through the chart (max of in/out)", () => {
     const data = toSankeyData({
       funnel: [
         { stage: "RESUME_CHECK", count: 3 },
-        { stage: "RECRUITER_CHAT_INVITE", count: 2 },
+        { stage: "INTERVIEW_REQUEST", count: 2 },
       ],
       outcomeCounts: [],
       interviewRoundCounts: [],
-      sankeyLinks: [{ source: "RESUME_CHECK", target: "RECRUITER_CHAT_INVITE", value: 2 }],
+      sankeyLinks: [{ source: "RESUME_CHECK", target: "INTERVIEW_REQUEST", value: 2 }],
     });
 
-    expect(data.nodes.map(n => n.name)).toEqual(["Resume Check (3)", "Recruiter Chat Invite (2)"]);
+    expect(data.nodes.map(n => n.name)).toEqual(["Resume Check", "Interview Request"]);
+    expect(data.nodes.map(n => n.total)).toEqual([2, 2]);
   });
 
-  it("does not append a count to outcome node labels", () => {
+  it("keeps every flow, including the direct Resume Check close", () => {
     const data = toSankeyData({
       funnel: [{ stage: "RESUME_CHECK", count: 1 }],
       outcomeCounts: [{ outcome: "REJECTED", count: 1 }],
@@ -113,7 +122,25 @@ describe("MetricsPage", () => {
       sankeyLinks: [{ source: "RESUME_CHECK", target: "REJECTED", value: 1 }],
     });
 
-    expect(data.nodes.map(n => n.name)).toEqual(["Resume Check (1)", "Rejected"]);
+    expect(data.nodes.map(n => n.name)).toEqual(["Resume Check", "Rejected"]);
+    expect(data.nodes.map(n => n.total)).toEqual([1, 1]);
+    expect(data.links).toHaveLength(1);
+  });
+
+  it("totals a node across all of its links (in and out)", () => {
+    const data = toSankeyData({
+      funnel: [],
+      outcomeCounts: [],
+      interviewRoundCounts: [],
+      sankeyLinks: [
+        { source: "RESUME_CHECK", target: "REJECTED", value: 30 },
+        { source: "RESUME_CHECK", target: "INTERVIEW_REQUEST", value: 5 },
+        { source: "INTERVIEW_REQUEST", target: "REJECTED", value: 5 },
+      ],
+    });
+
+    expect(data.nodes.find(n => n.name === "Resume Check")?.total).toBe(35);
+    expect(data.nodes.find(n => n.name === "Rejected")?.total).toBe(35);
   });
 
   it("shows interview round counts by type, with a total, and hides zero-count types", async () => {

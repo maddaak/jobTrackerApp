@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { listJobs, type JobSummary } from "../api/jobsApi";
 import AddJobForm from "../components/AddJobForm";
 import JobsTable from "../components/JobsTable";
 import Modal from "../components/Modal";
+import UpcomingInterviewsBanner from "../components/UpcomingInterviewsBanner";
 
 export default function HomePage() {
   const { username, logout } = useAuth();
@@ -12,17 +13,35 @@ export default function HomePage() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [interviewsVersion, setInterviewsVersion] = useState(0);
+  // Concurrent row autosaves each trigger refreshJobs; tag every load so a slower earlier one
+  // can't resolve last and overwrite the newest jobs snapshot with stale rows.
+  const jobsReqId = useRef(0);
 
   useEffect(() => {
-    refreshJobs();
+    // Ignore a mount-time load that resolves after this page has unmounted.
+    let ignore = false;
+    listJobs()
+      .then(loaded => { if (!ignore) setJobs(loaded); })
+      .catch(err => { if (!ignore) setError(err instanceof Error ? err.message : "failed to load jobs"); });
+    return () => { ignore = true; };
   }, []);
 
   async function refreshJobs() {
+    const reqId = ++jobsReqId.current;
     try {
-      setJobs(await listJobs());
+      const loaded = await listJobs();
+      if (reqId === jobsReqId.current) setJobs(loaded);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load jobs");
+      if (reqId === jobsReqId.current) setError(err instanceof Error ? err.message : "failed to load jobs");
     }
+  }
+
+  // Any interview create/update/delete can change both the jobs table's latestInterview
+  // column and the upcoming-interviews banner, so a save anywhere on the page refreshes both.
+  async function refreshAll() {
+    await refreshJobs();
+    setInterviewsVersion(v => v + 1);
   }
 
   async function handleJobCreated() {
@@ -48,7 +67,9 @@ export default function HomePage() {
           </div>
         </div>
 
-        {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <UpcomingInterviewsBanner refreshSignal={interviewsVersion} onInterviewChanged={refreshAll} />
 
         <div className="mb-4 flex justify-end gap-2">
           <Link
@@ -83,7 +104,7 @@ export default function HomePage() {
       </Modal>
 
       <div className="min-h-0 flex-1">
-        <JobsTable jobs={jobs} onSaved={refreshJobs} onDeleted={refreshJobs} />
+        <JobsTable jobs={jobs} onSaved={refreshAll} onDeleted={refreshAll} />
       </div>
     </div>
   );

@@ -149,7 +149,7 @@ class InterviewControllerTests {
     // so Hibernate never physically flushes a save() to the DB until that transaction commits.
     // TestTransaction.end()/start() forces a real intermediate commit (like production, where
     // repository.save() commits its own short-lived transaction) so a raw JDBC read afterward
-    // reflects what's truly durable — this is what would catch a missing repository.save() call
+    // reflects what's truly durable. This is what would catch a missing repository.save() call
     // after mutating an already-managed entity.
     @Test
     void updateInterviewPersistsToTheDatabaseRow() throws Exception {
@@ -190,7 +190,7 @@ class InterviewControllerTests {
     }
 
     // createInterview currently only survives without its own re-save because the trailing
-    // jobs.save(job) call happens to flush the whole persistence context — this test pins that
+    // jobs.save(job) call happens to flush the whole persistence context. This test pins that
     // down at the DB-row level (see updateInterviewPersistsToTheDatabaseRow for why a raw JDBC
     // read + TestTransaction commit, not just the response body, is needed to catch this class
     // of bug).
@@ -352,6 +352,32 @@ class InterviewControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", otherId))
             .andExpect(status().isNotFound());
+    }
+
+    // GET /interviews/upcoming is covered at the service level instead of here, see
+    // InterviewServiceTests.listUpcomingInterviews*.
+
+    @Test
+    void createInterviewWithBlankInterviewerNameReturns400NotError() throws Exception {
+        Long ownerId = createUser("interview_paula");
+        Long jobId = createJobFor(ownerId, "Acme");
+
+        mockMvc.perform(post("/interviews")
+                .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
+                .header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content("""
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z",
+                         "interviewers":[{"name":"  ","linkedInUrl":"https://linkedin.com/in/x"}]}
+                        """.formatted(jobId)))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listInterviewsWithoutUserIdHeaderReturns400NotError() throws Exception {
+        mockMvc.perform(get("/interviews").header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").isNotEmpty());
     }
 
     @Test

@@ -4,10 +4,12 @@ import com.jobtracker.core.dto.CreateJobRequest;
 import com.jobtracker.core.dto.JobDetailDocumentResponse;
 import com.jobtracker.core.dto.JobDetailResponse;
 import com.jobtracker.core.dto.JobSummaryResponse;
+import com.jobtracker.core.dto.ResumeRecommendationResponse;
 import com.jobtracker.core.dto.UpdateJobDetailRequest;
 import com.jobtracker.core.dto.UpdateJobRequest;
 import com.jobtracker.core.service.JobDetailService;
 import com.jobtracker.core.service.JobService;
+import com.jobtracker.core.service.ResumeRecommenderService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -19,10 +21,13 @@ public class JobController {
 
     private final JobService jobService;
     private final JobDetailService jobDetailService;
+    private final ResumeRecommenderService resumeRecommenderService;
 
-    public JobController(JobService jobService, JobDetailService jobDetailService) {
+    public JobController(
+            JobService jobService, JobDetailService jobDetailService, ResumeRecommenderService resumeRecommenderService) {
         this.jobService = jobService;
         this.jobDetailService = jobDetailService;
+        this.resumeRecommenderService = resumeRecommenderService;
     }
 
     @PostMapping
@@ -64,5 +69,11 @@ public class JobController {
             @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
             @RequestBody UpdateJobDetailRequest request) {
         return jobDetailService.updateDetail(ownerId, id, request);
+    }
+
+    @GetMapping("/{id}/resume-recommendation")
+    public ResumeRecommendationResponse getResumeRecommendation(
+            @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id) {
+        return resumeRecommenderService.recommend(ownerId, id);
     }
 }

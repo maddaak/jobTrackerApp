@@ -8,6 +8,8 @@
 # local-only planning docs, never shared
 IMPLEMENTATION_PLAN.md
 SESSION_SUMMARY.md
+REVIEW_LEDGER.md
+FEATURE_resume_recommender.md
 
 # secrets & deps
 .env

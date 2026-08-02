@@ -18,7 +18,7 @@ public class Resume {
 
     private String contentType;
 
-    // Compressed at rest — same reasoning as JobDetail.jdTextCompressed, resume text runs
+    // Compressed at rest, same reasoning as JobDetail.jdTextCompressed: resume text runs
     // a few KB to tens of KB and gzip shrinks it substantially.
     private byte[] extractedTextCompressed;
 
@@ -27,6 +27,13 @@ public class Resume {
     private String analysisJson;
 
     private String analysisStatus;
+
+    // Which path produced analysisJson: AnalysisSource.AI (Claude-generated) or
+    // AnalysisSource.CUSTOM (the user typed their own summary instead of calling Claude).
+    // Null until applyAnalysis is called. Shown in the UI so the disclaimer/badge reflects
+    // reality, and used by ResumeRecommenderService to decide how to derive emphasis
+    // keywords for a resume (structured skills/roles vs. tokenized summary text).
+    private String analysisSource;
 
     private Instant uploadedAt;
 
@@ -70,13 +77,18 @@ public class Resume {
         return analysisStatus;
     }
 
+    public String getAnalysisSource() {
+        return analysisSource;
+    }
+
     public Instant getUploadedAt() {
         return uploadedAt;
     }
 
-    public void applyAnalysis(String analysisJson, String analysisStatus) {
+    public void applyAnalysis(String analysisJson, String analysisStatus, String analysisSource) {
         this.analysisJson = analysisJson;
         this.analysisStatus = analysisStatus;
+        this.analysisSource = analysisSource;
     }
 
     public static final class AnalysisStatus {
@@ -86,6 +98,14 @@ public class Resume {
         public static final String UNAVAILABLE = "unavailable";
 
         private AnalysisStatus() {
+        }
+    }
+
+    public static final class AnalysisSource {
+        public static final String AI = "ai";
+        public static final String CUSTOM = "custom";
+
+        private AnalysisSource() {
         }
     }
 }

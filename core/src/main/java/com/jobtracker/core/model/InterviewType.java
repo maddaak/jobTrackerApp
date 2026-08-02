@@ -3,6 +3,8 @@ package com.jobtracker.core.model;
 public enum InterviewType {
     RECRUITER_PHONE_SCREEN,
     TECHNICAL_PHONE_SCREEN,
+    TAKE_HOME_ASSIGNMENT,
+    TECHNICAL_CODE_REVIEW,
     HIRING_MANAGER_SCREEN,
     SYSTEM_DESIGN,
     BEHAVIOR,

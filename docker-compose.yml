@@ -1,6 +1,8 @@
 services:
   web:
     build: ./web
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-localhost}
     ports: ["5173:443"]
     volumes: ["./certs:/etc/nginx/certs:ro"]
     depends_on: [bff]

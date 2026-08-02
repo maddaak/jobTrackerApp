@@ -6,7 +6,7 @@ import { app } from "../../src/app.js";
 const JWT_SECRET = "test-secret-not-for-production";
 
 function authCookie(userId = "1", username = "alice") {
-  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
   return `token=${token}`;
 }
 
@@ -37,6 +37,21 @@ describe("POST /scrape", () => {
   it("rejects a missing url", async () => {
     const res = await request(app).post("/scrape").set("Cookie", authCookie()).send({});
     expect(res.status).toBe(400);
+  });
+
+  it.each([
+    "http://localhost/job",
+    "http://127.0.0.1/job",
+    "http://10.0.0.5/job",
+    "http://192.168.1.1/job",
+    "http://172.16.0.1/job",
+    "http://169.254.169.254/latest/meta-data",
+    "http://[::1]/job",
+  ])("rejects an internal host (%s) without calling the scraper", async url => {
+    const res = await request(app).post("/scrape").set("Cookie", authCookie()).send({ url });
+
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("forwards the url to the scraper and returns the extracted fields", async () => {

@@ -39,12 +39,15 @@ class JobServiceTests {
     @Mock
     private UserRepository users;
 
+    @Mock
+    private JobDetailService jobDetails;
+
     private JobService jobService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobService = new JobService(jobs, sources, stageEvents, users);
+        jobService = new JobService(jobs, sources, stageEvents, users, jobDetails);
     }
 
     @Test
@@ -83,7 +86,7 @@ class JobServiceTests {
         User owner = new User("bob", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
         Job job = new Job("Globex", "SRE", owner, source, null, null, null, null, null);
-        when(jobs.findByOwnerIdOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
+        when(jobs.findByOwnerIdWithSourceOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
 
         var result = jobService.listJobs(2L);
 
@@ -146,13 +149,13 @@ class JobServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, null, Stage.RECRUITER_CHAT_INVITE, Outcome.ACTIVE, null);
+                null, null, null, null, null, Stage.INTERVIEW_REQUEST, Outcome.ACTIVE, null);
 
         jobService.updateJob(1L, 10L, request);
 
         ArgumentCaptor<StageEvent> captor = ArgumentCaptor.forClass(StageEvent.class);
         verify(stageEvents).save(captor.capture());
-        assertThat(captor.getValue().getStage()).isEqualTo(Stage.RECRUITER_CHAT_INVITE);
+        assertThat(captor.getValue().getStage()).isEqualTo(Stage.INTERVIEW_REQUEST);
     }
 
     @Test
@@ -238,6 +241,7 @@ class JobServiceTests {
 
         verify(stageEvents).deleteByJobId(job.getId());
         verify(jobs).delete(job);
+        verify(jobDetails).deleteDetail(job.getId());
     }
 
     @Test

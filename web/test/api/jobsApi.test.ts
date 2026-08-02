@@ -69,13 +69,13 @@ describe("rowColor", () => {
   const cases: [Pick<JobSummary, "outcome" | "currentStage">, "red" | "green" | "yellow"][] = [
     [{ outcome: "REJECTED", currentStage: "RESUME_CHECK" }, "red"],
     [{ outcome: "GHOSTED", currentStage: "INTERVIEW_STAGE" }, "red"],
-    [{ outcome: "WITHDRAWN", currentStage: "OFFER_EXTENDED" }, "red"],
+    [{ outcome: "WITHDRAWN", currentStage: "OFFER_STAGE" }, "red"],
     [{ outcome: "OFFER_ACCEPTED", currentStage: "RESUME_CHECK" }, "green"],
     [{ outcome: "OFFER_DECLINED", currentStage: "RESUME_CHECK" }, "green"],
-    [{ outcome: "ACTIVE", currentStage: "INTERVIEW_SCHEDULING" }, "green"],
+    [{ outcome: "ACTIVE", currentStage: "INTERVIEW_STAGE" }, "green"],
     [{ outcome: "ACTIVE", currentStage: "WAITING_INTERVIEW_RESULTS" }, "green"],
     [{ outcome: "ACTIVE", currentStage: "RESUME_CHECK" }, "yellow"],
-    [{ outcome: "ACTIVE", currentStage: "WAITING_RECRUITER_RESPONSE" }, "yellow"],
+    [{ outcome: "ACTIVE", currentStage: "INTERVIEW_REQUEST" }, "yellow"],
   ];
 
   it.each(cases)("returns %o -> %s", (job, expected) => {

@@ -52,12 +52,15 @@ class MetricsControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", ownerId))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.funnel", hasSize(11)))
+            .andExpect(jsonPath("$.funnel", hasSize(5)))
             .andExpect(jsonPath("$.funnel[0].stage").value("RESUME_CHECK"))
             .andExpect(jsonPath("$.funnel[0].count").value(1))
             .andExpect(jsonPath("$.outcomeCounts", hasSize(5)))
-            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(12)))
-            .andExpect(jsonPath("$.sankeyLinks", hasSize(0)));
+            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(14)))
+            // A fresh active job at Resume Check terminates at IN_PROGRESS.
+            .andExpect(jsonPath("$.sankeyLinks", hasSize(1)))
+            .andExpect(jsonPath("$.sankeyLinks[0].source").value("RESUME_CHECK"))
+            .andExpect(jsonPath("$.sankeyLinks[0].target").value("IN_PROGRESS"));
     }
 
     @Test

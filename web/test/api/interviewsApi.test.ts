@@ -3,6 +3,8 @@ import {
   createInterview,
   updateInterview,
   listInterviews,
+  INTERVIEW_TYPES,
+  INTERVIEW_TYPE_LABELS,
   type CreateInterviewInput,
   type UpdateInterviewInput,
 } from "../../src/api/interviewsApi";
@@ -24,6 +26,22 @@ const updateInput: UpdateInterviewInput = {
   location: null,
   interviewers: [],
 };
+
+describe("interview types", () => {
+  it("includes take-home assignment and technical code review with their labels", () => {
+    expect(INTERVIEW_TYPES).toContain("TAKE_HOME_ASSIGNMENT");
+    expect(INTERVIEW_TYPES).toContain("TECHNICAL_CODE_REVIEW");
+    expect(INTERVIEW_TYPE_LABELS.TAKE_HOME_ASSIGNMENT).toBe("Take Home Assignment");
+    expect(INTERVIEW_TYPE_LABELS.TECHNICAL_CODE_REVIEW).toBe("Technical Code Review");
+  });
+
+  it("has exactly one label per type (labels map is 1:1 with the type list)", () => {
+    expect(Object.keys(INTERVIEW_TYPE_LABELS).sort()).toEqual([...INTERVIEW_TYPES].sort());
+    for (const type of INTERVIEW_TYPES) {
+      expect(INTERVIEW_TYPE_LABELS[type]).toBeTruthy();
+    }
+  });
+});
 
 describe("createInterview", () => {
   it("sends a POST with the input and returns the created interview on success", async () => {

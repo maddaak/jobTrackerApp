@@ -6,7 +6,7 @@ import { app } from "../../src/app.js";
 const JWT_SECRET = "test-secret-not-for-production";
 
 function authCookie(userId = "1", username = "alice") {
-  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
   return `token=${token}`;
 }
 

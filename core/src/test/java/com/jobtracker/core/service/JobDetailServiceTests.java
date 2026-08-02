@@ -71,7 +71,7 @@ class JobDetailServiceTests {
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         String longJdText = "We are hiring a Senior Engineer. ".repeat(50);
-        var request = new UpdateJobDetailRequest(longJdText, "asked about system design");
+        var request = new UpdateJobDetailRequest(longJdText, "asked about system design", null);
 
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
@@ -87,7 +87,7 @@ class JobDetailServiceTests {
     @Test
     void updateDetailThrowsJobNotFoundExceptionForAnotherUsersJob() {
         when(jobs.findByIdAndOwnerId(10L, 999L)).thenReturn(Optional.empty());
-        var request = new UpdateJobDetailRequest("text", "interview notes");
+        var request = new UpdateJobDetailRequest("text", "interview notes", null);
 
         assertThatThrownBy(() -> jobDetailService.updateDetail(999L, 10L, request))
                 .isInstanceOf(JobNotFoundException.class);
@@ -105,7 +105,7 @@ class JobDetailServiceTests {
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(existing));
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var request = new UpdateJobDetailRequest("new jd text", "new interview notes");
+        var request = new UpdateJobDetailRequest("new jd text", "new interview notes", null);
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
         assertThat(response.jdText()).isEqualTo("new jd text");
@@ -113,5 +113,34 @@ class JobDetailServiceTests {
         ArgumentCaptor<JobDetail> captor = ArgumentCaptor.forClass(JobDetail.class);
         verify(jobDetails).save(captor.capture());
         assertThat(captor.getValue()).isSameAs(existing);
+    }
+
+    @Test
+    void recommendedResumeIsPersistedPreservedWhenNullAndReturnedByGetDetail() {
+        User owner = new User("dave", "hash");
+        Source source = new Source(SourceCategory.SELF_APPLIED);
+        Job job = newJob(owner, source);
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Simulate the stored document evolving across saves.
+        JobDetail stored = new JobDetail(10L, new byte[0], "");
+        when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(stored));
+
+        // (a) A save with a non-null recommendedResume persists and returns it.
+        var withResume = new UpdateJobDetailRequest("jd", "notes", "backend-resume.pdf");
+        JobDetailDocumentResponse first = jobDetailService.updateDetail(1L, 10L, withResume);
+        assertThat(first.recommendedResume()).isEqualTo("backend-resume.pdf");
+        assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");
+
+        // (b) A later save omitting it (null) must keep the previously-saved value.
+        var withoutResume = new UpdateJobDetailRequest("edited jd", "edited notes", null);
+        JobDetailDocumentResponse second = jobDetailService.updateDetail(1L, 10L, withoutResume);
+        assertThat(second.recommendedResume()).isEqualTo("backend-resume.pdf");
+        assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");
+
+        // (c) getDetail returns the persisted recommendation.
+        JobDetailDocumentResponse read = jobDetailService.getDetail(1L, 10L);
+        assertThat(read.recommendedResume()).isEqualTo("backend-resume.pdf");
     }
 }

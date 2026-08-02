@@ -3,12 +3,11 @@ package com.jobtracker.core.controller;
 import com.jobtracker.core.dto.ApplyResumeAnalysisRequest;
 import com.jobtracker.core.dto.CreateResumeResponse;
 import com.jobtracker.core.dto.ResumeSummaryResponse;
+import com.jobtracker.core.dto.ResumeTextResponse;
 import com.jobtracker.core.service.ResumeService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 
@@ -25,12 +24,7 @@ public class ResumeController {
     @PostMapping
     public CreateResumeResponse create(
             @RequestHeader("X-User-Id") Long ownerId, @RequestParam("file") MultipartFile file) {
-        try {
-            return resumeService.createResume(
-                    ownerId, file.getOriginalFilename(), file.getContentType(), file.getBytes());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return resumeService.createResume(ownerId, file);
     }
 
     @GetMapping
@@ -43,6 +37,11 @@ public class ResumeController {
             @RequestHeader("X-User-Id") Long ownerId, @PathVariable String id,
             @RequestBody ApplyResumeAnalysisRequest request) {
         return resumeService.applyAnalysis(ownerId, id, request);
+    }
+
+    @GetMapping("/{id}/text")
+    public ResumeTextResponse getText(@RequestHeader("X-User-Id") Long ownerId, @PathVariable String id) {
+        return resumeService.getExtractedText(ownerId, id);
     }
 
     @DeleteMapping("/{id}")

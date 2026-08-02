@@ -1,8 +1,11 @@
 import type { Stage } from "./jobsApi";
+import { request } from "./request";
 
 export type InterviewType =
   | "RECRUITER_PHONE_SCREEN"
   | "TECHNICAL_PHONE_SCREEN"
+  | "TAKE_HOME_ASSIGNMENT"
+  | "TECHNICAL_CODE_REVIEW"
   | "HIRING_MANAGER_SCREEN"
   | "SYSTEM_DESIGN"
   | "BEHAVIOR"
@@ -17,6 +20,8 @@ export type InterviewType =
 export const INTERVIEW_TYPES: InterviewType[] = [
   "RECRUITER_PHONE_SCREEN",
   "TECHNICAL_PHONE_SCREEN",
+  "TAKE_HOME_ASSIGNMENT",
+  "TECHNICAL_CODE_REVIEW",
   "HIRING_MANAGER_SCREEN",
   "SYSTEM_DESIGN",
   "BEHAVIOR",
@@ -32,6 +37,8 @@ export const INTERVIEW_TYPES: InterviewType[] = [
 export const INTERVIEW_TYPE_LABELS: Record<InterviewType, string> = {
   RECRUITER_PHONE_SCREEN: "Recruiter Phone Screen",
   TECHNICAL_PHONE_SCREEN: "Technical Phone Screen",
+  TAKE_HOME_ASSIGNMENT: "Take Home Assignment",
+  TECHNICAL_CODE_REVIEW: "Technical Code Review",
   HIRING_MANAGER_SCREEN: "Hiring Manager Screen",
   SYSTEM_DESIGN: "System Design",
   BEHAVIOR: "Behavior",
@@ -91,43 +98,29 @@ export function googleMapsUrl(location: string): string {
 }
 
 export async function listInterviews(): Promise<Interview[]> {
-  const res = await fetch("/interviews");
-  if (!res.ok) {
-    throw new Error("failed to load interviews");
-  }
-  return res.json();
+  return request<Interview[]>("/interviews", "failed to load interviews");
+}
+
+export async function listUpcomingInterviews(): Promise<Interview[]> {
+  return request<Interview[]>("/interviews/upcoming", "failed to load upcoming interviews");
 }
 
 export async function createInterview(input: CreateInterviewInput): Promise<Interview> {
-  const res = await fetch("/interviews", {
+  return request<Interview>("/interviews", "failed to create interview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to create interview");
-  }
-  return data;
 }
 
 export async function updateInterview(stageEventId: number, input: UpdateInterviewInput): Promise<Interview> {
-  const res = await fetch(`/interviews/${stageEventId}`, {
+  return request<Interview>(`/interviews/${stageEventId}`, "failed to update interview", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to update interview");
-  }
-  return data;
 }
 
 export async function deleteInterview(stageEventId: number): Promise<void> {
-  const res = await fetch(`/interviews/${stageEventId}`, { method: "DELETE" });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error ?? "failed to delete interview");
-  }
+  await request<unknown>(`/interviews/${stageEventId}`, "failed to delete interview", { method: "DELETE" });
 }

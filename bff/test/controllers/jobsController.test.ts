@@ -6,7 +6,7 @@ import { app } from "../../src/app.js";
 const JWT_SECRET = "test-secret-not-for-production";
 
 function authCookie(userId = "1", username = "alice") {
-  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d" });
+  const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
   return `token=${token}`;
 }
 
@@ -101,6 +101,14 @@ describe("GET /jobs/:id", () => {
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "job not found" });
+  });
+});
+
+describe("GET /jobs/:id id validation", () => {
+  it("returns 400 for a non-numeric id without calling core", async () => {
+    const res = await request(app).get("/jobs/..%2Fadmin").set("Cookie", authCookie());
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -236,6 +244,73 @@ describe("PUT /jobs/:id/detail", () => {
       .put("/jobs/1/detail")
       .set("Cookie", authCookie())
       .send({ jdText: "x", interviewNotes: "" });
+
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /jobs/:id/resume-recommendation", () => {
+  const rulesRecommendation = {
+    recommendedVariantId: "base",
+    recommendedDisplayName: "Base",
+    scores: { base: 5, adobe: 0 },
+    reason: "matched: backend, team lead",
+    variants: [
+      { id: "base", displayName: "Base", blurb: "General backend." },
+      { id: "adobe", displayName: "Adobe Developer Productivity", blurb: "CI/CD and platform." },
+    ],
+  };
+  const jobDetail = { jobId: 1, jdText: "we are hiring a backend engineer", interviewNotes: "" };
+
+  it("returns 401 with no auth cookie", async () => {
+    const res = await request(app).get("/jobs/1/resume-recommendation");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns both the rules-based and AI recommendations together", async () => {
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeCoreResponse(200, rulesRecommendation))
+      .mockResolvedValueOnce(fakeCoreResponse(200, jobDetail))
+      .mockResolvedValueOnce(fakeCoreResponse(200, { variantId: "base", reason: "Emphasizes backend and team lead." }));
+
+    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      rules: {
+        recommendedVariantId: "base",
+        recommendedDisplayName: "Base",
+        scores: { base: 5, adobe: 0 },
+        reason: "matched: backend, team lead",
+      },
+      ai: {
+        status: "ok",
+        recommendedVariantId: "base",
+        recommendedDisplayName: "Base",
+        reason: "Emphasizes backend and team lead.",
+      },
+    });
+  });
+
+  it("reports the AI side as not_configured without failing the rules side", async () => {
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeCoreResponse(200, rulesRecommendation))
+      .mockResolvedValueOnce(fakeCoreResponse(200, jobDetail))
+      .mockResolvedValueOnce(fakeCoreResponse(503, { error: "not_configured" }));
+
+    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(200);
+    expect(res.body.ai).toEqual({ status: "not_configured" });
+    expect(res.body.rules.recommendedVariantId).toBe("base");
+  });
+
+  it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }))
+      .mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
+
+    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie());
 
     expect(res.status).toBe(404);
   });

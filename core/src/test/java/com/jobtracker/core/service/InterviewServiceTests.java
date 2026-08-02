@@ -10,7 +10,6 @@ import com.jobtracker.core.repository.JobRepository;
 import com.jobtracker.core.repository.StageEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -78,17 +77,17 @@ class InterviewServiceTests {
         User owner = new User("bob", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
         Job job = newJob(owner, source);
-        job.advanceStageIfFurther(Stage.OFFER_EXTENDED);
+        job.advanceStageIfFurther(Stage.OFFER_STAGE);
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
         when(stageEvents.save(any(StageEvent.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_SCHEDULING, Instant.now(),
+        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_REQUEST, Instant.now(),
                 null, null, null, null);
 
         interviewService.createInterview(1L, request);
 
-        assertThat(job.getCurrentStage()).isEqualTo(Stage.OFFER_EXTENDED);
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.OFFER_STAGE);
     }
 
     @Test
@@ -142,7 +141,7 @@ class InterviewServiceTests {
         Job job = newJob(owner, source);
         StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
         event.applyInterviewDetails(Instant.now(), InterviewType.VALUES, null, null, List.of());
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(event));
+        when(stageEvents.findAllWithJobAndInterviewersByJobOwnerId(1L)).thenReturn(List.of(event));
 
         List<InterviewResponse> result = interviewService.listInterviews(1L);
 
@@ -171,5 +170,49 @@ class InterviewServiceTests {
                 .isInstanceOf(JobNotFoundException.class);
 
         verify(stageEvents, never()).delete(any(StageEvent.class));
+    }
+
+    @Test
+    void listUpcomingInterviewsQueriesTheWindowWithoutWritingToMongo() {
+        User owner = new User("frank", "hash");
+        Source source = new Source(SourceCategory.SELF_APPLIED);
+        Job job = newJob(owner, source);
+        StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
+        event.applyInterviewDetails(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.BEHAVIOR, null, null, List.of());
+        when(stageEvents.findUpcomingWithInterviewersByJobOwnerId(eq(1L), any(Instant.class), any(Instant.class)))
+                .thenReturn(List.of(event));
+
+        List<InterviewResponse> result = interviewService.listUpcomingInterviews(1L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).interviewType()).isEqualTo(InterviewType.BEHAVIOR);
+    }
+
+    @Test
+    void listUpcomingInterviewsReturnsEmptyListWhenNoneInWindow() {
+        when(stageEvents.findUpcomingWithInterviewersByJobOwnerId(eq(1L), any(Instant.class), any(Instant.class)))
+                .thenReturn(List.of());
+
+        List<InterviewResponse> result = interviewService.listUpcomingInterviews(1L);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void createInterviewSavesTheStageEventExactlyOnce() {
+        User owner = new User("grace", "hash");
+        Source source = new Source(SourceCategory.SELF_APPLIED);
+        Job job = newJob(owner, source);
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(stageEvents.save(any(StageEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, Instant.now(),
+                InterviewType.BEHAVIOR, null, null,
+                List.of(new InterviewerRequest("Jordan Lee", null)));
+
+        interviewService.createInterview(1L, request);
+
+        // Details are set before the single save, so the stage event is persisted exactly once.
+        verify(stageEvents, times(1)).save(any(StageEvent.class));
     }
 }

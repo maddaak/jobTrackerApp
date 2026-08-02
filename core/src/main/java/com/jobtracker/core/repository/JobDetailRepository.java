@@ -6,4 +6,6 @@ import java.util.Optional;
 
 public interface JobDetailRepository extends MongoRepository<JobDetail, String> {
     Optional<JobDetail> findByJobId(Long jobId);
+
+    void deleteByJobId(Long jobId);
 }

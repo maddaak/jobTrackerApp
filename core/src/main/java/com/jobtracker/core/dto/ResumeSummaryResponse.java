@@ -8,6 +8,7 @@ public record ResumeSummaryResponse(
         String fileName,
         Instant uploadedAt,
         String analysisStatus,
+        String analysisSource,
         String summary,
         List<String> skills,
         String seniority,

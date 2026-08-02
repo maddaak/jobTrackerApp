@@ -27,7 +27,7 @@ class AuthControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .contentType("application/json")
                 .content("{\"username\":\"alice\",\"password\":\"Str0ng!Pass\"}"))
-            .andExpect(status().isOk())
+            .andExpect(status().isCreated())
             .andExpect(jsonPath("$.username").value("alice"))
             .andExpect(jsonPath("$.token").isNotEmpty());
     }
@@ -39,7 +39,7 @@ class AuthControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .contentType("application/json")
                 .content(body))
-            .andExpect(status().isOk());
+            .andExpect(status().isCreated());
 
         mockMvc.perform(post("/auth/register")
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
@@ -65,7 +65,7 @@ class AuthControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .contentType("application/json")
                 .content("{\"username\":\"dave\",\"password\":\"Str0ng!Pass\"}"))
-            .andExpect(status().isOk());
+            .andExpect(status().isCreated());
 
         mockMvc.perform(post("/auth/login")
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
@@ -81,7 +81,7 @@ class AuthControllerTests {
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .contentType("application/json")
                 .content("{\"username\":\"erin\",\"password\":\"Str0ng!Pass\"}"))
-            .andExpect(status().isOk());
+            .andExpect(status().isCreated());
 
         mockMvc.perform(post("/auth/login")
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)

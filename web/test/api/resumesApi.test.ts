@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { uploadResume, listResumes, deleteResume, matchResumeToJob } from "../../src/api/resumesApi";
+import {
+  uploadResume,
+  summarizeResume,
+  setCustomResumeSummary,
+  listResumes,
+  deleteResume,
+  matchResumeToJob,
+} from "../../src/api/resumesApi";
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -25,6 +32,45 @@ describe("uploadResume", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(400, { error: "unsupported file type" }));
 
     await expect(uploadResume(new File(["x"], "resume.exe"))).rejects.toThrow("unsupported file type");
+  });
+});
+
+describe("summarizeResume", () => {
+  it("posts with no body and returns the updated resume", async () => {
+    const resume = { id: "abc", fileName: "resume.txt", analysisStatus: "ok", analysisSource: "ai" };
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, resume));
+
+    const result = await summarizeResume("abc");
+
+    expect(fetch).toHaveBeenCalledWith("/resumes/abc/summarize", expect.objectContaining({ method: "POST" }));
+    expect(result).toEqual(resume);
+  });
+
+  it("throws with the server's error message on failure", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(404, { error: "resume not found" }));
+
+    await expect(summarizeResume("abc")).rejects.toThrow("resume not found");
+  });
+});
+
+describe("setCustomResumeSummary", () => {
+  it("posts the summary text and returns the updated resume", async () => {
+    const resume = { id: "abc", fileName: "resume.txt", analysisStatus: "ok", analysisSource: "custom" };
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, resume));
+
+    const result = await setCustomResumeSummary("abc", "Wrote this myself.");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/resumes/abc/custom-summary",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ summary: "Wrote this myself." }) }),
+    );
+    expect(result).toEqual(resume);
+  });
+
+  it("throws with the server's error message on failure", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(400, { error: "summary is required" }));
+
+    await expect(setCustomResumeSummary("abc", "")).rejects.toThrow("summary is required");
   });
 });
 

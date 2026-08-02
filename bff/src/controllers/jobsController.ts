@@ -1,43 +1,130 @@
 import type { Response } from "express";
-import { createJob, listJobs, getJob, updateJob, deleteJob, getJobDetail, updateJobDetail } from "../services/jobsClient.js";
+import {
+  createJob,
+  listJobs,
+  getJob,
+  updateJob,
+  deleteJob,
+  getJobDetail,
+  updateJobDetail,
+  getResumeRecommendation,
+} from "../services/jobsClient.js";
+import { recommendResumeVariant } from "../services/scraperAnalysisClient.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
+import { sendUpstream } from "../middleware/upstreamResponse.js";
+
+// Job ids are always numeric. Reject anything else before it reaches an upstream URL path.
+const NUMERIC_ID = /^\d+$/;
 
 export async function create(req: AuthedRequest, res: Response) {
   const result = await createJob(req.userId!, req.body ?? {});
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function list(req: AuthedRequest, res: Response) {
   const result = await listJobs(req.userId!);
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function get(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
   const result = await getJob(req.userId!, jobId);
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function update(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
   const result = await updateJob(req.userId!, jobId, req.body ?? {});
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function remove(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
   const result = await deleteJob(req.userId!, jobId);
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function getDetail(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
   const result = await getJobDetail(req.userId!, jobId);
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
 }
 
 export async function updateDetail(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
   const result = await updateJobDetail(req.userId!, jobId, req.body ?? {});
-  res.status(result.status).json(result.data);
+  sendUpstream(res, result);
+}
+
+// Runs the rules-based match (core) and the AI second opinion (scraper) side by side. Shown
+// together for now so they can be eyeballed against each other before deciding whether the
+// rules pass should become conditional on the AI call later.
+export async function getResumeRecommendationForJob(req: AuthedRequest, res: Response) {
+  const jobId = req.params.id as string;
+  if (!NUMERIC_ID.test(jobId)) {
+    res.status(400).json({ error: "invalid job id" });
+    return;
+  }
+
+  const [rulesResult, detailResult] = await Promise.all([
+    getResumeRecommendation(req.userId!, jobId),
+    getJobDetail(req.userId!, jobId),
+  ]);
+  if (!rulesResult.ok) {
+    sendUpstream(res, rulesResult);
+    return;
+  }
+  if (!detailResult.ok) {
+    sendUpstream(res, detailResult);
+    return;
+  }
+  // core reported success but callCore leaves data undefined on an empty/non-JSON body.
+  // Guard before dereferencing so we return a clean error instead of a TypeError.
+  if (!detailResult.data || !rulesResult.data) {
+    res.status(502).json({ error: "internal error" });
+    return;
+  }
+
+  const aiResult = await recommendResumeVariant(detailResult.data.jdText, rulesResult.data.variants);
+  const ai =
+    aiResult.status !== "ok"
+      ? { status: aiResult.status }
+      : {
+          status: "ok",
+          recommendedVariantId: aiResult.data.variantId,
+          recommendedDisplayName:
+            rulesResult.data.variants.find(v => v.id === aiResult.data.variantId)?.displayName ??
+            aiResult.data.variantId,
+          reason: aiResult.data.reason,
+        };
+
+  res.json({
+    rules: {
+      recommendedVariantId: rulesResult.data.recommendedVariantId,
+      recommendedDisplayName: rulesResult.data.recommendedDisplayName,
+      scores: rulesResult.data.scores,
+      reason: rulesResult.data.reason,
+    },
+    ai,
+  });
 }

@@ -34,6 +34,24 @@ describe("POST /auth/register", () => {
     expect(cookie).toContain("SameSite=Lax");
   });
 
+  it("returns 400 when the password is missing without calling core", async () => {
+    const res = await request(app).post("/auth/register").send({ username: "alice" });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "username and password are required" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when username is not a string", async () => {
+    const res = await request(app)
+      .post("/auth/register")
+      .send({ username: 123, password: "Str0ng!Pass" });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "username and password are required" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("proxies core's 409 (username taken) through unchanged", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       fakeCoreResponse(409, { error: "username taken" }),
@@ -62,6 +80,14 @@ describe("POST /auth/login", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ username: "carol" });
     expect(res.headers["set-cookie"]?.[0]).toContain("token=signed.jwt.token");
+  });
+
+  it("returns 400 when both fields are missing without calling core", async () => {
+    const res = await request(app).post("/auth/login").send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "username and password are required" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("proxies core's 401 through unchanged", async () => {
@@ -101,13 +127,13 @@ describe("GET /auth/me (requireAuth)", () => {
   });
 
   it("returns 401 for an expired token", async () => {
-    const expired = jwt.sign({ sub: "1", username: "dave" }, JWT_SECRET, { expiresIn: -10 });
+    const expired = jwt.sign({ sub: "1", username: "dave" }, JWT_SECRET, { expiresIn: -10, algorithm: "HS512" });
     const res = await request(app).get("/auth/me").set("Cookie", `token=${expired}`);
     expect(res.status).toBe(401);
   });
 
   it("returns 200 with the username for a valid token", async () => {
-    const valid = jwt.sign({ sub: "1", username: "erin" }, JWT_SECRET, { expiresIn: "7d" });
+    const valid = jwt.sign({ sub: "1", username: "erin" }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
     const res = await request(app).get("/auth/me").set("Cookie", `token=${valid}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ username: "erin" });

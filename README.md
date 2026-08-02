@@ -1,40 +1,134 @@
 # Job Tracker
 
 A personal job-application tracker that follows every application from **apply → recruiter
-screen → interview rounds → offer/reject**, with a scheduling calendar and a funnel/metrics
+screen → interview rounds → offer/reject**, with an interview calendar and a funnel/metrics
 view of your whole pipeline.
 
 > 🤖 **This app has an AI feature.** Upload a resume and it gets analyzed automatically;
 > from then on, adding a job produces an explicit **apply / don't-apply** recommendation
 > with reasoning, picking whichever of your resumes fits best. It's powered by
-> **Anthropic's Claude** — that's the only AI provider this app supports right now (see
+> **Anthropic's Claude** - that's the only AI provider this app supports right now (see
 > [Using a different Claude model](#using-a-different-claude-model) below to change which
 > Claude model it calls).
 
-Built as a **polyglot, fully containerized** system — one `docker compose up` runs the
+> ⚠️ **This app does not apply to jobs for you.** It is a personal tracker for applications
+> you submit yourself. It never sends applications, contacts employers, or takes any action on
+> a posting on your behalf. Its only outside calls are reading a posting URL you paste (to
+> pre-fill fields) and, optionally, asking Claude to summarize a resume or suggest which of
+> your resumes best fits a posting. The apply / don't-apply output is a suggestion for you to
+> read, nothing more.
+
+Built as a **polyglot, fully containerized** system - one `docker compose up` runs the
 whole thing (frontend, two backend services, a scraper, Postgres, and MongoDB) on any
 machine with Docker. No local Node/Java/Go/database install required.
 
+## Contents
+
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Security between layers](#security-between-layers)
+- [Configuration](#configuration)
+- [Windows](#windows)
+- [Deploying to your own cloud](#deploying-to-your-own-cloud)
+- [Troubleshooting](#troubleshooting)
+- [Tech stack](#tech-stack)
+- [Changelog](#changelog)
+- [License](#license)
+
 ## What it does
 
-- **Track every job** — company, role, source (self-applied / referral / recruiter
+- **Track every job** - company, role, source (self-applied / referral / recruiter
   outreach / etc.), stage, compensation range, and outcome, all editable inline in a
   sortable, resizable table.
-- **Add a job from a URL** — paste a posting link and the scraper best-effort extracts
+- **Add a job from a URL** - paste a posting link and the scraper best-effort extracts
   company, role, location, and comp range; works with structured job-board pages (JSON-LD),
   Greenhouse-embedded career pages, and generic pages, with a manual-entry fallback when
   a site can't be read at all (e.g. it's behind a bot-challenge).
-- **Interview scheduling** — a calendar view of every upcoming/past interview round, with
-  interviewer names, meeting links, and location, tied back to the job it belongs to.
-- **Metrics & funnel** — a Sankey-style pipeline-flow chart plus a stage-by-stage funnel
+- **Interview calendar** - a calendar view of the interview rounds you log yourself, with
+  interviewer names, meeting links, and location, tied back to the job it belongs to. You
+  enter the details; it does not book or schedule anything for you.
+- **Metrics & funnel** - a Sankey-style pipeline-flow chart plus a stage-by-stage funnel
   table, so you can see where applications convert and where they stall.
-- **Resume library + AI job-fit matching** *(optional)* — upload one or more resumes
+- **Resume library + AI job-fit matching** *(optional)* - upload one or more resumes
   (PDF/DOCX/TXT); with an Anthropic API key configured, each resume gets a cached
   AI-generated summary, and adding a job can produce an explicit **apply / don't-apply**
-  recommendation with reasoning, picking whichever resume best fits. Without a key, this
-  degrades gracefully — everything else still works, you just don't get AI recommendations.
-- **Job Details** — a per-job modal holding the full job description text, your own notes,
+  recommendation with reasoning, picking whichever resume best fits. Without a key, the AI
+  features are hidden across the UI, with a short disclaimer that no Anthropic key is
+  configured; everything else still works.
+- **Job Details** - a per-job modal holding the full job description text, your own notes,
   rejection reason, and interview notes.
+
+## Quick start
+
+Everything runs in **Docker**, so you don't install Node, Java, Go, or the databases yourself -
+Docker pulls and runs all six pieces for you. You need two things installed first:
+
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** - runs the app's
+  containers. Make sure it's installed and running before you start.
+- **[`mkcert`](https://github.com/FiloSottile/mkcert)** - issues a locally-trusted certificate so
+  your browser doesn't warn on `https://localhost`:
+
+```bash
+brew install mkcert                # macOS
+choco install mkcert               # Windows (or: scoop install mkcert)
+sudo apt install libnss3-tools     # Linux (Debian/Ubuntu), then install mkcert from your package
+                                   # manager or github.com/FiloSottile/mkcert/releases
+```
+
+**1. Get the code.**
+
+```bash
+git clone https://github.com/maddaak/jobTrackerApp.git && cd jobTrackerApp
+```
+
+If you only want to *run* the app and would rather skip git, download just
+[`docker-compose.images.yml`](https://github.com/maddaak/jobTrackerApp/blob/main/docker-compose.images.yml)
+and [`.env.example`](https://github.com/maddaak/jobTrackerApp/blob/main/.env.example) from the repo into a
+new folder instead (then use the pre-built-images option in [step 4](#step-4); building from source
+needs the full checkout).
+
+**2. Set your secrets.** Copy `.env.example` to `.env` - it holds the app's passwords and keys and
+never leaves your machine. Each command prints a random value; paste it into the matching line:
+
+```bash
+docker run --rm alpine/openssl rand -hex 16   # -> POSTGRES_PASSWORD
+docker run --rm alpine/openssl rand -hex 32   # -> INTERNAL_TOKEN
+docker run --rm alpine/openssl rand -hex 32   # -> JWT_SECRET
+```
+
+`ANTHROPIC_API_KEY` is optional; it enables the AI resume analysis and job-fit suggestions. Leave
+it blank and those features are hidden, everything else works. See [Configuration](#configuration).
+
+**3. Create a local HTTPS certificate.** The app is served over HTTPS even locally, so it needs a
+cert your browser trusts:
+
+```bash
+mkcert -install     # installs a local certificate authority, once
+mkdir certs
+mkcert -cert-file certs/localhost.pem -key-file certs/localhost-key.pem localhost 127.0.0.1 ::1
+```
+
+<a id="step-4"></a>
+**4. Start it.** Pick one:
+
+```bash
+# Recommended: pull the pre-built images, nothing to compile
+docker compose -f docker-compose.images.yml up -d
+
+# Or build from source (for development)
+docker compose up -d --build
+```
+
+First start takes a few minutes while Docker downloads everything; then `docker compose ps` should
+show all six services "Up".
+
+**5. Open [https://localhost:5173](https://localhost:5173)** and register. The first account
+created on an instance becomes the first user; there's no shared or default login.
+
+> Your data is saved by Docker and survives restarts and updates. It is only deleted if you run
+> `docker compose down -v`. Your `.env` and `certs/` files stay on your machine and are never
+> uploaded or shared.
 
 ## Architecture
 
@@ -52,16 +146,16 @@ Postgres (jobs, users, stages)   +   MongoDB (job description text, resume text,
 ```
 
 **Why polyglot (each language does what it's best at):**
-- **TypeScript BFF** — the single door the UI talks to; aggregates the backend services
+- **TypeScript BFF** - the single door the UI talks to; aggregates the backend services
   and shapes responses for the frontend (Backend-for-Frontend pattern). It's also the only
-  service that talks to *both* core and the scraper — core and scraper never call each other.
-- **Java / Spring Boot** — the core domain: jobs, stages, sources, interviews, funnel
+  service that talks to *both* core and the scraper - core and scraper never call each other.
+- **Java / Spring Boot** - the core domain: jobs, stages, sources, interviews, funnel
   metrics, and resume storage/text-extraction (PDF/DOCX/plain text).
-- **Go** — a focused scraper for job postings, and the service that makes all outbound
-  calls to Anthropic's Claude API (resume analysis, job-fit recommendations) — kept
+- **Go** - a focused scraper for job postings, and the service that makes all outbound
+  calls to Anthropic's Claude API (resume analysis, job-fit recommendations) - kept
   alongside the scraping code since both are "fetch something from the outside world."
-- **Postgres** — structured, relational data (jobs, stages, users, sources).
-- **MongoDB** — larger free-text content that doesn't need relations (job description
+- **Postgres** - structured, relational data (jobs, stages, users, sources).
+- **MongoDB** - larger free-text content that doesn't need relations (job description
   text, resume text, notes), gzip-compressed at rest.
 
 ## Security between layers
@@ -80,111 +174,156 @@ This is designed with real trust boundaries, not just "make it work":
 - The browser only ever talks to nginx over HTTPS on one origin; nginx reverse-proxies
   everything else internally, so there's no cross-origin surface to defend.
 
-## Setting it up on your machine
+## Configuration
 
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
-Docker Engine + Compose), and [`mkcert`](https://github.com/FiloSottile/mkcert) for a
-locally-trusted HTTPS certificate. Nothing else — Node, Go, Java, Postgres, and MongoDB
-all run inside containers.
+### AI features (optional)
 
-```bash
-# macOS
-brew install mkcert
-```
+`ANTHROPIC_API_KEY` in `.env` enables resume analysis and job-fit recommendations, powered by
+Anthropic's Claude. Get one at [console.anthropic.com](https://console.anthropic.com) (real calls
+need billing credit; the "evaluation" tier can create a key but not call the API). Leave it blank
+to run without AI: the app hides those features and shows a short "no Anthropic key configured"
+note instead of erroring.
 
-### 1. Get the code
+### Using a different Claude model
 
-Clone or unzip this repo, then `cd` into it.
-
-### 2. Configure secrets
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and replace every placeholder with a real value — **don't leave the
-`change_me` defaults**:
-
-```bash
-# run these once, paste each result into the matching .env line
-openssl rand -hex 16   # -> POSTGRES_PASSWORD
-openssl rand -hex 32   # -> INTERNAL_TOKEN
-openssl rand -hex 32   # -> JWT_SECRET
-```
-
-`ANTHROPIC_API_KEY` is **optional** — only needed for the AI resume-analysis and job-fit
-recommendation features. Get one at [console.anthropic.com](https://console.anthropic.com)
-(requires adding billing credit before real API calls work — the "evaluation" tier lets
-you create a key but not call the API). Leave it blank to skip AI features entirely; the
-app detects a missing key and shows a "not configured" message instead of erroring.
-
-#### Using a different Claude model
-
-`ANTHROPIC_MODEL` in `.env` picks which Claude model the scraper service calls for resume
-analysis and job-fit matching — it defaults to `claude-sonnet-5`. To use a different Claude
-model (e.g. a faster/cheaper one, or a newer one), just change that value to the model ID
-you want and recreate the scraper container so it picks up the new env var:
+`ANTHROPIC_MODEL` picks which Claude model the scraper calls (default `claude-sonnet-5`). Change
+it and recreate the scraper so it picks up the new value:
 
 ```bash
 docker compose up -d --build scraper
 ```
 
-Only Anthropic/Claude models are supported right now — the scraper's AI client is written
-directly against Anthropic's Messages API, not a provider-agnostic abstraction, so a
-different provider (OpenAI, Gemini, etc.) isn't a config change, it would need actual code
-changes to add.
+Only Anthropic/Claude models are supported - the scraper's AI client is written directly against
+Anthropic's Messages API, not a provider-agnostic abstraction, so a different provider (OpenAI,
+Gemini, etc.) would need actual code changes, not just config.
 
-### 3. Generate a local HTTPS certificate
+### Running a specific image version
 
-The app is served over HTTPS (needed for things like clipboard/drag-drop APIs to behave
-consistently). `certs/` is gitignored — each install generates its own:
+`docker-compose.images.yml` uses `IMAGE_PREFIX` (default `ghcr.io/maddaak`) and `IMAGE_TAG`
+(default `latest`), both overridable in `.env` to pin a version or run your own fork's images:
 
 ```bash
-mkcert -install                          # trusts a local CA on this machine, once
-mkdir -p certs
-mkcert -cert-file certs/localhost.pem -key-file certs/localhost-key.pem localhost 127.0.0.1 ::1
+IMAGE_TAG=v2
+```
+
+To publish images from your own fork, push a version tag (`git tag v2 && git push origin v2`); the
+`publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
+Container Registry. The first time, make the resulting packages public in your GitHub Packages
+settings so others can pull them without authenticating.
+
+## Windows
+
+The app runs on Windows the same way: everything is in Linux containers, and the images are
+built for both amd64 and arm64, so a normal Windows laptop runs the amd64 image. The setup
+commands above are cross-platform (Docker, `mkcert`, `git`), so they work as written. Two
+Windows-only notes:
+
+- Use **Docker Desktop with the WSL2 backend** (its default).
+- Save `.env` with **"LF" line endings, not "CRLF"**. Line endings are the invisible character
+  an editor adds at the end of each line, and Windows editors often default to "CRLF", which can
+  glue a hidden character onto your secrets and break login. If you use VS Code, click the
+  **CRLF** button in the bottom-right corner and switch it to **LF** before saving (most editors
+  have a similar option). If you are not sure, editing `.env` inside the WSL2 terminal (with
+  `nano` or `vim`) avoids the issue entirely.
+
+## Deploying to your own cloud
+
+The whole app is one `docker-compose.yml` (six containers: the `web` nginx plus the `bff`,
+`core`, and `scraper` services, and `postgres` + `mongo`). Anywhere you can run Docker and
+the Docker Compose plugin (a VM, a small managed instance, etc.) can run it. This is a
+single-node setup, not a horizontally-scaled one.
+
+### Prerequisites
+- A Linux host with Docker Engine and the Docker Compose plugin.
+- A domain with a DNS A record pointing at the host's public IP.
+- Inbound TCP 443 open to the host.
+
+### 1. Get the code and configure secrets
+
+```bash
+git clone https://github.com/maddaak/jobTrackerApp.git
+cd jobTrackerApp
+```
+
+Copy `.env.example` to a new file named `.env`, then fill it with strong, unique values (do
+not ship the `change_me` placeholders):
+
+```bash
+docker run --rm alpine/openssl rand -base64 32   # use for INTERNAL_TOKEN
+docker run --rm alpine/openssl rand -base64 48   # use for JWT_SECRET
+```
+
+Set `POSTGRES_PASSWORD` to a strong password, and `ANTHROPIC_API_KEY` if you want the AI
+features (leave it blank to run without them). `.env` is gitignored and never committed.
+
+### 2. TLS certificate
+
+The `web` container's nginx serves HTTPS and reads the cert from `certs/localhost.pem` and
+`certs/localhost-key.pem`. For a real domain, drop your real certificate in with those same
+filenames (so no nginx edit is needed) and set your domain as the server name:
+
+- Get a cert for your domain, e.g. Let's Encrypt: `certbot certonly --standalone -d your.domain`,
+  then copy `fullchain.pem` to `certs/localhost.pem` and `privkey.pem` to `certs/localhost-key.pem`.
+- Set `SERVER_NAME=your.domain` in `.env`. It is passed to the `web` container at startup, so no
+  rebuild or config edit is needed (defaults to `localhost`).
+
+`certs/` is gitignored, so it stays on the host only. If your cloud already terminates TLS at
+a load balancer or ingress, skip the cert entirely: point the load balancer at the `web`
+container and have the nginx listen on plain HTTP (change its `listen 443 ssl;` to `listen 80;`
+and drop the `ssl_certificate*` lines).
+
+### 3. Expose port 443
+
+In `docker-compose.yml` the `web` service maps `5173:443` for local use. On a server, map the
+standard HTTPS port instead:
+
+```yaml
+  web:
+    ports:
+      - "443:443"
 ```
 
 ### 4. Build and run
 
 ```bash
 docker compose up -d --build
+docker compose ps        # all six containers should be "Up"
 ```
 
-First build takes a few minutes (pulls base images, compiles Java/Go, installs npm
-packages). Subsequent runs are fast.
+Open `https://your.domain` and register the first account.
 
-```bash
-docker compose ps      # confirm all 6 containers are "Up"
-```
+### 5. Data, backups, updates
 
-### 5. Open it
-
-**https://localhost:5173** — register an account (the first person to register on a
-given instance creates the first user; there's no shared/default login), then log in.
-
-> `.env` and `certs/` are both gitignored and machine-specific — each person running
-> this generates their own. Data lives in Docker-managed volumes (`pgdata`, `mongodata`),
-> so it persists across `docker compose restart` / rebuilds but not `docker compose down -v`.
+- Postgres and Mongo data live in the `pgdata` / `mongodata` Docker volumes (named
+  `jobapp_pgdata` / `jobapp_mongodata`). They survive restarts and rebuilds, but
+  `docker compose down -v` deletes them. Back them up, for example:
+  `docker run --rm -v jobapp_pgdata:/data -v "$PWD":/backup alpine tar czf /backup/pg.tgz /data`.
+- To update: `git pull && docker compose up -d --build`.
+- Only the `web` container is meant to face the internet. Everything else (bff, core,
+  scraper, and both databases) stays on the private Docker network.
 
 ## Troubleshooting
 
-- **Browser says the connection isn't private** — expected on first visit if `mkcert -install`
+- **Browser says the connection isn't private** - expected on first visit if `mkcert -install`
   didn't run (or ran before Docker/your browser were open). Re-run `mkcert -install` and
   restart your browser; it's a real locally-trusted cert, not a security issue.
-- **`docker compose build` fails reading `.env`** — usually a stray line that isn't valid
+- **`docker compose build` fails reading `.env`** - usually a stray line that isn't valid
   `KEY=value`. Open `.env` and check for anything that doesn't look like the `.env.example` format.
-- **Resume AI features show "not configured"** — either `ANTHROPIC_API_KEY` is blank, or
-  the key exists but has no billing credit attached yet.
-- **Port 5173 already in use** — something else is bound to it; stop that process or edit
+- **AI features are hidden / show a "no Anthropic key" disclaimer.** `ANTHROPIC_API_KEY` is
+  blank; set it and restart to enable them. If the key is set but AI calls still fail, the
+  key likely has no billing credit attached yet.
+- **Port 5173 already in use** - something else is bound to it; stop that process or edit
   the `ports:` mapping for the `web` service in `docker-compose.yml`.
-- **Rebuilding after pulling new code** — `docker compose up -d --build` picks up source
+- **Rebuilding after pulling new code** - `docker compose up -d --build` picks up source
   changes; it won't pick up `.env` changes to already-running containers without a
   `docker compose up -d` (recreate) afterward.
 
 ## Tech stack
 React · TypeScript · Node/Express · Java · Spring Boot · Go · PostgreSQL · MongoDB · Docker
 · Anthropic Claude API (optional)
+
+## Changelog
+See [CHANGELOG.md](CHANGELOG.md) for what changed between versions.
 
 ## License
 MIT

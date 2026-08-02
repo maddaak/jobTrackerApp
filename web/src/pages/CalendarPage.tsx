@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import CalendarGrid from "../components/CalendarGrid";
 import InterviewFormModal, { type InterviewFormMode } from "../components/InterviewFormModal";
@@ -9,16 +9,25 @@ export default function CalendarPage() {
   const [month, setMonth] = useState(() => new Date());
   const [formMode, setFormMode] = useState<InterviewFormMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Tag each refresh so a slower earlier load can't resolve last and overwrite newer data.
+  const reqId = useRef(0);
 
   useEffect(() => {
-    refresh();
+    // Ignore a mount-time load that resolves after this page has unmounted.
+    let ignore = false;
+    listInterviews()
+      .then(loaded => { if (!ignore) setInterviews(loaded); })
+      .catch(err => { if (!ignore) setError(err instanceof Error ? err.message : "failed to load interviews"); });
+    return () => { ignore = true; };
   }, []);
 
   async function refresh() {
+    const id = ++reqId.current;
     try {
-      setInterviews(await listInterviews());
+      const loaded = await listInterviews();
+      if (id === reqId.current) setInterviews(loaded);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to load interviews");
+      if (id === reqId.current) setError(err instanceof Error ? err.message : "failed to load interviews");
     }
   }
 

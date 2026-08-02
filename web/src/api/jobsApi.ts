@@ -1,4 +1,5 @@
 import type { InterviewType, Interviewer } from "./interviewsApi";
+import { request } from "./request";
 
 export type SourceCategory =
   | "SELF_APPLIED"
@@ -8,16 +9,11 @@ export type SourceCategory =
 
 export type Stage =
   | "RESUME_CHECK"
-  | "RECRUITER_CHAT_INVITE"
-  | "RECRUITER_CHAT_SCHEDULED"
-  | "WAITING_RECRUITER_RESPONSE"
-  | "INTERVIEW_SCHEDULING"
+  | "INTERVIEW_REQUEST"
   | "INTERVIEW_STAGE"
   | "WAITING_INTERVIEW_RESULTS"
-  | "OFFER_EXTENDED"
-  | "WAITING_OFFER_DETAILS"
-  | "NEGOTIATION"
-  | "WAITING_FINAL_DETAILS";
+  | "OFFER_STAGE"
+  | "FINALIZED";
 
 export type Outcome =
   | "ACTIVE"
@@ -51,16 +47,11 @@ export const LOCATIONS: { value: Location; label: string }[] = [
 
 export const STAGE_ORDER: Stage[] = [
   "RESUME_CHECK",
-  "RECRUITER_CHAT_INVITE",
-  "RECRUITER_CHAT_SCHEDULED",
-  "WAITING_RECRUITER_RESPONSE",
-  "INTERVIEW_SCHEDULING",
+  "INTERVIEW_REQUEST",
   "INTERVIEW_STAGE",
   "WAITING_INTERVIEW_RESULTS",
-  "OFFER_EXTENDED",
-  "WAITING_OFFER_DETAILS",
-  "NEGOTIATION",
-  "WAITING_FINAL_DETAILS",
+  "OFFER_STAGE",
+  "FINALIZED",
 ];
 
 export const OUTCOMES: Outcome[] = [
@@ -74,16 +65,11 @@ export const OUTCOMES: Outcome[] = [
 
 export const STAGE_LABELS: Record<Stage, string> = {
   RESUME_CHECK: "Resume Check",
-  RECRUITER_CHAT_INVITE: "Recruiter Chat Invite",
-  RECRUITER_CHAT_SCHEDULED: "Recruiter Chat Scheduled",
-  WAITING_RECRUITER_RESPONSE: "Waiting Recruiter Response",
-  INTERVIEW_SCHEDULING: "Interview Scheduling",
+  INTERVIEW_REQUEST: "Interview Request",
   INTERVIEW_STAGE: "Interview Stage",
   WAITING_INTERVIEW_RESULTS: "Waiting Interview Results",
-  OFFER_EXTENDED: "Offer Extended",
-  WAITING_OFFER_DETAILS: "Waiting Offer Details",
-  NEGOTIATION: "Negotiation",
-  WAITING_FINAL_DETAILS: "Waiting Final Details",
+  OFFER_STAGE: "Offer Stage",
+  FINALIZED: "Finalized",
 };
 
 export const OUTCOME_LABELS: Record<Outcome, string> = {
@@ -134,24 +120,15 @@ export interface CreateJobInput {
 }
 
 export async function listJobs(): Promise<JobSummary[]> {
-  const res = await fetch("/jobs");
-  if (!res.ok) {
-    throw new Error("failed to load jobs");
-  }
-  return res.json();
+  return request<JobSummary[]>("/jobs", "failed to load jobs");
 }
 
 export async function createJob(input: CreateJobInput): Promise<JobSummary> {
-  const res = await fetch("/jobs", {
+  return request<JobSummary>("/jobs", "failed to create job", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to create job");
-  }
-  return data;
 }
 
 export interface UpdateJobInput {
@@ -185,56 +162,79 @@ export function toUpdateJobInput(job: JobSummary): UpdateJobInput {
 }
 
 export async function updateJob(id: number, input: UpdateJobInput): Promise<JobSummary> {
-  const res = await fetch(`/jobs/${id}`, {
+  return request<JobSummary>(`/jobs/${id}`, "failed to update job", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to update job");
-  }
-  return data;
+}
+
+// Used before a modal save so we build the update from live data, not a snapshot captured when
+// the modal opened (which may have gone stale while the table autosaved other fields on the same row).
+export async function getJob(id: number): Promise<JobSummary> {
+  return request<JobSummary>(`/jobs/${id}`, "failed to load job");
 }
 
 export async function deleteJob(id: number): Promise<void> {
-  const res = await fetch(`/jobs/${id}`, { method: "DELETE" });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error ?? "failed to delete job");
-  }
+  await request<unknown>(`/jobs/${id}`, "failed to delete job", { method: "DELETE" });
+}
+
+export interface StageHistoryEntry {
+  stage: Stage;
+  enteredAt: string;
+  note: string | null;
+}
+
+export async function getJobStages(id: number): Promise<StageHistoryEntry[]> {
+  const data = await request<{ stageEvents?: StageHistoryEntry[] }>(`/jobs/${id}`, "failed to load job history");
+  return data.stageEvents ?? [];
 }
 
 export interface JobDetail {
   jobId: number;
   jdText: string;
   interviewNotes: string;
+  recommendedResume: string | null;
 }
 
 export interface UpdateJobDetailInput {
   jdText: string;
   interviewNotes: string;
+  // Set once from the Add Job recommendation; omitted on later edits so it is preserved.
+  recommendedResume?: string;
 }
 
 export async function getJobDetail(id: number): Promise<JobDetail> {
-  const res = await fetch(`/jobs/${id}/detail`);
-  if (!res.ok) {
-    throw new Error("failed to load job detail");
-  }
-  return res.json();
+  return request<JobDetail>(`/jobs/${id}/detail`, "failed to load job detail");
 }
 
 export async function updateJobDetail(id: number, input: UpdateJobDetailInput): Promise<JobDetail> {
-  const res = await fetch(`/jobs/${id}/detail`, {
+  return request<JobDetail>(`/jobs/${id}/detail`, "failed to save job detail", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to save job detail");
-  }
-  return data;
+}
+
+export interface RulesResumeRecommendation {
+  recommendedVariantId: string;
+  recommendedDisplayName: string;
+  scores: Record<string, number>;
+  reason: string;
+}
+
+export type AiResumeRecommendation =
+  | { status: "ok"; recommendedVariantId: string; recommendedDisplayName: string; reason: string }
+  | { status: "not_configured" }
+  | { status: "unavailable" };
+
+export interface ResumeRecommendation {
+  rules: RulesResumeRecommendation;
+  ai: AiResumeRecommendation;
+}
+
+export async function getResumeRecommendation(id: number): Promise<ResumeRecommendation> {
+  return request<ResumeRecommendation>(`/jobs/${id}/resume-recommendation`, "failed to load resume recommendation");
 }
 
 export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): "red" | "green" | "yellow" {
@@ -244,7 +244,7 @@ export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): "re
   if (job.outcome === "OFFER_ACCEPTED" || job.outcome === "OFFER_DECLINED") {
     return "green";
   }
-  if (STAGE_ORDER.indexOf(job.currentStage) >= STAGE_ORDER.indexOf("INTERVIEW_SCHEDULING")) {
+  if (STAGE_ORDER.indexOf(job.currentStage) >= STAGE_ORDER.indexOf("INTERVIEW_STAGE")) {
     return "green";
   }
   return "yellow";

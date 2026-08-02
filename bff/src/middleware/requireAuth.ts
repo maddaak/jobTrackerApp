@@ -19,7 +19,7 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
     return;
   }
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS512"] }) as TokenPayload;
     req.userId = payload.sub;
     req.username = payload.username;
     next();

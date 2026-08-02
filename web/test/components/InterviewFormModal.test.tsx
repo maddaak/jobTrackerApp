@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import InterviewFormModal from "../../src/components/InterviewFormModal";
 import type { Interview } from "../../src/api/interviewsApi";
@@ -26,18 +27,38 @@ const interviewWithLinkedIn: Interview = {
 };
 
 describe("InterviewFormModal", () => {
+  it("offers the take-home and technical code review interview types in the dropdown", () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(fakeResponse(200, []));
+
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("option", { name: "Take Home Assignment" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Technical Code Review" })).toBeInTheDocument();
+  });
+
   it("create mode fetches jobs for the picker and does not submit without one selected", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       fakeResponse(200, [{ id: 1, company: "Acme", role: "Engineer" }]),
     );
 
     render(
-      <InterviewFormModal
-        mode={{ kind: "create", date: new Date(2026, 7, 10) }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "create", date: new Date(2026, 7, 10) }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     await screen.findByText("Acme — Engineer");
@@ -57,12 +78,14 @@ describe("InterviewFormModal", () => {
     const onSaved = vi.fn();
 
     render(
-      <InterviewFormModal
-        mode={{ kind: "create", date: new Date(2026, 7, 10) }}
-        onClose={vi.fn()}
-        onSaved={onSaved}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "create", date: new Date(2026, 7, 10) }}
+          onClose={vi.fn()}
+          onSaved={onSaved}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     await screen.findByText("Acme — Engineer");
@@ -78,12 +101,14 @@ describe("InterviewFormModal", () => {
 
   it("edit mode prefills interviewers from the passed interview, including the LinkedIn link", () => {
     render(
-      <InterviewFormModal
-        mode={{ kind: "edit", interview: interviewWithLinkedIn }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.getByLabelText("Interviewer name")).toHaveValue("Jordan Lee");
@@ -95,17 +120,58 @@ describe("InterviewFormModal", () => {
     );
   });
 
+  it("edit mode shows a link to the calendar page; create mode does not", () => {
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "See all interviews on the calendar" })).toHaveAttribute(
+      "href",
+      "/calendar",
+    );
+  });
+
   it("does not show a LinkedIn link for an interviewer with none", () => {
     render(
-      <InterviewFormModal
-        mode={{
-          kind: "edit",
-          interview: { ...interviewWithLinkedIn, interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: null }] },
-        }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{
+            kind: "edit",
+            interview: { ...interviewWithLinkedIn, interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: null }] },
+          }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("link", { name: "View ↗" })).not.toBeInTheDocument();
+  });
+
+  it("does not render a javascript: interviewer URL as a link", () => {
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{
+            kind: "edit",
+            interview: {
+              ...interviewWithLinkedIn,
+              interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: "javascript:alert(1)" }],
+            },
+          }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.queryByRole("link", { name: "View ↗" })).not.toBeInTheDocument();
@@ -113,12 +179,14 @@ describe("InterviewFormModal", () => {
 
   it("supports adding and removing additional interviewers", () => {
     render(
-      <InterviewFormModal
-        mode={{ kind: "edit", interview: interviewWithLinkedIn }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.getAllByLabelText("Interviewer name")).toHaveLength(1);
@@ -132,12 +200,14 @@ describe("InterviewFormModal", () => {
   it("edit mode submits a PATCH with the current interviewer values", async () => {
     const onSaved = vi.fn();
     render(
-      <InterviewFormModal
-        mode={{ kind: "edit", interview: interviewWithLinkedIn }}
-        onClose={vi.fn()}
-        onSaved={onSaved}
-        onDeleted={vi.fn()}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={onSaved}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
     fireEvent.change(screen.getByLabelText("Interviewer name"), { target: { value: "New Name" } });
@@ -159,12 +229,14 @@ describe("InterviewFormModal", () => {
   it("edit mode deletes the interview after confirmation", async () => {
     const onDeleted = vi.fn();
     render(
-      <InterviewFormModal
-        mode={{ kind: "edit", interview: interviewWithLinkedIn }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onDeleted={onDeleted}
-      />,
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={onDeleted}
+        />
+      </MemoryRouter>,
     );
 
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { deleted: true }));

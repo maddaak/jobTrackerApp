@@ -1,4 +1,5 @@
 import type { Location } from "./jobsApi";
+import { request } from "./request";
 
 export interface ScrapeResult {
   company: string;
@@ -10,14 +11,9 @@ export interface ScrapeResult {
 }
 
 export async function scrapeJob(url: string): Promise<ScrapeResult> {
-  const res = await fetch("/scrape", {
+  return request<ScrapeResult>("/scrape", "failed to fetch job details", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? "failed to fetch job details");
-  }
-  return data;
 }

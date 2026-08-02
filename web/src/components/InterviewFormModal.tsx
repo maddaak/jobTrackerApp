@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useLocation } from "react-router-dom";
 import Modal from "./Modal";
+import { safeHref } from "../safeHref";
+import { useInterviewerDraft } from "../hooks/useInterviewerDraft";
 import { listJobs, type JobSummary } from "../api/jobsApi";
 import {
   createInterview,
@@ -11,12 +14,6 @@ import {
   type Interview,
   type InterviewType,
 } from "../api/interviewsApi";
-
-interface InterviewerDraft {
-  key: string;
-  name: string;
-  linkedInUrl: string;
-}
 
 export type InterviewFormMode =
   | { kind: "create"; date: Date }
@@ -39,25 +36,22 @@ function toDatetimeLocalValue(date: Date): string {
 }
 
 export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }: InterviewFormModalProps) {
+  const onCalendarPage = useLocation().pathname === "/calendar";
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [jobId, setJobId] = useState<number | "">("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
   const [interviewType, setInterviewType] = useState<InterviewType | "">("");
   const [meetingLink, setMeetingLink] = useState("");
   const [location, setLocation] = useState("");
-  const [interviewers, setInterviewers] = useState<InterviewerDraft[]>([]);
+  const { interviewers, setInterviewers, addInterviewer, removeInterviewer, updateInterviewer, toInterviewerInputs } =
+    useInterviewerDraft();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const nextKeyRef = useRef(0);
-
-  function newInterviewerKey(): string {
-    nextKeyRef.current += 1;
-    return `new-${nextKeyRef.current}`;
-  }
 
   useEffect(() => {
     if (!mode) return;
     setError(null);
+    setSaving(false);
     if (mode.kind === "create") {
       listJobs().then(setJobs).catch(() => setJobs([]));
       setJobId("");
@@ -75,25 +69,8 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         mode.interview.interviewers.map(i => ({ key: `existing-${i.id}`, name: i.name, linkedInUrl: i.linkedInUrl ?? "" })),
       );
     }
-  }, [mode]);
-
-  function addInterviewer() {
-    setInterviewers(prev => [...prev, { key: newInterviewerKey(), name: "", linkedInUrl: "" }]);
-  }
-
-  function removeInterviewer(index: number) {
-    setInterviewers(prev => prev.filter((_, i) => i !== index));
-  }
-
-  function updateInterviewer(index: number, field: keyof InterviewerDraft, value: string) {
-    setInterviewers(prev => prev.map((interviewer, i) => (i === index ? { ...interviewer, [field]: value } : interviewer)));
-  }
-
-  function toInterviewerInputs() {
-    return interviewers
-      .filter(i => i.name.trim())
-      .map(i => ({ name: i.name, linkedInUrl: i.linkedInUrl || undefined }));
-  }
+    // setInterviewers is the hook's stable useState setter; listed to satisfy exhaustive-deps.
+  }, [mode, setInterviewers]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -141,6 +118,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
       onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to delete interview");
+    } finally {
       setSaving(false);
     }
   }
@@ -192,7 +170,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
             id="interview-type"
             className={inputClass}
             value={interviewType}
-            onChange={e => setInterviewType(e.target.value as InterviewType)}
+            onChange={e => setInterviewType(e.target.value as InterviewType | "")}
           >
             <option value="">Select type</option>
             {INTERVIEW_TYPES.map(type => (
@@ -202,7 +180,19 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         </div>
 
         <div>
-          <label htmlFor="interview-link" className={labelClass}>Meeting link</label>
+          <div className="mb-1 flex items-center justify-between">
+            <label htmlFor="interview-link" className={labelClass + " mb-0"}>Meeting link</label>
+            {safeHref(meetingLink) && (
+              <a
+                href={safeHref(meetingLink)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Join ↗
+              </a>
+            )}
+          </div>
           <input id="interview-link" className={inputClass} value={meetingLink} onChange={e => setMeetingLink(e.target.value)} />
         </div>
 
@@ -251,9 +241,9 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
                   value={interviewer.linkedInUrl}
                   onChange={e => updateInterviewer(index, "linkedInUrl", e.target.value)}
                 />
-                {interviewer.linkedInUrl && (
+                {safeHref(interviewer.linkedInUrl) && (
                   <a
-                    href={interviewer.linkedInUrl}
+                    href={safeHref(interviewer.linkedInUrl)}
                     target="_blank"
                     rel="noreferrer"
                     className="whitespace-nowrap text-xs text-blue-600 hover:underline dark:text-blue-400"
@@ -295,6 +285,14 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
             {mode?.kind === "edit" ? "Save changes" : "Add interview"}
           </button>
         </div>
+
+        {mode?.kind === "edit" && !onCalendarPage && (
+          <p className="text-center text-sm">
+            <Link to="/calendar" className="text-blue-600 hover:underline dark:text-blue-400">
+              See all interviews on the calendar
+            </Link>
+          </p>
+        )}
       </form>
     </Modal>
   );

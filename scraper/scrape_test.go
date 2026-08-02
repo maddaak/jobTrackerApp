@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 func fixtureServer(t *testing.T, path string) *httptest.Server {
@@ -25,6 +29,12 @@ func fixtureServer(t *testing.T, path string) *httptest.Server {
 
 func doScrape(t *testing.T, targetURL string) (int, scrapeResponse) {
 	t.Helper()
+	// Every fixture-based test fetches 127.0.0.1, so turn off the SSRF guard for the
+	// duration of the test and restore it afterward.
+	original := blockInternalHosts
+	blockInternalHosts = false
+	t.Cleanup(func() { blockInternalHosts = original })
+
 	body, _ := json.Marshal(scrapeRequest{URL: targetURL})
 	req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -101,7 +111,7 @@ func withGreenhouseBoardsAPIBaseURL(t *testing.T, url string) {
 
 // TestScrapeFromGreenhouseEmbedFallback covers career pages that embed Greenhouse's
 // client-side job board widget instead of server-rendering the posting (real example:
-// doubleverify.com/careers/job?id=...&board=doubleverify) — the static HTML has no JSON-LD
+// doubleverify.com/careers/job?id=...&board=doubleverify): the static HTML has no JSON-LD
 // and no useful meta/title content, only the embed script and a job id in the URL's query
 // string, so the scraper has to call Greenhouse's public jobs API directly.
 func TestScrapeFromGreenhouseEmbedFallback(t *testing.T) {
@@ -152,7 +162,7 @@ func TestScrapeGreenhouseEmbedWithoutJobIDDoesNotErrorOut(t *testing.T) {
 	server := fixtureServer(t, "testdata/greenhouse_embed.html")
 	defer server.Close()
 
-	// No ?id= on the request URL — extractFromGreenhouseEmbed can't resolve a job, so this
+	// No ?id= on the request URL, so extractFromGreenhouseEmbed can't resolve a job; this
 	// just confirms the handler still falls back gracefully (200, no panic) rather than
 	// getting stuck once an embed script is found but there's nothing to look up.
 	status, _ := doScrape(t, server.URL)
@@ -219,9 +229,89 @@ func TestScrapeUnreachableHostReturnsBlanksNotError(t *testing.T) {
 	}
 }
 
+// TestScrapeBlocksInternalAddresses confirms the SSRF guard rejects literal private and
+// cloud-metadata IPs. It deliberately does NOT use doScrape, so blockInternalHosts stays at
+// its default (true). Literal IPs mean no real DNS or network is touched: the fetch must be
+// skipped and the handler must return 200 with an all-blank result.
+func TestScrapeBlocksInternalAddresses(t *testing.T) {
+	for _, target := range []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://10.0.0.1/internal",
+	} {
+		body, _ := json.Marshal(scrapeRequest{URL: target})
+		req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+
+		scrapeHandler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", target, w.Code)
+		}
+		var resp scrapeResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("%s: failed to decode response: %v", target, err)
+		}
+		if resp.Company != "" || resp.Role != "" || resp.Raw != "" {
+			t.Errorf("%s: expected all-blank result for a blocked host, got %+v", target, resp)
+		}
+	}
+}
+
+// TestScrapeRejectsOversizedRequestBody confirms an oversized request body is rejected with a
+// 400 by the http.MaxBytesReader cap rather than being read fully into memory.
+func TestScrapeRejectsOversizedRequestBody(t *testing.T) {
+	huge := bytes.Repeat([]byte("a"), maxBodyBytes+1)
+	req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewReader(huge))
+	w := httptest.NewRecorder()
+
+	scrapeHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an oversized request body, got %d", w.Code)
+	}
+}
+
+// TestExtractFromGreenhouseEmbedRejectsNonDigitJobID confirms a non-numeric job id is
+// rejected before any Greenhouse API URL is built.
+func TestExtractFromGreenhouseEmbedRejectsNonDigitJobID(t *testing.T) {
+	htmlSrc := `<html><head><script src="https://boards.greenhouse.io/embed/job_board/js?for=testboard"></script></head><body></body></html>`
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlSrc))
+	if err != nil {
+		t.Fatalf("failed to build doc: %v", err)
+	}
+	result := scrapeResponse{}
+	if extractFromGreenhouseEmbed(context.Background(), doc, "http://example.com/careers?id=not-a-number", &result) {
+		t.Error("expected false for a non-digit job id")
+	}
+}
+
+// TestIsPublicIPRejectsReservedRanges pins the extra CGNAT/reserved/documentation ranges
+// (beyond the standard loopback/private/link-local predicates) that must never be dialed.
+func TestIsPublicIPRejectsReservedRanges(t *testing.T) {
+	blocked := []string{
+		"100.64.0.1", // CGNAT
+		"100.127.255.1",
+		"240.0.0.1",  // reserved
+		"192.0.2.5",  // TEST-NET-1
+		"198.18.0.1", // benchmarking
+		"198.19.255.1",
+		"0.1.2.3", // "this network"
+	}
+	for _, s := range blocked {
+		if isPublicIP(net.ParseIP(s)) {
+			t.Errorf("expected %s to be rejected as non-public", s)
+		}
+	}
+	for _, s := range []string{"8.8.8.8", "1.1.1.1", "93.184.216.34"} {
+		if !isPublicIP(net.ParseIP(s)) {
+			t.Errorf("expected %s to be accepted as public", s)
+		}
+	}
+}
+
 // TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription covers a real case: a JS-rendered
 // careers page (client-side widget, no JSON-LD, no known embed) whose static HTML body is
-// just nav/footer/legal text — the last-resort whole-body fallback used to accept that as
+// just nav/footer/legal text; the last-resort whole-body fallback used to accept that as
 // "the job description" and hand it to the AI match, which could only ever produce a
 // nonsense verdict from boilerplate with no actual role content.
 func TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription(t *testing.T) {
@@ -240,7 +330,7 @@ func TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription(t *testing.T) {
 
 // TestScrapeIgnoresNon2xxResponseBody covers a real bug: Go's http client does not treat a
 // 404/410/etc. as an error, so without an explicit status check a dead/removed job posting's
-// error page got scraped and extracted from as if it were a real posting — silently feeding a
+// error page got scraped and extracted from as if it were a real posting, silently feeding a
 // 404 page's title/meta into the form (and from there into the AI match) instead of surfacing
 // a fetch failure the user could react to.
 func TestScrapeIgnoresNon2xxResponseBody(t *testing.T) {

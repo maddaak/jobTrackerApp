@@ -4,6 +4,55 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V2.1
+
+A hardening and bugfix release: security, error-handling, and resilience fixes, a
+query and route-validation refactor, and a smarter job-fit recommendation prompt.
+No new user-facing features; the one change users may notice is higher-quality AI
+job-fit recommendations.
+
+### Recommendation quality
+- Reworked the job-fit recommendation prompt to separate hard requirements from
+  preferred ones, honor "regardless of stack" flexibility signals so a missing
+  framework is not treated as disqualifying, and produce sharper 2 to 3 sentence
+  reasoning.
+
+### Security and resilience
+- Tightened the scrape SSRF guard to also reject IPv6 unspecified and loopback
+  spellings, hex-group IPv4-mapped addresses, and the full fe80::/10 link-local range.
+- Fixed multi-homed host dialing to fall through to later DNS records when the first
+  is down, while still pinning each dial to a vetted public IP.
+- Stopped the scraper AI client from retrying after a timeout (which stacked a second
+  full timeout budget and pinned a worker); only fast network failures retry now.
+- Added request size caps (50 resumes / resume variants) that reject oversized
+  payloads with a 400 before they overflow the model context window.
+
+### Error handling
+- Core returns proper 400, 405, and 415 for missing file part, missing request
+  parameter, unsupported method, and unsupported media type, instead of a generic 500.
+- Corrupt gzip-stored data now surfaces as a 500 server fault rather than a 422.
+- The BFF degrades a core outage during resume upload to a real 502/504 instead of 500.
+
+### Refactor and efficiency
+- Extracted route-id validation into a reusable middleware wired at the router,
+  replacing duplicated per-handler id checks across jobs, interviews, and resumes.
+- Consolidated the metrics queries so the furthest-stage map and interview-round
+  breakdown come from a single query, and reused an already-ownership-checked job in
+  the resume recommender to skip a redundant query.
+- The scraper skips the full page-body text walk when JSON-LD already filled the fields.
+
+### Web fixes
+- The interview form ignores stale async responses so it no longer sets state after close.
+- Memoized the metrics Sankey data so it is not rebuilt on every render.
+- Removed dead code and an untyped column definition in the jobs table.
+
+### Testing
+- Added scraper tests for the model thinking-field behavior and the new payload caps.
+
+### Continuous integration
+- Added a CI workflow that runs all four test suites on every PR to main and every
+  push to main, so a PR cannot merge until the tests pass.
+
 ## V2
 
 ### Metrics and pipeline visualization

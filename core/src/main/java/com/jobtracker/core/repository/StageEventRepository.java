@@ -15,8 +15,6 @@ public interface StageEventRepository extends JpaRepository<StageEvent, Long> {
 
     Optional<StageEvent> findByIdAndJob_Owner_Id(Long id, Long ownerId);
 
-    List<StageEvent> findByJob_Owner_IdAndInterviewDateTimeIsNotNull(Long ownerId);
-
     @Query("SELECT se FROM StageEvent se JOIN FETCH se.job WHERE se.job.owner.id = :ownerId")
     List<StageEvent> findAllByJobOwnerId(@Param("ownerId") Long ownerId);
 

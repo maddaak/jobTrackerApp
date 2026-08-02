@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getMetrics, type Metrics } from "../api/metricsApi";
 import PipelineSankey from "../components/PipelineSankey";
@@ -130,7 +130,7 @@ export default function MetricsPage() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [selected]);
 
-  const chart = metrics ? toSankeyData(metrics) : null;
+  const chart = useMemo(() => (metrics ? toSankeyData(metrics) : null), [metrics]);
 
   return (
     <div className="min-w-0 p-6">

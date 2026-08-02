@@ -13,9 +13,6 @@ import { recommendResumeVariant } from "../services/scraperAnalysisClient.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
 import { sendUpstream } from "../middleware/upstreamResponse.js";
 
-// Job ids are always numeric. Reject anything else before it reaches an upstream URL path.
-const NUMERIC_ID = /^\d+$/;
-
 export async function create(req: AuthedRequest, res: Response) {
   const result = await createJob(req.userId!, req.body ?? {});
   sendUpstream(res, result);
@@ -28,50 +25,30 @@ export async function list(req: AuthedRequest, res: Response) {
 
 export async function get(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
   const result = await getJob(req.userId!, jobId);
   sendUpstream(res, result);
 }
 
 export async function update(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
   const result = await updateJob(req.userId!, jobId, req.body ?? {});
   sendUpstream(res, result);
 }
 
 export async function remove(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
   const result = await deleteJob(req.userId!, jobId);
   sendUpstream(res, result);
 }
 
 export async function getDetail(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
   const result = await getJobDetail(req.userId!, jobId);
   sendUpstream(res, result);
 }
 
 export async function updateDetail(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
   const result = await updateJobDetail(req.userId!, jobId, req.body ?? {});
   sendUpstream(res, result);
 }
@@ -81,10 +58,6 @@ export async function updateDetail(req: AuthedRequest, res: Response) {
 // rules pass should become conditional on the AI call later.
 export async function getResumeRecommendationForJob(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
-  if (!NUMERIC_ID.test(jobId)) {
-    res.status(400).json({ error: "invalid job id" });
-    return;
-  }
 
   const [rulesResult, detailResult] = await Promise.all([
     getResumeRecommendation(req.userId!, jobId),

@@ -50,10 +50,20 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
 
   useEffect(() => {
     if (!mode) return;
+    // Ignore a stale/unmounted resolution so it doesn't call setState after the modal closed or mode changed.
+    let ignore = false;
     setError(null);
     setSaving(false);
     if (mode.kind === "create") {
-      listJobs().then(setJobs).catch(() => setJobs([]));
+      listJobs()
+        .then(loaded => {
+          if (ignore) return;
+          setJobs(loaded);
+        })
+        .catch(() => {
+          if (ignore) return;
+          setJobs([]);
+        });
       setJobId("");
       setInterviewDateTime(toDatetimeLocalValue(mode.date));
       setInterviewType("");
@@ -69,6 +79,9 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         mode.interview.interviewers.map(i => ({ key: `existing-${i.id}`, name: i.name, linkedInUrl: i.linkedInUrl ?? "" })),
       );
     }
+    return () => {
+      ignore = true;
+    };
     // setInterviewers is the hook's stable useState setter; listed to satisfy exhaustive-deps.
   }, [mode, setInterviewers]);
 

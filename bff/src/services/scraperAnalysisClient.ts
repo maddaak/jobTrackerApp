@@ -39,8 +39,12 @@ async function callScraperAi<T>(path: string, body: unknown): Promise<AiCallResu
       if (res.status !== 502 && res.status !== 504) {
         return { status: "unavailable" };
       }
-    } catch {
-      // Network error or AbortSignal timeout, transient: fall through to the retry.
+    } catch (err) {
+      // A timeout already burned the full budget; retrying stacks another (3 x 120s pins a worker
+      // ~6 min). Only a fast network failure is worth falling through to the retry.
+      if (err instanceof Error && err.name === "TimeoutError") {
+        return { status: "unavailable" };
+      }
     }
 
     if (isLastAttempt) {

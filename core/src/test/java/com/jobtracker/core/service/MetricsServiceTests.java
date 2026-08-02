@@ -116,7 +116,6 @@ class MetricsServiceTests {
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(rejectedAtResume));
         when(stageEvents.findAllByJobOwnerId(1L))
                 .thenReturn(stageHistory(rejectedAtResume, Stage.RESUME_CHECK, Outcome.REJECTED));
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of());
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -132,15 +131,12 @@ class MetricsServiceTests {
         Source source = new Source(SourceCategory.SELF_APPLIED);
         Job accepted = newJob(owner, source, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED);
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(accepted));
-        when(stageEvents.findAllByJobOwnerId(1L))
-                .thenReturn(stageHistory(accepted, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED));
-        // One non-panel round then one panel round, with increasing timestamps so the
-        // data-driven order places SYSTEM_DESIGN before PANEL. The panel type collapses to
-        // the "PANEL" node.
+        // Increasing timestamps so the data-driven order places SYSTEM_DESIGN before PANEL.
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(
-                newInterviewRound(accepted, InterviewType.SYSTEM_DESIGN, base),
-                newInterviewRound(accepted, InterviewType.PANEL_BEHAVIOR, base.plusSeconds(3600))));
+        List<StageEvent> history = new ArrayList<>(stageHistory(accepted, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED));
+        history.add(newInterviewRound(accepted, InterviewType.SYSTEM_DESIGN, base));
+        history.add(newInterviewRound(accepted, InterviewType.PANEL_BEHAVIOR, base.plusSeconds(3600)));
+        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -167,17 +163,15 @@ class MetricsServiceTests {
         Job jobA = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED);
         Job jobB = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED);
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(jobA, jobB));
+        Instant base = Instant.parse("2026-01-01T00:00:00Z");
         List<StageEvent> history = new ArrayList<>();
         history.addAll(stageHistory(jobA, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
         history.addAll(stageHistory(jobB, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
+        history.add(newInterviewRound(jobA, InterviewType.BEHAVIOR, base));
+        history.add(newInterviewRound(jobA, InterviewType.SYSTEM_DESIGN, base.plusSeconds(3600)));
+        history.add(newInterviewRound(jobB, InterviewType.BEHAVIOR, base));
+        history.add(newInterviewRound(jobB, InterviewType.SYSTEM_DESIGN, base.plusSeconds(3600)));
         when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
-
-        Instant base = Instant.parse("2026-01-01T00:00:00Z");
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(
-                newInterviewRound(jobA, InterviewType.BEHAVIOR, base),
-                newInterviewRound(jobA, InterviewType.SYSTEM_DESIGN, base.plusSeconds(3600)),
-                newInterviewRound(jobB, InterviewType.BEHAVIOR, base),
-                newInterviewRound(jobB, InterviewType.SYSTEM_DESIGN, base.plusSeconds(3600))));
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -187,11 +181,14 @@ class MetricsServiceTests {
         assertThat(linkValue(response, "SYSTEM_DESIGN", "BEHAVIOR")).isEqualTo(0);
 
         // Reversing the timestamps reverses the emitted order.
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(
-                newInterviewRound(jobA, InterviewType.SYSTEM_DESIGN, base),
-                newInterviewRound(jobA, InterviewType.BEHAVIOR, base.plusSeconds(3600)),
-                newInterviewRound(jobB, InterviewType.SYSTEM_DESIGN, base),
-                newInterviewRound(jobB, InterviewType.BEHAVIOR, base.plusSeconds(3600))));
+        List<StageEvent> reversedHistory = new ArrayList<>();
+        reversedHistory.addAll(stageHistory(jobA, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
+        reversedHistory.addAll(stageHistory(jobB, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
+        reversedHistory.add(newInterviewRound(jobA, InterviewType.SYSTEM_DESIGN, base));
+        reversedHistory.add(newInterviewRound(jobA, InterviewType.BEHAVIOR, base.plusSeconds(3600)));
+        reversedHistory.add(newInterviewRound(jobB, InterviewType.SYSTEM_DESIGN, base));
+        reversedHistory.add(newInterviewRound(jobB, InterviewType.BEHAVIOR, base.plusSeconds(3600)));
+        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(reversedHistory);
 
         MetricsResponse reversed = metricsService.getMetrics(1L);
 
@@ -206,11 +203,10 @@ class MetricsServiceTests {
         Source source = new Source(SourceCategory.SELF_APPLIED);
         Job job = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED);
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
-        when(stageEvents.findAllByJobOwnerId(1L))
-                .thenReturn(stageHistory(job, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
         // A scheduled interview with no chosen type must not crash and must add no type node.
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L))
-                .thenReturn(List.of(newInterviewRound(job, null)));
+        List<StageEvent> history = new ArrayList<>(stageHistory(job, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
+        history.add(newInterviewRound(job, null));
+        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -250,7 +246,6 @@ class MetricsServiceTests {
         history.addAll(stageHistory(activeTwo, Stage.RESUME_CHECK, Outcome.ACTIVE));
         history.addAll(stageHistory(rejected, Stage.RESUME_CHECK, Outcome.REJECTED));
         when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of());
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -290,7 +285,7 @@ class MetricsServiceTests {
         Source source = new Source(SourceCategory.SELF_APPLIED);
         Job job = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.ACTIVE);
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(
+        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(List.of(
                 newInterviewRound(job, InterviewType.TECHNICAL_PHONE_SCREEN),
                 newInterviewRound(job, InterviewType.SYSTEM_DESIGN),
                 newInterviewRound(job, InterviewType.SYSTEM_DESIGN)));
@@ -314,10 +309,9 @@ class MetricsServiceTests {
         List<StageEvent> history = new ArrayList<>();
         history.addAll(stageHistory(acme, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
         history.addAll(stageHistory(globex, Stage.INTERVIEW_STAGE, Outcome.REJECTED));
-        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of(
-                newInterviewRound(acme, InterviewType.SYSTEM_DESIGN, base)));
+        history.add(newInterviewRound(acme, InterviewType.SYSTEM_DESIGN, base));
+        when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
@@ -344,7 +338,6 @@ class MetricsServiceTests {
         history.addAll(stageHistory(cortexOne, Stage.RESUME_CHECK, Outcome.REJECTED));
         history.addAll(stageHistory(cortexTwo, Stage.RESUME_CHECK, Outcome.REJECTED));
         when(stageEvents.findAllByJobOwnerId(1L)).thenReturn(history);
-        when(stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(1L)).thenReturn(List.of());
 
         MetricsResponse response = metricsService.getMetrics(1L);
 

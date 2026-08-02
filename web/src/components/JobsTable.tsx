@@ -112,10 +112,9 @@ interface EditToggleCellProps {
   editLabel: string;
   display: ReactNode;
   editor: ReactNode;
-  interactive?: boolean;
 }
 
-function EditToggleCell({ isEditing, onStartEdit, onDone, editLabel, display, editor, interactive = true }: EditToggleCellProps) {
+function EditToggleCell({ isEditing, onStartEdit, onDone, editLabel, display, editor }: EditToggleCellProps) {
   if (isEditing) {
     return (
       <div className="flex flex-col gap-1">
@@ -134,16 +133,14 @@ function EditToggleCell({ isEditing, onStartEdit, onDone, editLabel, display, ed
     // Transparent box matching cellInputClass so display text lines up with the input cells beside it, instead of sitting flush at the top edge while bordered inputs sit inset.
     <div className="flex items-center justify-center gap-1.5 border border-transparent px-1.5 py-1">
       <div className="min-w-0 flex-1 text-sm">{display}</div>
-      {interactive && (
-        <button
-          type="button"
-          aria-label={editLabel}
-          onClick={onStartEdit}
-          className="shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-        >
-          <PencilIcon />
-        </button>
-      )}
+      <button
+        type="button"
+        aria-label={editLabel}
+        onClick={onStartEdit}
+        className="shrink-0 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+      >
+        <PencilIcon />
+      </button>
     </div>
   );
 }
@@ -337,8 +334,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const columns = useMemo<ColumnDef<JobSummary, any>[]>(() => [
+  const columns = useMemo<ColumnDef<JobSummary, unknown>[]>(() => [
     columnHelper.accessor("company", {
       header: "Company",
       filterFn: listFilter,

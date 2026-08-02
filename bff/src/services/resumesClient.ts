@@ -36,12 +36,20 @@ export async function createResume(
   const form = new FormData();
   form.append("file", new Blob([Uint8Array.from(buffer)], { type: contentType }), fileName);
 
-  const res = await fetch(`${CORE_URL}/resumes`, {
-    method: "POST",
-    headers: { "X-Internal-Token": INTERNAL_TOKEN, "X-User-Id": userId },
-    body: form,
-    signal: AbortSignal.timeout(CORE_TIMEOUT_MS),
-  });
+  // Without this, a core outage during upload rejects and surfaces as a generic 500. Match
+  // callCore/scrape() so it degrades to a real 5xx the client can act on.
+  let res: globalThis.Response;
+  try {
+    res = await fetch(`${CORE_URL}/resumes`, {
+      method: "POST",
+      headers: { "X-Internal-Token": INTERNAL_TOKEN, "X-User-Id": userId },
+      body: form,
+      signal: AbortSignal.timeout(CORE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const status = err instanceof DOMException && err.name === "TimeoutError" ? 504 : 502;
+    return { ok: false, status, data: undefined };
+  }
   // Parse defensively, matching callCore: an empty or non-JSON upstream body must not
   // throw and swallow the real status.
   const data = await res.json().catch(() => undefined);

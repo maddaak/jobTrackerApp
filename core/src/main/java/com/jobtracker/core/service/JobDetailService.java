@@ -3,6 +3,7 @@ package com.jobtracker.core.service;
 import com.jobtracker.core.dto.JobDetailDocumentResponse;
 import com.jobtracker.core.dto.UpdateJobDetailRequest;
 import com.jobtracker.core.exception.JobNotFoundException;
+import com.jobtracker.core.model.Job;
 import com.jobtracker.core.model.JobDetail;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
@@ -22,6 +23,15 @@ public class JobDetailService {
 
     public JobDetailDocumentResponse getDetail(Long ownerId, Long jobId) {
         requireOwnedJob(ownerId, jobId);
+        return loadDetail(jobId);
+    }
+
+    // Skips the ownership query when the caller already holds an ownership-checked job.
+    public JobDetailDocumentResponse getDetail(Job ownedJob) {
+        return loadDetail(ownedJob.getId());
+    }
+
+    private JobDetailDocumentResponse loadDetail(Long jobId) {
         return jobDetails.findByJobId(jobId)
                 .map(this::toResponse)
                 .orElse(new JobDetailDocumentResponse(jobId, "", "", null));

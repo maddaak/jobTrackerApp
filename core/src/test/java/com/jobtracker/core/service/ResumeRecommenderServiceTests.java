@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class ResumeRecommenderServiceTests {
@@ -46,7 +47,8 @@ class ResumeRecommenderServiceTests {
 
     private void stubJob(Long jobId, Long ownerId, String role, String jdText) {
         when(jobs.findByIdAndOwnerId(jobId, ownerId)).thenReturn(Optional.of(newJob(role)));
-        when(jobDetailService.getDetail(ownerId, jobId)).thenReturn(new JobDetailDocumentResponse(jobId, jdText, "", null));
+        // recommend now passes the already-loaded job to getDetail so ownership is not re-queried.
+        when(jobDetailService.getDetail(any(Job.class))).thenReturn(new JobDetailDocumentResponse(jobId, jdText, "", null));
     }
 
     // Mongo assigns Resume.id on a real save() (via reflection); these fixtures never touch

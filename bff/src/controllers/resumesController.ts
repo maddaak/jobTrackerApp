@@ -4,10 +4,6 @@ import { createResume, applyResumeAnalysis, getResumeText, listResumes, deleteRe
 import { analyzeResume, matchResume } from "../services/scraperAnalysisClient.js";
 import { sendUpstream } from "../middleware/upstreamResponse.js";
 
-// Resume ids are opaque tokens (uuid-like). Reject anything outside that shape before it
-// reaches an upstream URL path.
-const RESUME_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
 // Upload only stores the file; it stays "pending" until the user picks AI or custom summary,
 // so the file survives even if that next step is skipped or fails.
 export async function create(req: AuthedRequest, res: Response) {
@@ -24,10 +20,6 @@ export async function create(req: AuthedRequest, res: Response) {
 // unavailable), not just a successful analysis, so the stored resume always reflects reality.
 export async function summarize(req: AuthedRequest, res: Response) {
   const resumeId = req.params.id as string;
-  if (!RESUME_ID.test(resumeId)) {
-    res.status(400).json({ error: "invalid resume id" });
-    return;
-  }
 
   const textResult = await getResumeText(req.userId!, resumeId);
   if (!textResult.ok) {
@@ -56,10 +48,6 @@ export async function summarize(req: AuthedRequest, res: Response) {
 // User-written alternative to summarize(): stores their text directly, no scraper call.
 export async function setCustomSummary(req: AuthedRequest, res: Response) {
   const resumeId = req.params.id as string;
-  if (!RESUME_ID.test(resumeId)) {
-    res.status(400).json({ error: "invalid resume id" });
-    return;
-  }
   const summary = ((req.body ?? {}).summary as string | undefined)?.trim();
   if (!summary) {
     res.status(400).json({ error: "summary is required" });
@@ -79,10 +67,6 @@ export async function list(req: AuthedRequest, res: Response) {
 
 export async function remove(req: AuthedRequest, res: Response) {
   const resumeId = req.params.id as string;
-  if (!RESUME_ID.test(resumeId)) {
-    res.status(400).json({ error: "invalid resume id" });
-    return;
-  }
   const result = await deleteResume(req.userId!, resumeId);
   sendUpstream(res, result);
 }

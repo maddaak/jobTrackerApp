@@ -1,0 +1,79 @@
+name: CI
+
+# Runs the full test suite on every PR to main (gates the merge) and again on every
+# push to main (the post-merge run).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm test
+        working-directory: web
+
+  bff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: bff/package-lock.json
+      - run: npm ci
+        working-directory: bff
+      - run: npm test
+        working-directory: bff
+
+  scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: scraper/go.sum
+      - run: go test ./...
+        working-directory: scraper
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: mvn -B -q clean test
+        working-directory: core
+
+  # If the post-merge run on main fails, revert the offending commit. Uses REVERT_TOKEN (a PAT
+  # that can bypass the branch ruleset) because the default GITHUB_TOKEN cannot push to locked main.
+  auto-revert:
+    needs: [web, bff, scraper, core]
+    if: ${{ failure() && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.REVERT_TOKEN }}
+      - name: Revert the failing commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git revert --no-edit HEAD
+          git push origin HEAD:main

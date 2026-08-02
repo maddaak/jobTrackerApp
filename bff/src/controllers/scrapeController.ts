@@ -57,13 +57,24 @@ function pointsAtInternalHost(hostname: string): boolean {
     return true;
   }
   if (host.includes(":")) {
-    // IPv4-mapped/embedded IPv6 (::ffff:127.0.0.1): check the trailing dotted-quad too.
+    // Unspecified and both loopback spellings would slip past the prefix checks below.
+    if (host === "::" || host === "::1" || host === "0:0:0:0:0:0:0:1") {
+      return true;
+    }
+    // IPv4-mapped IPv6 can smuggle a private/loopback IPv4 past the guard, dotted or as hex groups.
     if (host.includes(".")) {
       const embedded = parseIpv4(host.slice(host.lastIndexOf(":") + 1));
       if (embedded !== null && isPrivateIpv4(embedded)) return true;
+    } else if (host.startsWith("::ffff:")) {
+      const groups = host.slice("::ffff:".length).split(":");
+      if (groups.length === 2 && groups.every(g => /^[0-9a-f]{1,4}$/.test(g))) {
+        const embedded = ((parseInt(groups[0], 16) << 16) | parseInt(groups[1], 16)) >>> 0;
+        if (isPrivateIpv4(embedded)) return true;
+      }
     }
-    // IPv6 literal: loopback, unique-local (fc00::/7), link-local (fe80::/10).
-    return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
+    // Unique-local (fc00::/7) and the whole link-local range fe80::/10, not just literal fe80:.
+    if (host.startsWith("fc") || host.startsWith("fd")) return true;
+    return /^fe[89ab][0-9a-f]:/.test(host);
   }
   const ipv4 = parseIpv4(host);
   return ipv4 !== null && isPrivateIpv4(ipv4);

@@ -41,10 +41,13 @@ public class MetricsService {
 
     public MetricsResponse getMetrics(Long ownerId) {
         List<Job> ownerJobs = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId);
-        Map<Long, Stage> furthestByJobId = furthestStagesByJobId(ownerId);
-        // One query for this owner's scheduled interview rounds, shared by the per-type
-        // round-count breakdown and the Sankey path building.
-        List<StageEvent> interviewRounds = stageEvents.findByJob_Owner_IdAndInterviewDateTimeIsNotNull(ownerId);
+        // Both views derive from this one set, so a second query for the interview-dated subset
+        // would be redundant.
+        List<StageEvent> ownerStageEvents = stageEvents.findAllByJobOwnerId(ownerId);
+        Map<Long, Stage> furthestByJobId = furthestStagesByJobId(ownerStageEvents);
+        List<StageEvent> interviewRounds = ownerStageEvents.stream()
+                .filter(event -> event.getInterviewDateTime() != null)
+                .toList();
         SankeyData sankey = sankeyData(ownerJobs, furthestByJobId, interviewRounds);
         return new MetricsResponse(
                 funnel(ownerJobs, furthestByJobId), outcomeCounts(ownerJobs),
@@ -56,9 +59,9 @@ public class MetricsService {
 
     // Excludes FINALIZED so a rejected job (auto-moved to FINALIZED) does not falsely count as
     // having reached the later pipeline stages. Rounds repeat, so keep the max ordinal entered.
-    private Map<Long, Stage> furthestStagesByJobId(Long ownerId) {
+    private Map<Long, Stage> furthestStagesByJobId(List<StageEvent> ownerStageEvents) {
         Map<Long, Stage> furthestByJobId = new HashMap<>();
-        for (StageEvent event : stageEvents.findAllByJobOwnerId(ownerId)) {
+        for (StageEvent event : ownerStageEvents) {
             if (event.getStage() == Stage.FINALIZED) {
                 continue;
             }

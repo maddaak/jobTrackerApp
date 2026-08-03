@@ -60,7 +60,8 @@ public class ResumeRecommenderService {
     public ResumeRecommendationResponse recommend(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
         String titleText = job.getRole() == null ? "" : job.getRole().toLowerCase();
-        String bodyText = jobDetailService.getDetail(ownerId, jobId).jdText().toLowerCase();
+        // Pass the loaded job so getDetail does not re-run the same ownership query.
+        String bodyText = jobDetailService.getDetail(job).jdText().toLowerCase();
 
         List<ResumeVariant> variants = resumes.findByOwnerId(ownerId).stream()
                 .filter(r -> Resume.AnalysisStatus.OK.equals(r.getAnalysisStatus()))

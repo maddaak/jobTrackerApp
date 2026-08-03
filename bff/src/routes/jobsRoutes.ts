@@ -10,10 +10,12 @@ import {
   getResumeRecommendationForJob,
 } from "../controllers/jobsController.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { validateRouteId, NUMERIC_ID } from "../middleware/validateRouteId.js";
 
 const router = Router();
 
 router.use(requireAuth);
+router.param("id", validateRouteId(NUMERIC_ID, "invalid job id"));
 router.post("/", create);
 router.get("/", list);
 router.get("/:id", get);

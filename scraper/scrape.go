@@ -135,10 +135,22 @@ func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error
 	if err != nil {
 		return nil, err
 	}
+	// A multi-homed host whose first record is down should still connect via a later one, as Go's
+	// default dialer does. Non-public IPs stay skipped and each dial is pinned to keep the SSRF guard.
+	var lastErr error
 	for _, ip := range ips {
-		if isPublicIP(ip) {
-			return safeDialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if !isPublicIP(ip) {
+			continue
 		}
+		conn, err := safeDialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return conn, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	return nil, fmt.Errorf("no safe public address for host %q", host)
 }
@@ -267,7 +279,12 @@ func extract(ctx context.Context, doc *goquery.Document, result *scrapeResponse,
 		extractFromMetaAndTitle(doc, result)
 	}
 
-	bodyText := strings.TrimSpace(doc.Find("body").Text())
+	// Only the Raw/comp/location fallbacks read this, so skip the full DOM walk (up to 5MB) when
+	// JSON-LD already filled them.
+	var bodyText string
+	if result.Raw == "" || (result.CompMin == nil && result.CompMax == nil) || result.Location == "" {
+		bodyText = strings.TrimSpace(doc.Find("body").Text())
+	}
 	if result.Raw == "" && looksLikeJobContent(bodyText) {
 		result.Raw = truncate(collapseWhitespace(bodyText), rawTextLimit)
 	}

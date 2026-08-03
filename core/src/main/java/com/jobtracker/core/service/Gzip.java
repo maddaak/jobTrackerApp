@@ -34,7 +34,9 @@ final class Gzip {
         try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
             return new String(gzip.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new UncheckedIOException(e);
+            // Corrupt stored data is a server fault, not a bad upload. A non-UncheckedIOException
+            // routes to the catch-all 500 instead of the 422 upload-read handler.
+            throw new IllegalStateException("stored compressed text could not be read", e);
         }
     }
 }

@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import multer from "multer";
 import { create, list, remove, match, summarize, setCustomSummary } from "../controllers/resumesController.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { validateRouteId, RESUME_ID } from "../middleware/validateRouteId.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
@@ -9,6 +10,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX
 const router = Router();
 
 router.use(requireAuth);
+router.param("id", validateRouteId(RESUME_ID, "invalid resume id"));
 router.post("/", upload.single("file"), create);
 router.get("/", list);
 router.delete("/:id", remove);

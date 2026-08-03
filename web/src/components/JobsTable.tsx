@@ -618,8 +618,8 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
             onChange={e => {
               const value = e.target.value as Outcome;
               const overrides: Partial<JobSummary> = { outcome: value };
-              // Rejected job is closed, so move it to the terminal stage.
-              if (value === "REJECTED") {
+              // Closed outcomes end the pipeline, so move the job to the terminal stage.
+              if (value === "REJECTED" || value === "GHOSTED" || value === "WITHDRAWN") {
                 overrides.currentStage = "FINALIZED";
                 setField(job.id, "currentStage", "FINALIZED");
               }

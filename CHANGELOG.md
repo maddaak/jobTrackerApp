@@ -4,6 +4,15 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V2.2.1
+
+### Bug fixes
+- Setting a job's outcome to Ghosted or Withdrawn now moves it to the Finalized stage,
+  matching Rejected, so a closed job no longer stays stuck at an earlier stage.
+
+### Project
+- Added an MIT LICENSE file (the README already declared the project MIT-licensed).
+
 ## V2.2
 
 ### Continuous integration

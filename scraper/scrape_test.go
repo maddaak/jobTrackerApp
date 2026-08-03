@@ -75,6 +75,21 @@ func TestScrapeFromJSONLD(t *testing.T) {
 	}
 }
 
+// Structured JSON-LD gives a city location while the workplace model ("hybrid") lives only in the description.
+func TestScrapeHybridFromDescriptionWithStructuredLocation(t *testing.T) {
+	server := fixtureServer(t, "testdata/jsonld_hybrid.html")
+	defer server.Close()
+
+	status, resp := doScrape(t, server.URL)
+
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if resp.Location != "NYC_HYBRID" {
+		t.Errorf("expected NYC_HYBRID classified from description, got %q", resp.Location)
+	}
+}
+
 func TestScrapeFromMetaAndTitleFallback(t *testing.T) {
 	server := fixtureServer(t, "testdata/meta_fallback.html")
 	defer server.Close()

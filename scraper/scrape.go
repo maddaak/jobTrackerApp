@@ -255,9 +255,10 @@ func extract(ctx context.Context, doc *goquery.Document, result *scrapeResponse,
 			result.CompMax = &max
 		}
 	}
-	if result.Location == "" {
-		result.Location = classifyLocation(bodyText)
-	} else {
+	// Remote/hybrid/onsite is stated in the description, not the structured location field, so scan the text first.
+	if model := classifyLocation(result.Raw + " " + bodyText); model != "" {
+		result.Location = model
+	} else if result.Location != "" {
 		result.Location = classifyLocation(result.Location)
 	}
 }

@@ -15,6 +15,16 @@ history stays readable and the detail lives here.
 ### Code quality
 - Tightened comments across all services and config to state intent only, one line each.
 
+### Web fixes
+- The pipeline Sankey renders at full width on wide screens and scrolls on narrow ones
+  instead of squashing labels, and each label box is measured to hug its text so the
+  counts no longer leave dead space.
+
+### Scraper
+- The remote/hybrid/onsite model is now read from the job description, so a posting with
+  a structured city location plus a "hybrid" description is classified correctly instead
+  of missed.
+
 ## V2.1
 
 A hardening and bugfix release: security, error-handling, and resilience fixes, a

@@ -316,7 +316,7 @@ describe("JobsTable", () => {
     render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
 
     const rows = screen.getAllByRole("row");
-    // rows[0] is the header row; rows[1]/rows[2] are Zeta Co (RESUME_CHECK -> yellow) and Acme Co (INTERVIEW_STAGE -> green).
+    // rows[1]/rows[2] are Zeta Co (yellow) and Acme Co (green); rows[0] is the header.
     expect(rows[1].className).toContain("bg-yellow-50");
     expect(rows[2].className).toContain("bg-green-50");
   });

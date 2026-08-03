@@ -19,8 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
 const SUMMARY_DISCLAIMER =
   "This summary is used to match your resume against job postings — generate it automatically with AI, or write your own for full control.";
 
-// The dropzone's accept attribute only constrains the click-to-browse picker; a drag-drop can
-// still hand us any file, so validate the extension and size here before uploading.
+// accept only constrains the browse picker; a drag-drop can hand us any file, so validate here.
 const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -37,11 +36,11 @@ export default function ResumesPage() {
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
   const [savingCustomId, setSavingCustomId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Tag each refresh so a slower earlier load can't resolve last and overwrite newer data.
+  // Tag each refresh so a slower earlier load can't overwrite newer data.
   const reqId = useRef(0);
 
   useEffect(() => {
-    // Ignore a mount-time load that resolves after this page has unmounted.
+    // Ignore a load that resolves after unmount.
     let ignore = false;
     listResumes()
       .then(loaded => { if (!ignore) setResumes(loaded); })
@@ -236,7 +235,7 @@ export default function ResumesPage() {
                           ? STATUS_LABEL.unavailable
                           : SUMMARY_DISCLAIMER}
                   </p>
-                  {/* Without a key, or when flagged not_configured, the custom-summary box is the only real option. */}
+                  {/* No key or not_configured: custom-summary is the only real option. */}
                   {aiConfigured && resume.analysisStatus !== "not_configured" && (
                     <button
                       type="button"

@@ -25,8 +25,7 @@ export interface ResumeTextData {
   extractedText: string;
 }
 
-// Multipart upload can't go through callCore (which always JSON.stringifies its body), so
-// this builds its own FormData/Blob request to core, matching callCore's result shape.
+// Multipart upload can't use callCore (JSON-only body), so it builds its own request matching callCore's shape.
 export async function createResume(
   userId: string,
   fileName: string,
@@ -36,8 +35,7 @@ export async function createResume(
   const form = new FormData();
   form.append("file", new Blob([Uint8Array.from(buffer)], { type: contentType }), fileName);
 
-  // Without this, a core outage during upload rejects and surfaces as a generic 500. Match
-  // callCore/scrape() so it degrades to a real 5xx the client can act on.
+  // Turn a fetch rejection into a real 5xx (504 timeout, 502 otherwise) instead of a generic 500.
   let res: globalThis.Response;
   try {
     res = await fetch(`${CORE_URL}/resumes`, {
@@ -50,8 +48,7 @@ export async function createResume(
     const status = err instanceof DOMException && err.name === "TimeoutError" ? 504 : 502;
     return { ok: false, status, data: undefined };
   }
-  // Parse defensively, matching callCore: an empty or non-JSON upstream body must not
-  // throw and swallow the real status.
+  // Empty/non-JSON body must not throw over the real status.
   const data = await res.json().catch(() => undefined);
   return { ok: res.ok, status: res.status, data };
 }

@@ -22,13 +22,11 @@ export const INTERNAL_TOKEN = requireSecret("INTERNAL_TOKEN");
 export const JWT_SECRET = requireSecret("JWT_SECRET");
 export const JWT_EXPIRY_DAYS = positiveIntEnv("JWT_EXPIRY_DAYS", 7);
 export const COOKIE_MAX_AGE_MS = JWT_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-// Secure cookies require HTTPS, so the browser silently drops them over plain http. Default on
-// for production behind TLS; set COOKIE_SECURE=false for local http dev so login persists.
+// Set COOKIE_SECURE=false for local http dev; browsers drop secure cookies over plain http.
 export const COOKIE_SECURE = (process.env.COOKIE_SECURE ?? "true").toLowerCase() !== "false";
 export const PORT = process.env.PORT ?? 3000;
 
-// Timeouts scale to each upstream's latency profile: fast CRUD, slower page scrape, much
-// slower LLM AI calls. Without a ceiling a hung upstream keeps a BFF request open forever.
+// Per-upstream ceilings so a hung upstream can't hold a BFF request open forever.
 export const CORE_TIMEOUT_MS = 10_000;
 export const SCRAPER_TIMEOUT_MS = 30_000;
 export const SCRAPER_AI_TIMEOUT_MS = 120_000;

@@ -3,9 +3,7 @@ import { scrape } from "../services/scrapeClient.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
 import { sendUpstream } from "../middleware/upstreamResponse.js";
 
-// Handle every numeric IPv4 form the OS resolver accepts, not just dotted decimal: bare integer
-// (2130706433), hex (0x7f000001), octal (0177.0.0.1), short forms (127.1). This is what lets the
-// range check catch encodings a plain "127." string prefix would miss.
+// Parse every numeric IPv4 form the resolver accepts (bare int, hex, octal, short forms), so encodings can't dodge the range check.
 function parseIpv4(host: string): number | null {
   const parts = host.split(".");
   if (parts.length > 4) return null;
@@ -45,9 +43,7 @@ function isPrivateIpv4(n: number): boolean {
   );
 }
 
-// Defense-in-depth SSRF guard: the scraper already refuses internal targets, this stops loopback,
-// RFC1918, and link-local at the auth boundary. No DNS lookup (rebinding is still caught by the
-// scraper), but we normalize numeric IPv4 and IPv4-mapped IPv6 so encodings can't slip past.
+// Defense-in-depth SSRF guard: block loopback/RFC1918/link-local at the auth boundary, normalizing numeric and IPv4-mapped forms.
 function pointsAtInternalHost(hostname: string): boolean {
   let host = hostname.toLowerCase();
   if (host.startsWith("[") && host.endsWith("]")) {

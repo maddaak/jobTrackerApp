@@ -53,9 +53,7 @@ export async function updateDetail(req: AuthedRequest, res: Response) {
   sendUpstream(res, result);
 }
 
-// Runs the rules-based match (core) and the AI second opinion (scraper) side by side. Shown
-// together for now so they can be eyeballed against each other before deciding whether the
-// rules pass should become conditional on the AI call later.
+// Returns rules (core) and AI (scraper) picks side by side so they can be compared for now.
 export async function getResumeRecommendationForJob(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
 
@@ -71,8 +69,7 @@ export async function getResumeRecommendationForJob(req: AuthedRequest, res: Res
     sendUpstream(res, detailResult);
     return;
   }
-  // core reported success but callCore leaves data undefined on an empty/non-JSON body.
-  // Guard before dereferencing so we return a clean error instead of a TypeError.
+  // callCore leaves data undefined on an empty/non-JSON body even when ok.
   if (!detailResult.data || !rulesResult.data) {
     res.status(502).json({ error: "internal error" });
     return;

@@ -1,16 +1,51 @@
 name: Publish images
 
-# Build all four service images (amd64 + arm64) and push to GHCR on a version tag.
-# Each arch builds on its own native runner (no QEMU emulation), then a merge job
-# stitches them into one multi-arch manifest per service. Emulated builds crashed on
-# npm ci ("illegal instruction") and were very slow; native runners fix both.
+# After CI passes on main, publishes images for the version at the top of CHANGELOG.md, but only
+# if that tag does not exist yet. Tag and build run together so no second workflow trigger is needed.
 on:
-  push:
-    tags: ["v*"]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
 jobs:
+  check:
+    # Only for a successful CI run that was a push to main, or a manual run.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      version: ${{ steps.decide.outputs.version }}
+      sha: ${{ steps.decide.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - id: decide
+        run: |
+          sha=$(git rev-parse HEAD)
+          version=$(grep -m1 '^## V' CHANGELOG.md | sed -E 's/^## V([0-9.]+).*/v\1/')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag $version already exists; nothing to publish."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Publishing $version from $sha."
+          fi
+
   build:
+    needs: check
+    if: ${{ needs.check.outputs.publish == 'true' }}
     runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
@@ -24,33 +59,27 @@ jobs:
           - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ needs.check.outputs.sha }}
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # ghcr requires a lowercase owner; the repo owner may contain capitals.
       - id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      # Push each arch by digest only (no tag yet); the merge job tags the manifest list.
       - id: build
         uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.service }}
           platforms: linux/${{ matrix.platform.arch }}
           outputs: type=image,name=ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
-
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
-
       - uses: actions/upload-artifact@v4
         with:
           name: digest-${{ matrix.service }}-${{ matrix.platform.arch }}
@@ -59,8 +88,9 @@ jobs:
           retention-days: 1
 
   merge:
+    needs: [check, build]
+    if: ${{ needs.check.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       contents: read
       packages: write
@@ -73,33 +103,43 @@ jobs:
           path: /tmp/digests
           pattern: digest-${{ matrix.service }}-*
           merge-multiple: true
-
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest
-
-      # Combine the per-arch digests into one tagged multi-arch manifest.
+      # One multi-arch manifest tagged version + latest.
       - name: Create and push manifest list
         working-directory: /tmp/digests
+        env:
+          IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }}
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          # shellcheck disable=SC2046  # word-splitting of the tag flags and digest args is intended
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }}@sha256:%s ' *)
+          # shellcheck disable=SC2046  # word-splitting of the digest args is intended
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
 
-      - name: Inspect
-        run: docker buildx imagetools inspect ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }}:latest
+  tag:
+    needs: [check, merge]
+    if: ${{ needs.check.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+      # Record the release tag. A GITHUB_TOKEN tag push won't re-trigger this workflow, so no loop.
+      - name: Create and push the version tag
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "$VERSION" "$SHA"
+          git push origin "$VERSION"

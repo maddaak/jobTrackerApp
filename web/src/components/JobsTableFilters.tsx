@@ -7,7 +7,7 @@ const panelInputClass =
 
 export interface ColumnFilterMeta {
   filter: "list" | "salary";
-  // For enum columns, maps the stored value to a human label shown in the checklist.
+  // Maps an enum's stored value to its checklist label.
   optionLabels?: Record<string, string>;
 }
 
@@ -104,7 +104,7 @@ function ListFilterBody({ column, meta, onClose }: { column: Column<JobSummary, 
     });
   }
   function apply() {
-    // Typed a search but never touched a checkbox: OK filters to the matches. Otherwise apply the checked set (all checked = no filter, none = no rows).
+    // Search typed but no checkbox touched: filter to matches. Else apply the checked set.
     const chosen = search.trim() && !touched ? visible.map(o => o.value) : keys.filter(k => selected.has(k));
     column.setFilterValue(chosen.length === keys.length ? undefined : chosen);
     onClose();

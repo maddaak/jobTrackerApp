@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 
-// Route ids end up in an upstream URL path, so they must match a fixed shape first. A
-// router.param callback replaces the check that was duplicated in every :id handler.
+// Route ids reach an upstream URL path, so they must match a fixed shape first.
 export function validateRouteId(pattern: RegExp, errorMessage: string) {
   return (_req: Request, res: Response, next: NextFunction, value: string) => {
     if (!pattern.test(value)) {

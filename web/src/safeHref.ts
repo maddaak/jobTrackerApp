@@ -1,5 +1,4 @@
-// Guards user-entered or scraped URLs before they become an href: only http(s) is allowed, so a
-// value like "javascript:alert(1)" is never turned into a clickable link.
+// Only http(s), so a "javascript:" URL can't become a clickable link.
 export function safeHref(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   const trimmed = url.trim();

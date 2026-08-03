@@ -44,7 +44,7 @@ import { ColumnFilterPopover } from "./JobsTableFilters";
 import JobDetailModal from "./JobDetailModal";
 import { safeHref } from "../safeHref";
 
-// Always-visible border, not just on focus; otherwise only the autoFocused field in a multi-input editor looks editable and the rest read as inert text.
+// Always-visible border so every field in a multi-input editor looks editable, not just the autoFocused one.
 const cellInputClass =
   "w-full rounded border border-neutral-300 bg-white px-1.5 py-1 text-sm text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:disabled:border-neutral-700 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500";
 
@@ -54,8 +54,7 @@ const ROW_BG_CLASS: Record<"red" | "green" | "yellow", string> = {
   yellow: "bg-yellow-50 dark:bg-yellow-950/20",
 };
 
-// The left accent lives on the first cell (not the row) because row borders don't render in
-// the border-separate model the sticky header needs to stop content bleeding through it.
+// Accent on the first cell, not the row: row borders don't render in the border-separate model the sticky header needs.
 const ROW_ACCENT_CLASS: Record<"red" | "green" | "yellow", string> = {
   red: "border-l-4 border-l-red-400 dark:border-l-red-500",
   green: "border-l-4 border-l-green-400 dark:border-l-green-500",
@@ -64,7 +63,7 @@ const ROW_ACCENT_CLASS: Record<"red" | "green" | "yellow", string> = {
 
 const LOCATION_LABELS: Record<string, string> = Object.fromEntries(LOCATIONS.map(l => [l.value, l.label]));
 
-// Undefined = no filter (all checked); an empty array = nothing checked, so no row matches.
+// Undefined = no filter; empty array = nothing checked, so no row matches.
 function listFilter(row: Row<JobSummary>, columnId: string, value: unknown): boolean {
   if (!Array.isArray(value)) return true;
   return value.includes(row.getValue(columnId));
@@ -130,7 +129,7 @@ function EditToggleCell({ isEditing, onStartEdit, onDone, editLabel, display, ed
     );
   }
   return (
-    // Transparent box matching cellInputClass so display text lines up with the input cells beside it, instead of sitting flush at the top edge while bordered inputs sit inset.
+    // Transparent box matching cellInputClass so display text lines up with the bordered input cells beside it.
     <div className="flex items-center justify-center gap-1.5 border border-transparent px-1.5 py-1">
       <div className="min-w-0 flex-1 text-sm">{display}</div>
       <button
@@ -157,14 +156,14 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [pendingEdits, setPendingEdits] = useState<Record<number, Partial<JobSummary>>>({});
-  // Per-row (not a single id) so a fast save on row A finishing doesn't clear the "Saving…" state of a still-saving row B.
+  // Per-row so row A finishing doesn't clear row B's still-saving state.
   const [savingJobIds, setSavingJobIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ jobId: number; field: EditableField } | null>(null);
   const [interviewModalMode, setInterviewModalMode] = useState<InterviewFormMode | null>(null);
   const [detailModalJob, setDetailModalJob] = useState<JobSummary | null>(null);
 
-  // Cells are memoized once so typing doesn't remount every input; they read the latest values through these refs instead of closing over the state directly.
+  // Memoized cells read latest values through these refs instead of closing over state, so typing doesn't remount every input.
   const pendingEditsRef = useRef(pendingEdits);
   pendingEditsRef.current = pendingEdits;
   const editingCellRef = useRef(editingCell);
@@ -178,7 +177,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
   const onDeletedRef = useRef(onDeleted);
   onDeletedRef.current = onDeleted;
 
-  // New jobs land at the bottom by default (oldest first); clicking a header overrides this.
+  // Oldest first by default; clicking a header overrides this.
   const defaultOrderedJobs = useMemo(
     () => [...jobs].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [jobs],
@@ -192,7 +191,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     return editingCellRef.current?.jobId === jobId && editingCellRef.current.field === field;
   }
 
-  // Autosave commit point: saves the full row (job + pending draft + overrides), used by dropdowns (on change) and pencil fields (on Done).
+  // Autosave commit point for dropdowns and pencil fields; saves the full row.
   async function saveRow(jobId: number, overrides: Partial<JobSummary> = {}) {
     const original = jobsRef.current.find(j => j.id === jobId);
     if (!original) return;
@@ -201,7 +200,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     setError(null);
     try {
       await updateJob(jobId, toUpdateJobInput(merged));
-      // Only drop keys whose value still matches what we saved; a field edited again mid-save has a newer value and must survive.
+      // Drop only keys still matching what we saved; a field re-edited mid-save must survive.
       setPendingEdits(prev => {
         const currentEdits = prev[jobId];
         if (!currentEdits) return prev;
@@ -243,7 +242,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     setEditingCell(null);
   }
 
-  // Always creates a new round, never updates: `latestInterview` can point at an older StageEvent (a Stage-dropdown change makes a fresh one), so guessing update-vs-create risks overwriting a past round. Editing existing rounds is the calendar's job. A blank date means the user saved an empty editor, so just close it.
+  // Always create a new round, never update: latestInterview may point at an older round, so guessing risks overwriting it. Blank date = cancel.
   async function saveInterview(jobId: number, draft: InlineInterviewDraft) {
     if (!draft.interviewDateTime) {
       cancelInterviewEditor();
@@ -295,7 +294,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     }
   }
 
-  // The table holds only the compact latestInterview summary; assemble the full Interview the modal needs from it plus job fields, no extra fetch.
+  // Assemble the modal's full Interview from the summary plus job fields, no extra fetch.
   function openInterviewDetails(job: JobSummary) {
     if (!job.latestInterview) return;
     const interview: Interview = {
@@ -619,14 +618,14 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
             onChange={e => {
               const value = e.target.value as Outcome;
               const overrides: Partial<JobSummary> = { outcome: value };
-              // A rejected job is closed, so move it straight to the terminal stage.
+              // Rejected job is closed, so move it to the terminal stage.
               if (value === "REJECTED") {
                 overrides.currentStage = "FINALIZED";
                 setField(job.id, "currentStage", "FINALIZED");
               }
               setField(job.id, "outcome", value);
               saveRow(job.id, overrides);
-              // Rejected reason lives in the Details modal, so open it so it doesn't get left blank.
+              // Open Details so the rejected reason isn't left blank.
               if (value === "REJECTED") {
                 setDetailModalJob({ ...job, ...overrides });
               }

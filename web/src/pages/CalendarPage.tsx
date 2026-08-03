@@ -9,11 +9,11 @@ export default function CalendarPage() {
   const [month, setMonth] = useState(() => new Date());
   const [formMode, setFormMode] = useState<InterviewFormMode | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Tag each refresh so a slower earlier load can't resolve last and overwrite newer data.
+  // Tag each refresh so a slower earlier load can't overwrite newer data.
   const reqId = useRef(0);
 
   useEffect(() => {
-    // Ignore a mount-time load that resolves after this page has unmounted.
+    // Ignore a load that resolves after unmount.
     let ignore = false;
     listInterviews()
       .then(loaded => { if (!ignore) setInterviews(loaded); })

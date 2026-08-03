@@ -1,15 +1,14 @@
 import { useRef, useState } from "react";
 import type { InterviewerInput } from "../api/interviewsApi";
 
-// `key` is a stable React list key so editing one row doesn't remount the others; never sent to the server.
+// Stable React list key so editing one row doesn't remount others; never sent to the server.
 export interface InterviewerDraft {
   key: string;
   name: string;
   linkedInUrl: string;
 }
 
-// Shared interviewer-list state + handlers, used by both the calendar's InterviewFormModal and
-// the JobsTable inline interview editor.
+// Shared interviewer-list state, used by InterviewFormModal and the JobsTable inline editor.
 export function useInterviewerDraft() {
   const [interviewers, setInterviewers] = useState<InterviewerDraft[]>([]);
   const nextKeyRef = useRef(0);

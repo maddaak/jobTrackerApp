@@ -14,8 +14,7 @@ import (
 	"time"
 )
 
-// anthropicBaseURL is a package var (not a const) so tests can point it at a local
-// httptest.Server instead of the real Anthropic API.
+// anthropicBaseURL is a package var so tests can point it at a local server.
 var anthropicBaseURL = "https://api.anthropic.com"
 
 var claudeHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -25,9 +24,7 @@ var errNotConfigured = errors.New("anthropic api key not configured")
 const maxPromptChars = 12000
 const defaultAnthropicModel = "claude-sonnet-5"
 
-// claudeMaxRetries is the number of retries (on top of the initial attempt) for transient
-// Anthropic failures. claudeRetryBackoffBase is a package var so tests can zero it to avoid
-// sleeping while exercising the retry path.
+// Retries beyond the first attempt for transient Anthropic failures.
 const claudeMaxRetries = 2
 
 var claudeRetryBackoffBase = 500 * time.Millisecond
@@ -41,17 +38,14 @@ type cacheControl struct {
 	Type string `json:"type"`
 }
 
-// System prompts are fixed strings reused on every call, so they are marked cacheable. Caching
-// only kicks in past the model's minimum cacheable prefix; today's prompts are short enough that
-// it's a no-op, but it starts saving cost automatically if they grow past that threshold.
+// System prompts are fixed per call, so mark them cacheable; a no-op until they exceed the model's min cacheable prefix.
 type anthropicSystemBlock struct {
 	Type         string        `json:"type"`
 	Text         string        `json:"text"`
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
-// anthropicThinking disables adaptive thinking for these JSON-extraction calls, so none of the
-// token budget is spent on internal reasoning we don't want when we only need a short JSON object.
+// anthropicThinking disables adaptive thinking so the token budget goes to the JSON answer, not reasoning.
 type anthropicThinking struct {
 	Type string `json:"type"`
 }
@@ -74,11 +68,7 @@ type anthropicResponse struct {
 	StopReason string                  `json:"stop_reason"`
 }
 
-// callClaude sends one single-turn message to Claude and returns its text response; ctx cancels
-// the upstream call if the caller disconnects. It distinguishes two error kinds so callers can
-// react differently: errNotConfigured (no API key, nothing to retry) versus a wrapped transient
-// error (network/API failure). Transient failures (network errors, HTTP 429 and 5xx) are retried
-// up to claudeMaxRetries with increasing backoff; other non-2xx are returned immediately.
+// callClaude sends one single-turn message and returns Claude's text; errNotConfigured (no key) vs a transient error retried up to claudeMaxRetries with backoff.
 func callClaude(ctx context.Context, systemPrompt, userMessage string, maxTokens int) (string, error) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
@@ -89,8 +79,7 @@ func callClaude(ctx context.Context, systemPrompt, userMessage string, maxTokens
 		model = defaultAnthropicModel
 	}
 
-	// Fable/Mythos always think and 400 on an explicit thinking field, so it must be omitted for
-	// them; every other model accepts disabled, keeping the token budget on the JSON answer.
+	// Fable/Mythos always think and 400 on an explicit thinking field, so omit it for them.
 	lowerModel := strings.ToLower(model)
 	var thinking *anthropicThinking
 	if !strings.HasPrefix(lowerModel, "claude-fable") && !strings.HasPrefix(lowerModel, "claude-mythos") {
@@ -113,8 +102,7 @@ func callClaude(ctx context.Context, systemPrompt, userMessage string, maxTokens
 	var lastErr error
 	for attempt := 0; attempt <= claudeMaxRetries; attempt++ {
 		if attempt > 0 {
-			// Honor cancellation during the backoff: if the caller disconnects while we're
-			// waiting to retry, bail out immediately instead of sleeping the full delay.
+			// Bail out if the caller disconnects mid-backoff instead of sleeping the full delay.
 			select {
 			case <-time.After(time.Duration(attempt) * claudeRetryBackoffBase):
 			case <-ctx.Done():
@@ -133,9 +121,7 @@ func callClaude(ctx context.Context, systemPrompt, userMessage string, maxTokens
 	return "", lastErr
 }
 
-// doClaudeRequest performs one attempt against the Anthropic API. The bool reports whether a
-// failure is transient (worth retrying): a network/transport error or an HTTP 429/5xx is
-// retryable; any other non-200 status and any response-parsing failure is not.
+// doClaudeRequest makes one attempt; the bool reports whether the failure is transient (network or 429/5xx).
 func doClaudeRequest(ctx context.Context, apiKey string, reqBody []byte) (string, bool, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicBaseURL+"/v1/messages", bytes.NewReader(reqBody))
 	if err != nil {
@@ -180,18 +166,13 @@ func doClaudeRequest(ctx context.Context, apiKey string, reqBody []byte) (string
 	return text.String(), false, nil
 }
 
-// aiStatusHandler reports whether the Anthropic API key is configured on this service. Only
-// the scraper holds the key, so the BFF (and ultimately the frontend) relies on this to decide
-// whether to surface AI features at all.
+// aiStatusHandler reports whether the API key is configured, since only the scraper holds it.
 func aiStatusHandler(w http.ResponseWriter, r *http.Request) {
 	configured := os.Getenv("ANTHROPIC_API_KEY") != ""
 	writeJSON(w, http.StatusOK, map[string]bool{"configured": configured})
 }
 
-// extractJSON pulls the JSON object out of a model response. It strips a ```json ... ``` (or
-// plain ``` ... ```) fence some models add, then slices from the first '{' to the last '}'. That
-// second step matters because a thinking-disabled model can still prepend a sentence of prose
-// before the JSON; without it, any such preamble fails the parse and the handler 502s.
+// extractJSON strips a code fence and slices first { to last } so a prose preamble doesn't fail the parse.
 func extractJSON(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "```json")
@@ -205,8 +186,7 @@ func extractJSON(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// writeClaudeError maps a callClaude error to the two-status contract every AI endpoint
-// shares: 503 when there's no key to retry with, 502 for anything transient.
+// writeClaudeError maps a callClaude error to the shared contract: 503 no key, 502 transient.
 func writeClaudeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errNotConfigured) {
 		writeError(w, http.StatusServiceUnavailable, "not_configured")
@@ -260,10 +240,7 @@ func analyzeResumeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Thinking is disabled, so the whole max_tokens budget goes to the JSON answer, but a detailed
-	// 4-6 sentence summary plus a full skills/roles list can be long. Too tight a ceiling truncates
-	// the JSON (or returns empty content with stop_reason=max_tokens) and fails the parse below;
-	// 4096 leaves headroom.
+	// Thinking is disabled, so max_tokens all goes to the JSON; 4096 leaves headroom for a long summary.
 	raw, err := callClaude(r.Context(), resumeAnalysisSystemPrompt, truncate(req.Text, maxPromptChars), 4096)
 	if err != nil {
 		writeClaudeError(w, err)
@@ -280,10 +257,7 @@ func analyzeResumeHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, analysis)
 }
 
-// This sends full resume text, not a per-resume summary: summaries compress away the detail
-// that differentiates similar resumes, which was the root cause of inconsistent picks across
-// identical calls (smoke test: summaries gave a different "best resume" on 3 of 3 repeat calls,
-// full text gave the same answer on 5 of 5).
+// Full resume text, not summaries: summaries compressed away detail and gave inconsistent picks.
 type resumeDocument struct {
 	ID       string `json:"id"`
 	FileName string `json:"fileName"`
@@ -301,12 +275,10 @@ type matchResult struct {
 	Reasoning      string `json:"reasoning"`
 }
 
-// Generous per-resume cap (vs. maxPromptChars for the JD alone): real resumes run a few
-// thousand characters; this just guards against a pathologically large upload, not normal use.
+// Generous per-resume cap; guards against a pathological upload, not normal use.
 const maxResumeChars = 8000
 
-// Per-item char caps don't bound the item count, and an unbounded list blows the model's
-// context window and surfaces as a generic 502. A real caller sends a handful.
+// Bound the item count so an unbounded list can't blow the model's context window.
 const maxResumes = 50
 const maxResumeVariants = 50
 
@@ -348,9 +320,7 @@ func matchResumeHandler(w http.ResponseWriter, r *http.Request) {
 			"<<<JOB_DESCRIPTION>>>\n%s\n<<<END_JOB_DESCRIPTION>>>\n\nCandidate resumes:\n%s",
 		truncate(req.JobDescriptionText, maxPromptChars), docsText.String())
 
-	// Thinking is disabled, so the whole max_tokens budget goes to the JSON answer. 1024 was tight
-	// enough that a long reasoning string could still be truncated (or return empty content with
-	// stop_reason=max_tokens); 4096 leaves real headroom.
+	// Thinking disabled; 4096 max_tokens leaves headroom so long reasoning isn't truncated.
 	raw, err := callClaude(r.Context(), matchResumeSystemPrompt, userMessage, 4096)
 	if err != nil {
 		writeClaudeError(w, err)
@@ -364,9 +334,7 @@ func matchResumeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Claude occasionally returns an id that isn't one we sent. Empty string is a valid "no
-	// pick" (e.g. INSUFFICIENT_JD); anything else must match a provided resume or it's coerced
-	// back to no-pick so the caller never gets a phantom id.
+	// Coerce an id we never sent back to no-pick so the caller never gets a phantom id.
 	if result.BestResumeID != "" {
 		found := false
 		for _, doc := range req.Resumes {
@@ -383,10 +351,7 @@ func matchResumeHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// Phase 2 of FEATURE_resume_recommender.md: an LLM "second opinion" alongside the free
-// rules-based emphasis matcher in core (ResumeRecommenderService). Variant blurbs come from
-// the caller (core owns that config) rather than being hardcoded here, so this endpoint
-// works for however many resume variants exist without a scraper-side change.
+// LLM second opinion alongside core's rules-based matcher; variant blurbs come from the caller.
 type resumeVariantBlurb struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
@@ -449,8 +414,7 @@ func recommendResumeVariantHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Coerce an unrecognized id back to no-pick: empty string is allowed, but any non-empty
-	// variantId must be one we actually sent so the caller never gets a phantom id.
+	// Coerce an id we never sent back to no-pick so the caller never gets a phantom id.
 	if result.VariantID != "" {
 		found := false
 		for _, v := range req.Variants {

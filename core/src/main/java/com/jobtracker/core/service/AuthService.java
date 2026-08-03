@@ -17,8 +17,7 @@ import java.util.Optional;
 @Service
 public class AuthService {
 
-    // A valid BCrypt hash used only to spend the same hashing time when the username is unknown,
-    // so a caller cannot tell "no such user" from "wrong password" by response timing.
+    // Compared against on unknown usernames so timing can't distinguish that from a wrong password.
     private static final String DUMMY_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
     private final UserRepository users;

@@ -20,24 +20,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-// Phase 1 (rules) of FEATURE_resume_recommender.md: matches a job's title + description
-// against each of the caller's own analyzed resumes and picks the best fit. Deterministic and
-// free, no LLM call. Resume "variants" are never hardcoded here: every user brings their
-// own resumes (uploaded and summarized via ResumeService/ResumesPage), so this reads them
-// straight from Mongo rather than from a fixed list baked into the app.
+// Phase 1: deterministic, no-LLM best-fit match against the caller's own analyzed resumes from Mongo.
 @Service
 public class ResumeRecommenderService {
 
-    // Title hits are a stronger signal than body hits: a short, deliberate job title
-    // mentioning "backend" or "platform" says more than one incidental body mention.
+    // A keyword in the deliberate job title is a stronger signal than an incidental body mention.
     private static final int TITLE_WEIGHT = 3;
     private static final int BODY_WEIGHT = 1;
     private static final int MAX_REASON_KEYWORDS = 3;
     private static final int MIN_TOKEN_LENGTH = 3;
 
-    // Only used to derive emphasis keywords from a *custom* (non-AI) summary, which has no
-    // structured skills/roles list to fall back on, trimmed to the words that would otherwise
-    // dominate every summary and carry no matching signal.
+    // Dropped when tokenizing a custom summary: common words that carry no matching signal.
     private static final Set<String> STOPWORDS = Set.of(
             "the", "and", "for", "with", "from", "that", "this", "will", "have", "into",
             "using", "years", "year", "experience", "experienced", "background", "worked",
@@ -60,7 +53,7 @@ public class ResumeRecommenderService {
     public ResumeRecommendationResponse recommend(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
         String titleText = job.getRole() == null ? "" : job.getRole().toLowerCase();
-        // Pass the loaded job so getDetail does not re-run the same ownership query.
+        // Pass the loaded job so getDetail skips a redundant ownership query.
         String bodyText = jobDetailService.getDetail(job).jdText().toLowerCase();
 
         List<ResumeVariant> variants = resumes.findByOwnerId(ownerId).stream()
@@ -123,8 +116,7 @@ public class ResumeRecommenderService {
         if (analysis.roles() != null) {
             analysis.roles().forEach(r -> tags.add(r.toLowerCase()));
         }
-        // Structured skills/roles come from an AI analysis; a custom summary has neither, so
-        // fall back to tokenizing the summary text itself.
+        // A custom summary has no structured skills/roles, so fall back to tokenizing its text.
         if (tags.isEmpty()) {
             tags.addAll(tokenize(analysis.summary()));
         }
@@ -153,9 +145,7 @@ public class ResumeRecommenderService {
         if (text.isBlank()) {
             return 0;
         }
-        // \b word boundaries can't match tags with non-word characters (c++, c#, node.js), which
-        // tokenize() deliberately preserves. Use lookarounds over the same character class the
-        // tokenizer treats as part of a token, so a tag matches only as a standalone token.
+        // \b fails on tags like c++, c#, node.js, so use lookarounds over the tokenizer's char class.
         Matcher matcher = Pattern.compile("(?<![a-z0-9+/#])" + Pattern.quote(tag) + "(?![a-z0-9+/#])").matcher(text);
         int count = 0;
         while (matcher.find()) {

@@ -8,9 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-// Shared gzip helpers for the large text blobs (resume text, job descriptions) that are stored
-// compressed in Mongo. Kept in one place so the two services that persist those blobs cannot
-// drift apart on the wire format.
+// Shared gzip helpers so the services storing text blobs in Mongo can't drift on wire format.
 final class Gzip {
 
     private Gzip() {
@@ -34,8 +32,7 @@ final class Gzip {
         try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
             return new String(gzip.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            // Corrupt stored data is a server fault, not a bad upload. A non-UncheckedIOException
-            // routes to the catch-all 500 instead of the 422 upload-read handler.
+            // Not UncheckedIOException: corrupt stored data is a 500, not the 422 upload-read path.
             throw new IllegalStateException("stored compressed text could not be read", e);
         }
     }

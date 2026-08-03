@@ -5,7 +5,7 @@ import { getAiConfigured } from "../api/config";
 interface AuthState {
   username: string | null;
   loading: boolean;
-  // Whether the backend has an Anthropic key; when false, AI features are hidden entirely.
+  // When false, AI features are hidden entirely.
   aiConfigured: boolean;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
@@ -40,15 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetch("/auth/me")
       .then(res => (res.ok ? res.json() : null))
       .then(data => setUsername(data?.username ?? null))
-      // A network failure or a non-JSON body (e.g. a proxy 502 HTML page) must not surface
-      // as an unhandled rejection; treat any failure as "not authenticated".
+      // Treat any failure (network, non-JSON body) as "not authenticated".
       .catch(() => setUsername(null))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    // A 401 from any API call means the session expired. Clear the user so ProtectedRoute
-    // redirects to /login instead of leaving the user staring at generic error banners.
+    // 401 means the session expired; clear the user so ProtectedRoute redirects to /login.
     function handleUnauthorized() {
       setUsername(null);
     }

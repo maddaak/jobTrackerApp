@@ -5,8 +5,7 @@ import de.bwaldvogel.mongo.backend.memory.MemoryBackend;
 
 import java.net.InetSocketAddress;
 
-// Pure-Java in-memory MongoDB (no mongod, no Docker) so a @SpringBootTest can run the real Mongo
-// delete path. Without it, that path hangs on the driver's 30s server-selection timeout.
+// In-memory MongoDB so tests exercise the real Mongo path without hanging on the 30s server-selection timeout.
 public final class InMemoryMongo {
     private static final MongoServer SERVER = new MongoServer(new MemoryBackend());
     private static final InetSocketAddress ADDRESS = SERVER.bind();

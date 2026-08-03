@@ -1,7 +1,5 @@
 package com.jobtracker.core.dto;
 
-// Sent alongside the rules-based recommendation so BFF can forward these blurbs to the
-// scraper's Claude-backed /recommend-resume-variant endpoint without hardcoding variant
-// config in two places.
+// Lets BFF forward blurbs to the scraper's Claude recommend endpoint without duplicating variant config.
 public record ResumeVariantSummary(String id, String displayName, String blurb) {
 }

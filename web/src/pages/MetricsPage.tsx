@@ -19,8 +19,7 @@ export function nodeLabel(name: string): string {
   if (name in SANKEY_NODE_LABELS) return SANKEY_NODE_LABELS[name];
   if (name in INTERVIEW_TYPE_LABELS) return INTERVIEW_TYPE_LABELS[name as InterviewType];
   if (name in OUTCOME_LABELS) return OUTCOME_LABELS[name as Outcome];
-  // An enum key with no explicit label (e.g. a newly added backend value): title-case it so
-  // it never reaches the user as raw SCREAMING_CASE ("SOME_NEW_KEY" -> "Some New Key").
+  // Title-case an unmapped enum key so it never reaches the user as raw SCREAMING_CASE.
   return name
     .toLowerCase()
     .split("_")
@@ -28,8 +27,7 @@ export function nodeLabel(name: string): string {
     .join(" ");
 }
 
-// Stage nodes follow the pipeline as an ordered blue->violet ramp so progression reads left
-// to right; outcome nodes use reserved status colors so a good/bad result is obvious.
+// Stage nodes ramp blue->violet so progression reads left to right; outcomes use status colors.
 const STAGE_COLORS: Record<Stage, string> = {
   RESUME_CHECK: "#93c5fd",
   INTERVIEW_REQUEST: "#60a5fa",
@@ -48,7 +46,7 @@ const OUTCOME_COLORS: Record<Outcome, string> = {
   WITHDRAWN: "#78716c",
 };
 
-// Distinct color per round so a flow that skips a column doesn't blend into the round it passes behind. Extra entries are future-proof fallbacks for round types not yet seen.
+// Distinct color per round so a skipping flow doesn't blend into the round behind it; extras are fallbacks.
 const INTERVIEW_ROUND_COLORS: Record<string, string> = {
   RECRUITER_PHONE_SCREEN: "#e69f00",
   TECHNICAL_PHONE_SCREEN: "#56b4e9",
@@ -77,7 +75,7 @@ function colorForNode(name: string): string {
   return "#94a3b8";
 }
 
-// Node totals are the actual flow through each node (max of in/out) so the labels match the drawn bars.
+// Max of in/out flow so labels match the drawn bars.
 export function toSankeyData(metrics: Metrics) {
   const links = metrics.sankeyLinks;
   const names = Array.from(new Set(links.flatMap(link => [link.source, link.target])));
@@ -110,7 +108,7 @@ export default function MetricsPage() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Ignore a mount-time load that resolves after this page has unmounted.
+    // Ignore a load that resolves after unmount.
     let ignore = false;
     getMetrics()
       .then(loaded => { if (!ignore) setMetrics(loaded); })
@@ -118,7 +116,6 @@ export default function MetricsPage() {
     return () => { ignore = true; };
   }, []);
 
-  // Dismiss the companies panel on a click outside it.
   useEffect(() => {
     if (!selected) return;
     function onMouseDown(e: MouseEvent) {

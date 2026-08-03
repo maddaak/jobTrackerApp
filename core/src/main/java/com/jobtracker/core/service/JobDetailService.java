@@ -42,9 +42,7 @@ public class JobDetailService {
         try {
             return toResponse(saveDetail(jobId, request));
         } catch (DuplicateKeyException race) {
-            // Two concurrent first-time saves for this jobId both built a new document and raced
-            // on the jobId unique index. The loser retries against the now-existing document so
-            // its edit merges in, instead of surfacing as a 409 that drops the write.
+            // Lost a first-save race on the jobId unique index; retry against the now-existing doc.
             return toResponse(saveDetail(jobId, request));
         }
     }
@@ -53,16 +51,14 @@ public class JobDetailService {
         JobDetail detail = jobDetails.findByJobId(jobId)
                 .orElseGet(() -> new JobDetail(jobId, Gzip.compress(""), ""));
         detail.update(Gzip.compress(request.jdText()), request.interviewNotes());
-        // Preserve-if-null: a later save that omits the recommendation (sends null),
-        // e.g. the details modal saving only jd/notes, must not wipe an existing value.
+        // A save that omits the recommendation (null) must not wipe an existing value.
         if (request.recommendedResume() != null) {
             detail.setRecommendedResume(request.recommendedResume());
         }
         return jobDetails.save(detail);
     }
 
-    // Called from the job-delete cascade after ownership is already verified there. A no-op
-    // when no document exists.
+    // Called from the job-delete cascade, where ownership is already verified.
     public void deleteDetail(Long jobId) {
         jobDetails.deleteByJobId(jobId);
     }

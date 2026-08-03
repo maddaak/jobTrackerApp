@@ -25,8 +25,7 @@ import java.util.Map;
 @Service
 public class MetricsService {
 
-    // FINALIZED is the terminal marker (a rejected job is auto-set to it), so it is excluded
-    // to keep it out of the funnel rows and Sankey nodes; closure shows up as outcome rows.
+    // FINALIZED is a terminal marker, not a pipeline stage; closure is reported as outcome rows.
     private static final List<Stage> PIPELINE_STAGES = Arrays.stream(Stage.values())
             .filter(stage -> stage != Stage.FINALIZED)
             .toList();
@@ -41,8 +40,7 @@ public class MetricsService {
 
     public MetricsResponse getMetrics(Long ownerId) {
         List<Job> ownerJobs = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId);
-        // Both views derive from this one set, so a second query for the interview-dated subset
-        // would be redundant.
+        // Both views derive from this one query; no second query for the interview-dated subset.
         List<StageEvent> ownerStageEvents = stageEvents.findAllByJobOwnerId(ownerId);
         Map<Long, Stage> furthestByJobId = furthestStagesByJobId(ownerStageEvents);
         List<StageEvent> interviewRounds = ownerStageEvents.stream()
@@ -57,8 +55,7 @@ public class MetricsService {
     private record SankeyData(List<SankeyLink> links, Map<String, Map<String, Integer>> companiesByNode) {
     }
 
-    // Excludes FINALIZED so a rejected job (auto-moved to FINALIZED) does not falsely count as
-    // having reached the later pipeline stages. Rounds repeat, so keep the max ordinal entered.
+    // Excludes FINALIZED so a rejected job isn't counted as having reached later pipeline stages.
     private Map<Long, Stage> furthestStagesByJobId(List<StageEvent> ownerStageEvents) {
         Map<Long, Stage> furthestByJobId = new HashMap<>();
         for (StageEvent event : ownerStageEvents) {
@@ -81,8 +78,7 @@ public class MetricsService {
                 .toList();
     }
 
-    // Jobs with no recorded stage default to RESUME_CHECK, since every job gets a RESUME_CHECK
-    // event at creation.
+    // Every job gets a RESUME_CHECK event at creation, so no recorded stage means RESUME_CHECK.
     private boolean reached(Job job, Stage stage, Map<Long, Stage> furthestByJobId) {
         return furthestByJobId.getOrDefault(job.getId(), Stage.RESUME_CHECK).ordinal() >= stage.ordinal();
     }
@@ -95,8 +91,7 @@ public class MetricsService {
                 .toList();
     }
 
-    // Full per-type breakdown lives here; the Sankey collapses all panel types into one "PANEL"
-    // node, so per-type counts must come from these rounds.
+    // Per-type breakdown; the Sankey collapses all panel types into one node, so it can't supply this.
     private List<InterviewRoundCount> interviewRoundCounts(List<StageEvent> rounds) {
         return Arrays.stream(InterviewType.values())
                 .map(type -> new InterviewRoundCount(type,
@@ -104,22 +99,15 @@ public class MetricsService {
                 .toList();
     }
 
-    // Fallback tie-breaker only, for round nodes with equal average chronological position. The
-    // live left-to-right order comes from actual event timestamps (see globalRoundOrder).
+    // Tie-breaker only for round nodes with equal average position; live order is globalRoundOrder.
     private static final List<String> ROUND_NODE_ORDER = List.of(
             "RECRUITER_PHONE_SCREEN", "TECHNICAL_PHONE_SCREEN", "HIRING_MANAGER_SCREEN",
             "SYSTEM_DESIGN", "BEHAVIOR", "CULTURE_FIT", "VALUES", "PANEL");
 
-    // The Sankey traces each job's interview journey rather than the generic stage pipeline.
-    // Round-node columns follow one global left-to-right order derived from real event timestamps
-    // (globalRoundOrder), so they reflect typical real chronology. That order is a strict total
-    // order and RESUME_CHECK < INTERVIEW_REQUEST < round nodes < OFFER < ACCEPTED/DECLINED, with
-    // negative terminals always last, so the graph stays acyclic. Each job adds 1 to every link
-    // on its own path.
+    // Strict node ordering (RESUME_CHECK < INTERVIEW_REQUEST < rounds < OFFER < terminals) keeps the graph acyclic.
     private SankeyData sankeyData(List<Job> ownerJobs, Map<Long, Stage> furthestByJobId,
             List<StageEvent> interviewRounds) {
-        // Rounds with no chosen type can't be placed on a type node, so they are skipped here
-        // (the job still reaches the interview stage via its stage history).
+        // Rounds with no chosen type can't be placed on a type node, so skip them here.
         Map<Long, List<String>> nodeSequencesByJobId = new HashMap<>();
         Map<Long, List<StageEvent>> roundsByJobId = new HashMap<>();
         for (StageEvent round : interviewRounds) {
@@ -136,11 +124,11 @@ public class MetricsService {
             nodeSequencesByJobId.put(entry.getKey(), sequence);
         }
 
-        // Computed once and shared into every job's path so all jobs use one left-to-right order.
+        // Computed once so all jobs share one left-to-right order.
         List<String> globalOrder = globalRoundOrder(nodeSequencesByJobId);
 
         Map<String, Long> counts = new LinkedHashMap<>();
-        // Counting, not deduping: a company flowing through a node on N jobs is reported as N.
+        // Counting, not deduping: a company on N jobs through a node counts as N.
         Map<String, Map<String, Integer>> companiesByNode = new LinkedHashMap<>();
         for (Job job : ownerJobs) {
             List<String> path = jobPath(job, furthestByJobId,
@@ -162,9 +150,7 @@ public class MetricsService {
         return new SankeyData(links, companiesByNode);
     }
 
-    // Global round order derived from event timestamps: each node's per-job position is its
-    // first-occurrence index, and nodes sort by average position across jobs. Ties break by the
-    // fallback canonical order then name, giving a strict total order so the graph stays acyclic.
+    // Sorts round nodes by average first-occurrence index; ties break by canonical order then name.
     private List<String> globalRoundOrder(Map<Long, List<String>> nodeSequencesByJobId) {
         Map<String, Long> sumOfPositions = new HashMap<>();
         Map<String, Long> counts = new HashMap<>();
@@ -201,8 +187,7 @@ public class MetricsService {
         boolean reachedIR = furthest.ordinal() >= Stage.INTERVIEW_REQUEST.ordinal() || !roundNodes.isEmpty();
         if (reachedIR) {
             path.add(Stage.INTERVIEW_REQUEST.name());
-            // Walk this job's distinct round nodes in the shared global order so the Sankey
-            // columns stay consistent across jobs and the path stays strictly increasing.
+            // Follow the shared global order so paths stay strictly increasing and columns align.
             for (String node : globalOrder) {
                 if (roundNodes.contains(node)) {
                     path.add(node);
@@ -213,9 +198,7 @@ public class MetricsService {
         Outcome outcome = job.getOutcome();
         boolean hasOffer = outcome == Outcome.OFFER_ACCEPTED || outcome == Outcome.OFFER_DECLINED
                 || furthest == Stage.OFFER_STAGE;
-        // Every path ends at a terminal node so a node's link total equals its real job count.
-        // ACTIVE jobs still in flight (at an offer or anywhere earlier) flow into IN_PROGRESS,
-        // which is only ever a target and never a source, so the graph stays acyclic.
+        // Every path ends at a terminal so node link totals equal job counts; in-flight jobs go to IN_PROGRESS.
         if (hasOffer) {
             path.add("OFFER");
             if (outcome == Outcome.OFFER_ACCEPTED) {

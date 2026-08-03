@@ -28,10 +28,7 @@ public class ResumeService {
         this.analysisParser = analysisParser;
     }
 
-    // Stores the resume immediately, before any analysis is attempted, so the file is never
-    // lost even if the (separate, BFF-orchestrated) analysis call fails. extractedText is
-    // returned in plaintext here only, so the caller can hand it to the analyzer without a
-    // second round trip; it's persisted compressed, never persisted in plaintext.
+    // Persist before analysis so the file survives a failed analysis call; stored compressed.
     public CreateResumeResponse createResume(Long ownerId, MultipartFile file) {
         byte[] bytes;
         try {
@@ -51,9 +48,7 @@ public class ResumeService {
         return toSummary(resumes.save(resume));
     }
 
-    // BFF-internal: fetches the stored text back out so it can hand it to the scraper's
-    // Claude call when the user picks "summarize with AI", including for a resume that's
-    // still pending from an earlier session, not just the one just uploaded.
+    // BFF-internal: re-fetches stored text to feed the AI summarize call.
     public ResumeTextResponse getExtractedText(Long ownerId, String id) {
         Resume resume = resumes.findByIdAndOwnerId(id, ownerId).orElseThrow(ResumeNotFoundException::new);
         return new ResumeTextResponse(resume.getId(), Gzip.decompress(resume.getExtractedTextCompressed()));

@@ -58,7 +58,7 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
             aria-label={day.toDateString()}
             onClick={() => onSelectDay(day)}
             onKeyDown={e => {
-              // Only handle the cell's own key events; otherwise Enter/Space on a focused interview button bubbles here and opens the create modal instead of editing.
+              // Ignore keys bubbling from a focused interview button, else Enter/Space opens the create modal instead of editing.
               if (e.target !== e.currentTarget) return;
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();

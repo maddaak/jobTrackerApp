@@ -28,8 +28,7 @@ export interface Metrics {
   outcomeCounts: OutcomeCount[];
   interviewRoundCounts: InterviewRoundCount[];
   sankeyLinks: SankeyLink[];
-  // Original node name (e.g. "TECHNICAL_PHONE_SCREEN") to a map of company name -> job count
-  // for the jobs flowing through it.
+  // Node name -> company name -> job count flowing through it.
   companiesByNode?: Record<string, Record<string, number>>;
 }
 

@@ -1,5 +1,4 @@
-# Run from pre-built images instead of building from source:
-#   docker compose -f docker-compose.images.yml up -d
+# Run from pre-built images: docker compose -f docker-compose.images.yml up -d
 # Override IMAGE_PREFIX / IMAGE_TAG in .env to use a fork or pin a version.
 services:
   web:

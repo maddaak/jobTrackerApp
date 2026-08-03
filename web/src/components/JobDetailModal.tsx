@@ -44,7 +44,7 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
 
   useEffect(() => {
     if (!job) return;
-    // Ignore responses that resolve after the user switched jobs; otherwise a slow load for job A overwrites job B's fields (and Save would then persist A's content onto B).
+    // Ignore a response that resolves after the user switched jobs, else A's load overwrites B.
     let ignore = false;
     setNotes(job.notes ?? "");
     setRejectedReason(job.rejectedReason ?? "");
@@ -91,7 +91,7 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
 
   const rejectedReasonEnabled = job?.outcome === "REJECTED";
 
-  // Collapse consecutive duplicate stages so back-and-forth stage changes read as one entry.
+  // Collapse consecutive duplicate stages into one entry.
   const dedupedStages = stageHistory.filter(
     (entry, i) => i === 0 || entry.stage !== stageHistory[i - 1].stage,
   );
@@ -102,8 +102,7 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
     setSaving(true);
     setError(null);
     try {
-      // PATCH /jobs/:id requires the whole job (@NotNull fields), and the `job` prop is a stale snapshot from when the modal opened (the table may have autosaved this row meanwhile).
-      // Re-fetch the live job so we overwrite only notes/rejectedReason and preserve the rest.
+      // Re-fetch the live job (the prop is a stale snapshot) so PATCH preserves fields the table may have autosaved.
       const fresh = await getJob(job.id);
       const applyRejectedReason = fresh.outcome === "REJECTED";
       await Promise.all([

@@ -169,8 +169,7 @@ export async function updateJob(id: number, input: UpdateJobInput): Promise<JobS
   });
 }
 
-// Used before a modal save so we build the update from live data, not a snapshot captured when
-// the modal opened (which may have gone stale while the table autosaved other fields on the same row).
+// Fetch live data before a modal save; the opened-modal snapshot may be stale from table autosaves.
 export async function getJob(id: number): Promise<JobSummary> {
   return request<JobSummary>(`/jobs/${id}`, "failed to load job");
 }
@@ -200,7 +199,7 @@ export interface JobDetail {
 export interface UpdateJobDetailInput {
   jdText: string;
   interviewNotes: string;
-  // Set once from the Add Job recommendation; omitted on later edits so it is preserved.
+  // Set once from the Add Job recommendation; omitted on later edits to preserve it.
   recommendedResume?: string;
 }
 

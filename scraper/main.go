@@ -13,9 +13,7 @@ func health(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "scraper"})
 }
 
-// requireInternalToken mirrors core's InternalTokenFilter: every route except /health
-// requires the shared service-to-service token, since only the BFF should ever reach
-// this service (it lives off the public network in docker-compose).
+// requireInternalToken enforces the shared service-to-service token on every route but /health.
 func requireInternalToken(next http.HandlerFunc, expectedToken string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		provided := r.Header.Get("X-Internal-Token")
@@ -46,13 +44,10 @@ func main() {
 	}
 	log.Printf("scraper listening on :%s", port)
 
-	// Explicit timeouts so a slow or stuck client cannot tie up a connection indefinitely.
-	// WriteTimeout must clear the slowest legitimate response: an AI handler can take up to the
-	// claude client timeout (30s) per attempt, times up to 3 attempts with backoff on transient
-	// failures, so 130s leaves headroom without truncating a real AI response mid-flight.
+	// Explicit timeouts so a slow client can't tie up a connection; WriteTimeout (130s) clears the slowest AI call (30s x up to 3 attempts).
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      nil, // nil uses http.DefaultServeMux, where the routes above are registered
+		Handler:      nil,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 130 * time.Second,
 		IdleTimeout:  120 * time.Second,

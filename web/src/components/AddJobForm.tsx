@@ -39,7 +39,7 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
   const [pastedJdText, setPastedJdText] = useState("");
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
-  // Distinguish "skipped" (expected) from "fetch_failed" (a problem) so the manual-paste box's tone matches.
+  // "skipped" (expected) vs "fetch_failed" (a problem) sets the manual-paste box's tone.
   const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | "insufficient_jd" | null>(null);
 
   async function runMatch(jobDescriptionText: string) {
@@ -47,7 +47,7 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
     setMatchResult(null);
     try {
       const result = await matchResumeToJob(jobDescriptionText);
-      // Scraped text isn't a real JD (nav markup, JSON, cookie text); prompt for a manual paste instead of a red "do not apply" verdict on garbage.
+      // Scraped text isn't a real JD; prompt for manual paste instead of a "do not apply" verdict on garbage.
       if (result.status === "insufficient_jd") {
         setManualEntryReason("insufficient_jd");
         return;
@@ -86,7 +86,7 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
       setManualEntryReason(null);
       if (aiConfigured && useAi) runMatch(raw);
     } else {
-      // Scrape succeeded but returned no usable content (dead posting, unparseable page); route to the manual-entry prompt instead of leaving the form blank.
+      // Scrape returned no usable content; route to manual entry instead of leaving the form blank.
       setManualEntryReason("fetch_failed");
     }
   }
@@ -116,13 +116,13 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
         compMax: compMax ? Number(compMax) : undefined,
         notes: notes || undefined,
       });
-      // Just the resume name (not the reasoning), so Job Details can show which was recommended.
+      // Name only, so Job Details can show which resume was recommended.
       const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
       if (scrapedRaw) {
-        // Best-effort: seed the Job Detail JD text so nothing needs re-pasting later.
+        // Seed the Job Detail JD text so nothing needs re-pasting later.
         updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "", recommendedResume }).catch(() => {});
       } else if (url) {
-        // URL entered manually without a Fetch: best-effort background scrape to populate the JD text.
+        // URL entered without a Fetch: background scrape to populate the JD text.
         scrapeJob(url)
           .then(result => {
             if (result.raw || recommendedResume) {

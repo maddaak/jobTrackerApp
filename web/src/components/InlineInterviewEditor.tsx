@@ -9,7 +9,7 @@ import {
   type InterviewerInput,
 } from "../api/interviewsApi";
 
-// Empty `interviewDateTime` means the user saved a blank editor; the caller treats that as a cancel (see JobsTable.saveInterview).
+// Empty `interviewDateTime` means a blank save, which the caller treats as cancel (see JobsTable.saveInterview).
 export interface InlineInterviewDraft {
   interviewDateTime: string;
   interviewType: InterviewType | "";
@@ -19,13 +19,13 @@ export interface InlineInterviewDraft {
 }
 
 interface InlineInterviewEditorProps {
-  // Passed in so the editor matches the input styling of the surrounding table cells.
+  // Matches the surrounding table cells' input styling.
   inputClass: string;
   onSave: (draft: InlineInterviewDraft) => void;
   onCancel: () => void;
 }
 
-// Owns its own draft state so typing re-renders only this editor, not the whole memoized table.
+// Owns draft state so typing re-renders only this editor, not the whole table.
 export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: InlineInterviewEditorProps) {
   const [interviewDateTime, setInterviewDateTime] = useState("");
   const [interviewType, setInterviewType] = useState<InterviewType | "">("");

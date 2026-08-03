@@ -47,13 +47,11 @@ class ResumeRecommenderServiceTests {
 
     private void stubJob(Long jobId, Long ownerId, String role, String jdText) {
         when(jobs.findByIdAndOwnerId(jobId, ownerId)).thenReturn(Optional.of(newJob(role)));
-        // recommend now passes the already-loaded job to getDetail so ownership is not re-queried.
+        // recommend passes the loaded job to getDetail, so stub the Job overload.
         when(jobDetailService.getDetail(any(Job.class))).thenReturn(new JobDetailDocumentResponse(jobId, jdText, "", null));
     }
 
-    // Mongo assigns Resume.id on a real save() (via reflection); these fixtures never touch
-    // a real repository, so without this every fixture's id would default to null and
-    // collide with every other fixture in ResumeRecommenderService's id-keyed score map.
+    // Fixtures skip the repository, so assign ids here or they'd all be null and collide in the score map.
     private final AtomicInteger nextResumeId = new AtomicInteger();
 
     private Resume aiAnalyzedResume(String fileName, String summary, List<String> skills, List<String> roles) {
@@ -130,9 +128,7 @@ class ResumeRecommenderServiceTests {
         Resume resumeA = aiAnalyzedResume("a.pdf", "Backend engineer.", List.of("backend"), List.of());
         Resume resumeB = customSummaryResume("b.pdf", "Focused on platform work.");
         when(resumes.findByOwnerId(1L)).thenReturn(List.of(resumeA, resumeB));
-        // "backend" (resumeA) and "platform" (resumeB, tokenized from its custom summary) each
-        // hit once in the body, so both score 1. With no fixed default, this must report
-        // "no clear match" rather than guessing.
+        // Both resumes score 1, so a tie must report "no clear match" rather than guess.
         stubJob(4L, 1L, "", "this role touches backend and platform work");
 
         ResumeRecommendationResponse response = recommender.recommend(1L, 4L);
@@ -182,9 +178,7 @@ class ResumeRecommenderServiceTests {
         assertThat(response.recommendedVariantId()).isEqualTo(backendResume.getId());
     }
 
-    // Real posting text (Duolingo, Senior Software Engineer, Backend (Score)) that the old
-    // naive keyword matcher mis-picked the CI/CD-focused resume for, pinned down here as a
-    // regression test.
+    // Real posting the old naive matcher mis-picked the CI/CD resume for; regression fixture.
     private static final String DUOLINGO_JD_TEXT = """
             Our mission at Duolingo is to develop the best education in the world and make it
             universally available.

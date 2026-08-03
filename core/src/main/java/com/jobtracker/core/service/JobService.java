@@ -59,8 +59,7 @@ public class JobService {
     public List<JobSummaryResponse> listJobs(Long ownerId) {
         // Fetch-joins source so buildSummaryResponse's job.getSource() fires no per-job select.
         List<Job> ownerJobs = jobs.findByOwnerIdWithSourceOrderByCreatedAtDesc(ownerId);
-        // One query for every job's interview history instead of 2-3 queries per job (latest
-        // interview + round count + lazy interviewers).
+        // One batched query for all interview history instead of 2-3 per job.
         Map<Long, List<StageEvent>> interviewsByJobId = stageEvents
                 .findAllWithInterviewersByJobOwnerId(ownerId).stream()
                 .collect(Collectors.groupingBy(e -> e.getJob().getId()));
@@ -102,18 +101,14 @@ public class JobService {
         Source source = job.getSource();
         stageEvents.deleteByJobId(job.getId());
         jobs.delete(job);
-        // createJob mints a dedicated Source per job (never shared), so it would otherwise be
-        // orphaned here forever. Flush the job delete before removing the Source so the FK from
-        // jobs.source is already gone when the Source row is deleted.
+        // Each job owns a dedicated Source; flush the job delete first so the FK is gone before it.
         jobs.flush();
         sources.delete(source);
-        // The JobDetail lives in Mongo, outside this JPA transaction, so removing it here
-        // stops the scraped-JD document from being orphaned after the SQL rows are gone.
+        // JobDetail lives in Mongo, outside this transaction, so delete it explicitly.
         jobDetails.deleteDetail(job.getId());
     }
 
-    // Single-job path (create/update): a couple of targeted queries here is fine, this only
-    // ever runs for one job at a time, never in a per-row loop over a list.
+    // Single-job path (create/update): targeted queries are fine since it never runs per-row.
     private JobSummaryResponse toSummaryResponse(Job job) {
         LatestInterviewSummary latestInterview = stageEvents
                 .findTopByJobIdAndInterviewDateTimeIsNotNullOrderByInterviewDateTimeDesc(job.getId())
@@ -122,8 +117,7 @@ public class JobService {
         return buildSummaryResponse(job, latestInterview);
     }
 
-    // List path (listJobs): interviewEvents is this job's slice of the single batched query
-    // in listJobs, interviewers already eager-loaded, so this does zero queries.
+    // List path: interviewEvents is a slice of listJobs' batched query, so this fires zero queries.
     private JobSummaryResponse toSummaryResponse(Job job, List<StageEvent> interviewEvents) {
         LatestInterviewSummary latestInterview = interviewEvents.stream()
                 .max(Comparator.comparing(StageEvent::getInterviewDateTime))

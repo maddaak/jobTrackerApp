@@ -50,7 +50,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
 
   useEffect(() => {
     if (!mode) return;
-    // Ignore a stale/unmounted resolution so it doesn't call setState after the modal closed or mode changed.
+    // Ignore a stale/unmounted resolution to avoid setState after close.
     let ignore = false;
     setError(null);
     setSaving(false);
@@ -82,7 +82,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
     return () => {
       ignore = true;
     };
-    // setInterviewers is the hook's stable useState setter; listed to satisfy exhaustive-deps.
+    // Stable setter, listed only to satisfy exhaustive-deps.
   }, [mode, setInterviewers]);
 
   async function handleSubmit(e: FormEvent) {

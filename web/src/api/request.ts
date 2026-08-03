@@ -1,10 +1,5 @@
-// Shared fetch wrapper for every api/*.ts call, so error handling is identical across reads,
-// mutations, and the scrape endpoint instead of three separate variants.
-//
-// `init` is passed through only when present so plain GETs still call fetch(url) with a single
-// argument, matching the calls the rest of the app (and the tests) expect.
-// Fired when any API call comes back 401, i.e. the session cookie expired mid-session.
-// AuthContext listens for this and clears the user, which sends ProtectedRoute to /login.
+// Shared fetch wrapper so error handling is identical across every api/*.ts call.
+// AuthContext listens for this and clears the user on 401, sending ProtectedRoute to /login.
 export const UNAUTHORIZED_EVENT = "auth:unauthorized";
 
 export async function request<T>(url: string, fallback: string, init?: RequestInit): Promise<T> {

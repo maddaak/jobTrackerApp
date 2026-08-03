@@ -14,12 +14,11 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [interviewsVersion, setInterviewsVersion] = useState(0);
-  // Concurrent row autosaves each trigger refreshJobs; tag every load so a slower earlier one
-  // can't resolve last and overwrite the newest jobs snapshot with stale rows.
+  // Tag every load so a slower earlier autosave refresh can't overwrite the newest snapshot.
   const jobsReqId = useRef(0);
 
   useEffect(() => {
-    // Ignore a mount-time load that resolves after this page has unmounted.
+    // Ignore a load that resolves after unmount.
     let ignore = false;
     listJobs()
       .then(loaded => { if (!ignore) setJobs(loaded); })
@@ -37,8 +36,7 @@ export default function HomePage() {
     }
   }
 
-  // Any interview create/update/delete can change both the jobs table's latestInterview
-  // column and the upcoming-interviews banner, so a save anywhere on the page refreshes both.
+  // Any interview change affects both the table and the banner, so refresh both.
   async function refreshAll() {
     await refreshJobs();
     setInterviewsVersion(v => v + 1);

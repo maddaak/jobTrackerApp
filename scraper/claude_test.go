@@ -11,8 +11,7 @@ import (
 	"testing"
 )
 
-// zeroClaudeBackoff removes the retry backoff sleep for the duration of a test so the retry
-// path can be exercised without waiting.
+// zeroClaudeBackoff removes the retry backoff sleep so the retry path runs without waiting.
 func zeroClaudeBackoff(t *testing.T) {
 	t.Helper()
 	original := claudeRetryBackoffBase
@@ -20,8 +19,7 @@ func zeroClaudeBackoff(t *testing.T) {
 	t.Cleanup(func() { claudeRetryBackoffBase = original })
 }
 
-// fakeAnthropicServer returns an httptest.Server that mimics the Anthropic Messages API
-// shape, responding with the given text as a single content block.
+// fakeAnthropicServer mimics the Anthropic Messages API, returning responseText as a single content block.
 func fakeAnthropicServer(t *testing.T, responseText string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

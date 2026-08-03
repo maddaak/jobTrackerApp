@@ -4,6 +4,27 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V2.2
+
+### Continuous integration
+- Images now auto-publish on merge to main: once CI passes on main, the version is read from
+  the top of this changelog and, if that version tag does not exist yet, all four images are
+  built, tagged (`<version>` and `latest`), and pushed, and the matching git tag is created.
+  No manual tagging needed; a merge that does not bump the version republishes nothing.
+
+### Code quality
+- Tightened comments across all services and config to state intent only, one line each.
+
+### Web fixes
+- The pipeline Sankey renders at full width on wide screens and scrolls on narrow ones
+  instead of squashing labels, and each label box is measured to hug its text so the
+  counts no longer leave dead space.
+
+### Scraper
+- The remote/hybrid/onsite model is now read from the job description, so a posting with
+  a structured city location plus a "hybrid" description is classified correctly instead
+  of missed.
+
 ## V2.1
 
 A hardening and bugfix release: security, error-handling, and resilience fixes, a

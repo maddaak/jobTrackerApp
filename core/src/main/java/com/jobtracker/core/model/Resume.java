@@ -18,21 +18,15 @@ public class Resume {
 
     private String contentType;
 
-    // Compressed at rest, same reasoning as JobDetail.jdTextCompressed: resume text runs
-    // a few KB to tens of KB and gzip shrinks it substantially.
+    // Gzipped at rest; resume text is large, same as JobDetail.jdTextCompressed.
     private byte[] extractedTextCompressed;
 
-    // Cached Claude output, stored as-is (raw JSON string) until AnalysisStatus.OK; null
-    // otherwise. AnalysisStatus explains *why* it's null when it is, not just that it is.
+    // Raw cached Claude output; null unless analysisStatus is OK.
     private String analysisJson;
 
     private String analysisStatus;
 
-    // Which path produced analysisJson: AnalysisSource.AI (Claude-generated) or
-    // AnalysisSource.CUSTOM (the user typed their own summary instead of calling Claude).
-    // Null until applyAnalysis is called. Shown in the UI so the disclaimer/badge reflects
-    // reality, and used by ResumeRecommenderService to decide how to derive emphasis
-    // keywords for a resume (structured skills/roles vs. tokenized summary text).
+    // AI vs CUSTOM: drives the UI badge and how ResumeRecommenderService derives emphasis keywords.
     private String analysisSource;
 
     private Instant uploadedAt;

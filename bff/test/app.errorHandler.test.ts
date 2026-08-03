@@ -3,10 +3,8 @@ import request from "supertest";
 import { app } from "../src/app.js";
 
 beforeEach(() => {
-  // Upstream fetch throws so /auth/register hits a transport failure; the generic body must
-  // never leak the underlying error detail.
+  // Force a transport failure so the generic body must hide the error detail.
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("boom secret stack detail")));
-  // Silence the server side error log for this test.
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 

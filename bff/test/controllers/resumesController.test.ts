@@ -278,7 +278,7 @@ describe("POST /resumes/match", () => {
   });
 
   it("returns unavailable when the scraper's AI call fails", async () => {
-    // A 502 is transient, so callScraperAi retries it. Mock it for every attempt.
+    // 502 is transient so callScraperAi retries; mock every attempt.
     (fetch as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(fakeResponse(200, [
         { id: "abc", fileName: "resume.txt", analysisStatus: "ok", summary: "Backend engineer", skills: [], seniority: "senior", roles: [] },

@@ -145,12 +145,7 @@ class InterviewControllerTests {
             .andExpect(jsonPath("$.currentStage").value("INTERVIEW_STAGE"));
     }
 
-    // MockMvc's @Transactional test wraps the whole method in one uncommitted outer transaction,
-    // so Hibernate never physically flushes a save() to the DB until that transaction commits.
-    // TestTransaction.end()/start() forces a real intermediate commit (like production, where
-    // repository.save() commits its own short-lived transaction) so a raw JDBC read afterward
-    // reflects what's truly durable. This is what would catch a missing repository.save() call
-    // after mutating an already-managed entity.
+    // Commits via TestTransaction so a raw JDBC read catches a missing save() the outer test transaction would hide.
     @Test
     void updateInterviewPersistsToTheDatabaseRow() throws Exception {
         Long ownerId = createUser("interview_nora");
@@ -189,11 +184,7 @@ class InterviewControllerTests {
         assertThat(persistedInterviewerName).isEqualTo("Priya Shah");
     }
 
-    // createInterview currently only survives without its own re-save because the trailing
-    // jobs.save(job) call happens to flush the whole persistence context. This test pins that
-    // down at the DB-row level (see updateInterviewPersistsToTheDatabaseRow for why a raw JDBC
-    // read + TestTransaction commit, not just the response body, is needed to catch this class
-    // of bug).
+    // Pins createInterview at the DB-row level: it only persists because the trailing jobs.save(job) flushes the context.
     @Test
     void createInterviewPersistsToTheDatabaseRow() throws Exception {
         Long ownerId = createUser("interview_owen");
@@ -354,8 +345,7 @@ class InterviewControllerTests {
             .andExpect(status().isNotFound());
     }
 
-    // GET /interviews/upcoming is covered at the service level instead of here, see
-    // InterviewServiceTests.listUpcomingInterviews*.
+    // GET /interviews/upcoming is covered in InterviewServiceTests.listUpcomingInterviews*.
 
     @Test
     void createInterviewWithBlankInterviewerNameReturns400NotError() throws Exception {

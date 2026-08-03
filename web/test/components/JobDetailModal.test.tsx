@@ -103,7 +103,7 @@ describe("JobDetailModal", () => {
     fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "updated notes" } });
     fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "updated jd" } });
 
-    // Save re-fetches the live job (GET /jobs/5) so the PATCH is built from fresh state, not the stale prop, then PATCHes the job and PUTs the detail doc.
+    // Save re-fetches the live job so PATCH is built from fresh state, not the stale prop.
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, baseJob));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 5, company: "Acme" }));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
@@ -132,7 +132,7 @@ describe("JobDetailModal", () => {
   });
 
   it("shows the completed interview rounds for this job as a history", async () => {
-    // First fetch: the job detail doc. Second fetch: all interviews (filtered to this job).
+    // Fetch order: detail doc, then interviews filtered to this job.
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       fakeResponse(200, { jobId: 5, jdText: "jd", interviewNotes: "" }),
     );
@@ -230,8 +230,7 @@ describe("JobDetailModal", () => {
   });
 
   it("does not request a resume recommendation from the job detail view", async () => {
-    // The recommendation only belongs in the add-job flow (before applying); an already-added
-    // job has been applied to, so the detail view must never fire the AI recommendation call.
+    // The detail view is post-apply, so it must never fire the AI recommendation call.
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
       fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }),
     );
@@ -248,8 +247,7 @@ describe("JobDetailModal", () => {
   });
 
   it("does not overwrite a newer job's detail with a stale response from a previous job", async () => {
-    // Every fetch returns a promise we resolve by hand, keyed by URL, so we can force
-    // the previous job's response to land after the user already switched jobs.
+    // Hand-resolved promises keyed by URL, so we can force job A's response to land after switching to B.
     const resolvers: Record<string, (value: unknown) => void> = {};
     (fetch as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string) => new Promise(resolve => { resolvers[url] = resolve; }),

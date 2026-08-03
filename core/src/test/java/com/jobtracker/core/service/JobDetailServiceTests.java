@@ -123,23 +123,20 @@ class JobDetailServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        // Simulate the stored document evolving across saves.
         JobDetail stored = new JobDetail(10L, new byte[0], "");
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(stored));
 
-        // (a) A save with a non-null recommendedResume persists and returns it.
         var withResume = new UpdateJobDetailRequest("jd", "notes", "backend-resume.pdf");
         JobDetailDocumentResponse first = jobDetailService.updateDetail(1L, 10L, withResume);
         assertThat(first.recommendedResume()).isEqualTo("backend-resume.pdf");
         assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");
 
-        // (b) A later save omitting it (null) must keep the previously-saved value.
+        // A later save omitting it (null) must keep the previously-saved value.
         var withoutResume = new UpdateJobDetailRequest("edited jd", "edited notes", null);
         JobDetailDocumentResponse second = jobDetailService.updateDetail(1L, 10L, withoutResume);
         assertThat(second.recommendedResume()).isEqualTo("backend-resume.pdf");
         assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");
 
-        // (c) getDetail returns the persisted recommendation.
         JobDetailDocumentResponse read = jobDetailService.getDetail(1L, 10L);
         assertThat(read.recommendedResume()).isEqualTo("backend-resume.pdf");
     }

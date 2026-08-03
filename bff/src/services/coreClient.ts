@@ -3,9 +3,7 @@ import { CORE_URL, SCRAPER_URL, INTERNAL_TOKEN, CORE_TIMEOUT_MS } from "../confi
 export interface CoreResult<T> {
   ok: boolean;
   status: number;
-  // Optional because an empty/non-JSON upstream body (a 204, an HTML error page) leaves
-  // nothing to parse, and a transport failure never gets a body at all. Callers that need
-  // the body must check it before dereferencing.
+  // Undefined on an empty/non-JSON body or a transport failure; check before use.
   data?: T;
 }
 
@@ -24,9 +22,7 @@ export async function callCore<T>(path: string, options: CallCoreOptions = {}): 
   if (options.userId) headers["X-User-Id"] = options.userId;
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
-  // A network error or the AbortSignal.timeout firing rejects the fetch. Turn that into a
-  // non-ok result (504 on timeout, 502 otherwise) so callers can degrade gracefully instead
-  // of the rejection propagating up and surfacing every transport blip as a generic 500.
+  // Turn a fetch rejection into a non-ok result (504 on timeout, 502 otherwise) so callers can degrade.
   let res: globalThis.Response;
   try {
     res = await fetch(`${CORE_URL}${path}`, {
@@ -40,8 +36,7 @@ export async function callCore<T>(path: string, options: CallCoreOptions = {}): 
     return { ok: false, status, data: undefined };
   }
 
-  // A 204/empty body or an upstream HTML error page makes res.json() throw. Swallow it and
-  // leave data undefined so the real res.ok/res.status still reaches the caller.
+  // Empty/non-JSON body: leave data undefined but keep the real status.
   let data: T | undefined = undefined;
   try {
     data = (await res.json()) as T;
@@ -56,7 +51,7 @@ export async function checkHealth(url: string) {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(CORE_TIMEOUT_MS) });
     return await res.json();
   } catch {
-    // Return status only. The internal url must never be echoed to a client.
+    // Never echo the internal url to a client.
     return { status: "unreachable" };
   }
 }

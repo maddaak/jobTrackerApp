@@ -17,7 +17,7 @@ describe("rate limiting on /auth/*", () => {
   it("returns 429 once the auth limiter's threshold is exceeded", async () => {
     const credentials = { username: "flooder", password: "Str0ng!Pass" };
 
-    // authLimiter is configured for 10 requests per window (see src/middleware/rateLimiters.ts)
+    // authLimiter allows 10 per window (src/middleware/rateLimiters.ts).
     for (let i = 0; i < 10; i++) {
       const res = await request(app).post("/auth/login").send(credentials);
       expect(res.status).toBe(200);

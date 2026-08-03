@@ -4,8 +4,7 @@ import { createResume, applyResumeAnalysis, getResumeText, listResumes, deleteRe
 import { analyzeResume, matchResume } from "../services/scraperAnalysisClient.js";
 import { sendUpstream } from "../middleware/upstreamResponse.js";
 
-// Upload only stores the file; it stays "pending" until the user picks AI or custom summary,
-// so the file survives even if that next step is skipped or fails.
+// Upload only stores the file; it stays "pending" until AI or custom summary runs.
 export async function create(req: AuthedRequest, res: Response) {
   if (!req.file) {
     res.status(400).json({ error: "file is required" });
@@ -16,8 +15,7 @@ export async function create(req: AuthedRequest, res: Response) {
   sendUpstream(res, created);
 }
 
-// Text comes from core, never the client. Cache the failure status too (not_configured /
-// unavailable), not just a successful analysis, so the stored resume always reflects reality.
+// Caches the failure status too, not just a successful analysis, so the resume reflects reality.
 export async function summarize(req: AuthedRequest, res: Response) {
   const resumeId = req.params.id as string;
 
@@ -26,8 +24,7 @@ export async function summarize(req: AuthedRequest, res: Response) {
     sendUpstream(res, textResult);
     return;
   }
-  // core reported success but callCore leaves data undefined on an empty/non-JSON body.
-  // Guard before dereferencing so we return a clean error instead of a TypeError.
+  // callCore leaves data undefined on an empty/non-JSON body even when ok.
   if (!textResult.data) {
     res.status(502).json({ error: "internal error" });
     return;
@@ -45,7 +42,7 @@ export async function summarize(req: AuthedRequest, res: Response) {
   sendUpstream(res, patched);
 }
 
-// User-written alternative to summarize(): stores their text directly, no scraper call.
+// User-written alternative to summarize(): stores text directly, no scraper call.
 export async function setCustomSummary(req: AuthedRequest, res: Response) {
   const resumeId = req.params.id as string;
   const summary = ((req.body ?? {}).summary as string | undefined)?.trim();
@@ -71,8 +68,7 @@ export async function remove(req: AuthedRequest, res: Response) {
   sendUpstream(res, result);
 }
 
-// Sends full resume text, not the cached summary: condensed summaries caused inconsistent picks
-// across identical calls (smoke-tested: summaries flipped 3 ways in 3 calls, full text 5/5 same).
+// Sends full resume text, not the cached summary: summaries gave inconsistent picks on repeat calls.
 export async function match(req: AuthedRequest, res: Response) {
   const jobDescriptionText = (req.body ?? {}).jobDescriptionText as string | undefined;
   if (!jobDescriptionText || !jobDescriptionText.trim()) {
@@ -85,8 +81,7 @@ export async function match(req: AuthedRequest, res: Response) {
     sendUpstream(res, resumesResult);
     return;
   }
-  // core reported success but callCore leaves data undefined on an empty/non-JSON body.
-  // Guard before dereferencing so we return a clean error instead of a TypeError.
+  // callCore leaves data undefined on an empty/non-JSON body even when ok.
   if (!resumesResult.data) {
     res.status(502).json({ error: "internal error" });
     return;
@@ -111,9 +106,7 @@ export async function match(req: AuthedRequest, res: Response) {
     return;
   }
 
-  // The scraper returns INSUFFICIENT_JD when the text it was given isn't actually a job
-  // description (nav markup, JSON, cookie text). Surface that as its own status so the UI
-  // prompts for a real paste instead of painting a red "do not apply" verdict on garbage.
+  // Own status when the text wasn't a real JD, so the UI reprompts instead of showing "do not apply".
   if (result.data.recommendation === "INSUFFICIENT_JD") {
     res.json({ status: "insufficient_jd" });
     return;

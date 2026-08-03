@@ -11,19 +11,16 @@ import scrapeRoutes from "./routes/scrapeRoutes.js";
 import resumesRoutes from "./routes/resumesRoutes.js";
 
 export const app = express();
-// Trust exactly one hop (nginx) so we read nginx's client IP and ignore a spoofed
-// X-Forwarded-For that would bypass the rate limiters.
+// Trust one hop (nginx) so a spoofed X-Forwarded-For can't bypass the rate limiters.
 app.set("trust proxy", 1);
 app.use(cookieParser());
 app.use(express.json());
 
-// Health probes must never be rate limited (a monitor hitting /health should never
-// get a 429), so mount them ahead of the global limiter.
+// Mounted before the limiter so uptime probes never get a 429.
 app.use(healthRoutes);
 app.use(generalLimiter);
 
-// Unauthenticated (the login screen reads it to decide whether to show AI features) but still
-// rate limited, so it sits after generalLimiter, unlike health.
+// Unauthenticated but rate limited, so after generalLimiter unlike health.
 app.use(aiStatusRoutes);
 
 app.use("/auth", authRoutes);
@@ -33,9 +30,7 @@ app.use("/metrics", metricsRoutes);
 app.use("/scrape", scrapeRoutes);
 app.use("/resumes", resumesRoutes);
 
-// Log the real error server side but return a generic body so stack traces never leak.
-// Honor a middleware 4xx (express.json() throws 400 on malformed JSON, 413 over the body
-// limit) so the client can tell bad input from a backend failure; anything else is a 500.
+// Generic body so stack traces never leak; honor a middleware 4xx (bad JSON, oversized body).
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
   const status = (err as { status?: number; statusCode?: number })?.status ?? (err as { statusCode?: number })?.statusCode;

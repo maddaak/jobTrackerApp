@@ -50,9 +50,7 @@ class MetricsServiceTests {
         return job;
     }
 
-    // Builds the stage_events a job would have genuinely entered: RESUME_CHECK up to the
-    // given furthest pipeline stage, plus a terminal FINALIZED event when the job closed.
-    // The FINALIZED event proves the metrics logic excludes it from "furthest reached".
+    // Adds a terminal FINALIZED event on closed jobs so tests prove it's excluded from "furthest reached".
     private List<StageEvent> stageHistory(Job job, Stage furthest, Outcome outcome) {
         List<StageEvent> events = new ArrayList<>();
         for (Stage stage : Stage.values()) {
@@ -76,8 +74,7 @@ class MetricsServiceTests {
         return event;
     }
 
-    // Same as newInterviewRound but with an explicit interviewDateTime, so a test can give a
-    // job's rounds distinct, increasing timestamps and drive the data-driven Sankey order.
+    // Explicit interviewDateTime lets a test drive the data-driven Sankey order via timestamps.
     private StageEvent newInterviewRound(Job job, InterviewType type, Instant interviewDateTime) {
         StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
         event.applyInterviewDetails(interviewDateTime, type, null, null, Collections.emptyList());
@@ -157,9 +154,7 @@ class MetricsServiceTests {
     void sankeyRoundOrderIsDrivenByEventTimestampsNotCanonicalOrder() {
         User owner = new User("grace", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
-        // Two jobs. In both, BEHAVIOR happens before SYSTEM_DESIGN in real time. Note the
-        // canonical fallback order lists SYSTEM_DESIGN before BEHAVIOR, so if ordering were
-        // hardcoded the link would go SYSTEM_DESIGN -> BEHAVIOR. Timestamps must override that.
+        // Both jobs run BEHAVIOR before SYSTEM_DESIGN; canonical order is the reverse, so timestamps must win.
         Job jobA = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED);
         Job jobB = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED);
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(jobA, jobB));
@@ -226,7 +221,6 @@ class MetricsServiceTests {
 
         MetricsResponse response = metricsService.getMetrics(1L);
 
-        // An active job parked at Resume Check now terminates at IN_PROGRESS instead of dropping off.
         assertThat(linkValue(response, "RESUME_CHECK", "IN_PROGRESS")).isEqualTo(1);
         assertThat(response.sankeyLinks()).hasSize(1);
     }
@@ -235,8 +229,7 @@ class MetricsServiceTests {
     void sankeyActiveJobsFlowToInProgressSoNodeTotalsCountEveryJob() {
         User owner = new User("ivan", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
-        // Three jobs sitting at Resume Check: two still active, one rejected. Every job now has
-        // a terminal, so Resume Check's outgoing links sum to the full job count (3), not just 1.
+        // Every job gets a terminal, so Resume Check's outgoing links must sum to the full job count.
         Job activeOne = newJob(owner, source, Stage.RESUME_CHECK, Outcome.ACTIVE, "Acme");
         Job activeTwo = newJob(owner, source, Stage.RESUME_CHECK, Outcome.ACTIVE, "Globex");
         Job rejected = newJob(owner, source, Stage.RESUME_CHECK, Outcome.REJECTED, "Initech");
@@ -251,7 +244,6 @@ class MetricsServiceTests {
 
         assertThat(linkValue(response, "RESUME_CHECK", "IN_PROGRESS")).isEqualTo(2);
         assertThat(linkValue(response, "RESUME_CHECK", "REJECTED")).isEqualTo(1);
-        // Resume Check's outgoing total now equals the full job count in this setup.
         long resumeCheckOutgoing = response.sankeyLinks().stream()
                 .filter(link -> link.source().equals("RESUME_CHECK"))
                 .mapToLong(SankeyLink::value)
@@ -301,8 +293,7 @@ class MetricsServiceTests {
     void companiesByNodeMapsEachNodeToTheDistinctCompaniesThatFlowThroughIt() {
         User owner = new User("heidi", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
-        // Two jobs at different companies both reach INTERVIEW_REQUEST. Only one has a
-        // SYSTEM_DESIGN round, so only that company appears under SYSTEM_DESIGN.
+        // Only Acme has a SYSTEM_DESIGN round, so only Acme should appear under that node.
         Job acme = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Acme");
         Job globex = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Globex");
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(acme, globex));
@@ -329,8 +320,7 @@ class MetricsServiceTests {
     void companiesByNodeCountsMultipleJobsAtTheSameCompany() {
         User owner = new User("judy", "hash");
         Source source = new Source(SourceCategory.SELF_APPLIED);
-        // Two jobs at the SAME company both flow RESUME_CHECK -> REJECTED. The node map must
-        // count the company twice (Cortex -> 2) rather than dedupe it to a single entry.
+        // Two jobs at the same company must count it twice, not dedupe to one entry.
         Job cortexOne = newJob(owner, source, Stage.RESUME_CHECK, Outcome.REJECTED, "Cortex");
         Job cortexTwo = newJob(owner, source, Stage.RESUME_CHECK, Outcome.REJECTED, "Cortex");
         when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(cortexOne, cortexTwo));

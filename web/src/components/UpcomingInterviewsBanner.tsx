@@ -3,7 +3,7 @@ import { listUpcomingInterviews, INTERVIEW_TYPE_LABELS, type Interview } from ".
 import InterviewFormModal, { type InterviewFormMode } from "./InterviewFormModal";
 
 export interface UpcomingInterviewsBannerProps {
-  // Bumped by the parent whenever any interview changes anywhere on the page, not just this banner's own modal.
+  // Bumped by the parent on any interview change anywhere on the page.
   refreshSignal: number;
   onInterviewChanged: () => void;
 }
@@ -25,7 +25,7 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
   const knownIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    // Guard against out-of-order responses: rapid saves bump refreshSignal, so an earlier request can resolve after a later one. Also prevents setState after unmount.
+    // Guard against out-of-order responses and setState after unmount.
     let ignore = false;
     async function refresh() {
       try {
@@ -34,10 +34,10 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
         const hasNewInterview = data.some(i => !knownIdsRef.current.has(i.stageEventId));
         knownIdsRef.current = new Set(data.map(i => i.stageEventId));
         setInterviews(data);
-        // Resurface a dismissed banner only when a genuinely new interview appears; an unrelated save (e.g. editing notes) won't introduce a new id, so it won't reopen it.
+        // Resurface a dismissed banner only when a new interview id appears, not on unrelated saves.
         if (hasNewInterview) setDismissed(false);
       } catch {
-        // Best-effort: a failed fetch just means no banner this load, not a page-level error.
+        // A failed fetch just means no banner this load, not a page-level error.
       }
     }
     refresh();

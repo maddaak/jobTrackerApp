@@ -5,14 +5,11 @@ export type AiCallResult<T> =
   | { status: "not_configured" }
   | { status: "unavailable" };
 
-// One initial attempt plus this many retries. A short linear backoff between them
-// keeps us from hammering an upstream that is briefly down.
+// Retries with backoff so a briefly-down upstream isn't hammered.
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 300;
 
-// The scraper returns 503 when no Anthropic key is configured (fixed, don't retry) and 502/504
-// for transient gateway failures (retry, as with network errors and our own timeout). Collapse
-// it all into one result shape so controllers never deal with HTTP statuses.
+// 503 means no Anthropic key (don't retry); 502/504 are transient (retry). One result shape so controllers skip HTTP status.
 async function callScraperAi<T>(path: string, body: unknown): Promise<AiCallResult<T>> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const isLastAttempt = attempt === MAX_ATTEMPTS;
@@ -28,8 +25,7 @@ async function callScraperAi<T>(path: string, body: unknown): Promise<AiCallResu
         return { status: "not_configured" };
       }
       if (res.ok) {
-        // A 200 with a non-JSON body is unusable: treat as unavailable rather than returning
-        // "ok" with undefined data a caller would dereference and crash on.
+        // A 200 with a non-JSON body is unusable; treat as unavailable, not "ok" with undefined data.
         const data = await res.json().catch(() => undefined);
         if (data === undefined) {
           return { status: "unavailable" };
@@ -40,8 +36,7 @@ async function callScraperAi<T>(path: string, body: unknown): Promise<AiCallResu
         return { status: "unavailable" };
       }
     } catch (err) {
-      // A timeout already burned the full budget; retrying stacks another (3 x 120s pins a worker
-      // ~6 min). Only a fast network failure is worth falling through to the retry.
+      // A timeout already burned the full budget; retrying would stack another (3 x 120s pins a worker ~6 min).
       if (err instanceof Error && err.name === "TimeoutError") {
         return { status: "unavailable" };
       }
@@ -78,8 +73,7 @@ export interface MatchResultData {
   reasoning: string;
 }
 
-// Sends full resume text, not a condensed summary: summaries compress away the detail that
-// differentiates similar resumes and gave inconsistent picks on repeat calls (full text: 5/5 same).
+// Sends full resume text, not a condensed summary: summaries gave inconsistent picks on repeat calls.
 export function matchResume(jobDescriptionText: string, resumes: MatchResumeDocument[]) {
   return callScraperAi<MatchResultData>("/match-resume", { jobDescriptionText, resumes });
 }

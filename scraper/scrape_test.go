@@ -29,8 +29,7 @@ func fixtureServer(t *testing.T, path string) *httptest.Server {
 
 func doScrape(t *testing.T, targetURL string) (int, scrapeResponse) {
 	t.Helper()
-	// Every fixture-based test fetches 127.0.0.1, so turn off the SSRF guard for the
-	// duration of the test and restore it afterward.
+	// Fixtures fetch 127.0.0.1, so disable the SSRF guard for the test.
 	original := blockInternalHosts
 	blockInternalHosts = false
 	t.Cleanup(func() { blockInternalHosts = original })
@@ -76,6 +75,21 @@ func TestScrapeFromJSONLD(t *testing.T) {
 	}
 }
 
+// Structured JSON-LD gives a city location while the workplace model ("hybrid") lives only in the description.
+func TestScrapeHybridFromDescriptionWithStructuredLocation(t *testing.T) {
+	server := fixtureServer(t, "testdata/jsonld_hybrid.html")
+	defer server.Close()
+
+	status, resp := doScrape(t, server.URL)
+
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	if resp.Location != "NYC_HYBRID" {
+		t.Errorf("expected NYC_HYBRID classified from description, got %q", resp.Location)
+	}
+}
+
 func TestScrapeFromMetaAndTitleFallback(t *testing.T) {
 	server := fixtureServer(t, "testdata/meta_fallback.html")
 	defer server.Close()
@@ -109,11 +123,7 @@ func withGreenhouseBoardsAPIBaseURL(t *testing.T, url string) {
 	t.Cleanup(func() { greenhouseBoardsAPIBaseURL = original })
 }
 
-// TestScrapeFromGreenhouseEmbedFallback covers career pages that embed Greenhouse's
-// client-side job board widget instead of server-rendering the posting (real example:
-// doubleverify.com/careers/job?id=...&board=doubleverify): the static HTML has no JSON-LD
-// and no useful meta/title content, only the embed script and a job id in the URL's query
-// string, so the scraper has to call Greenhouse's public jobs API directly.
+// Career page that only embeds Greenhouse's widget: no JSON-LD, just the embed script and a URL job id, so the scraper must call Greenhouse's API.
 func TestScrapeFromGreenhouseEmbedFallback(t *testing.T) {
 	pageServer := fixtureServer(t, "testdata/greenhouse_embed.html")
 	defer pageServer.Close()
@@ -162,9 +172,7 @@ func TestScrapeGreenhouseEmbedWithoutJobIDDoesNotErrorOut(t *testing.T) {
 	server := fixtureServer(t, "testdata/greenhouse_embed.html")
 	defer server.Close()
 
-	// No ?id= on the request URL, so extractFromGreenhouseEmbed can't resolve a job; this
-	// just confirms the handler still falls back gracefully (200, no panic) rather than
-	// getting stuck once an embed script is found but there's nothing to look up.
+	// No ?id=, so the embed can't resolve a job; confirm the handler still falls back gracefully.
 	status, _ := doScrape(t, server.URL)
 
 	if status != http.StatusOK {
@@ -172,10 +180,7 @@ func TestScrapeGreenhouseEmbedWithoutJobIDDoesNotErrorOut(t *testing.T) {
 	}
 }
 
-// TestScrapeOgTitleRoleOnlyFallsBackToPageTitleForCompany covers a real bug found on
-// Greenhouse job pages: og:title is just the role ("Senior Software Engineer") with no
-// company, while the <title> tag has "Job Application for X at Company". Company must
-// still be picked up from the <title> tag in that case.
+// og:title is role-only while <title> has "... at Company"; company must still come from <title>.
 func TestScrapeOgTitleRoleOnlyFallsBackToPageTitleForCompany(t *testing.T) {
 	server := fixtureServer(t, "testdata/og_title_role_only.html")
 	defer server.Close()
@@ -229,10 +234,7 @@ func TestScrapeUnreachableHostReturnsBlanksNotError(t *testing.T) {
 	}
 }
 
-// TestScrapeBlocksInternalAddresses confirms the SSRF guard rejects literal private and
-// cloud-metadata IPs. It deliberately does NOT use doScrape, so blockInternalHosts stays at
-// its default (true). Literal IPs mean no real DNS or network is touched: the fetch must be
-// skipped and the handler must return 200 with an all-blank result.
+// SSRF guard rejects literal private/metadata IPs; no doScrape so blocking stays on, fetch skipped, 200 blank.
 func TestScrapeBlocksInternalAddresses(t *testing.T) {
 	for _, target := range []string{
 		"http://169.254.169.254/latest/meta-data/",
@@ -257,8 +259,7 @@ func TestScrapeBlocksInternalAddresses(t *testing.T) {
 	}
 }
 
-// TestScrapeRejectsOversizedRequestBody confirms an oversized request body is rejected with a
-// 400 by the http.MaxBytesReader cap rather than being read fully into memory.
+// An oversized request body is rejected with 400 by the MaxBytesReader cap, not read into memory.
 func TestScrapeRejectsOversizedRequestBody(t *testing.T) {
 	huge := bytes.Repeat([]byte("a"), maxBodyBytes+1)
 	req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewReader(huge))
@@ -271,8 +272,7 @@ func TestScrapeRejectsOversizedRequestBody(t *testing.T) {
 	}
 }
 
-// TestExtractFromGreenhouseEmbedRejectsNonDigitJobID confirms a non-numeric job id is
-// rejected before any Greenhouse API URL is built.
+// A non-numeric job id is rejected before any Greenhouse API URL is built.
 func TestExtractFromGreenhouseEmbedRejectsNonDigitJobID(t *testing.T) {
 	htmlSrc := `<html><head><script src="https://boards.greenhouse.io/embed/job_board/js?for=testboard"></script></head><body></body></html>`
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlSrc))
@@ -285,8 +285,7 @@ func TestExtractFromGreenhouseEmbedRejectsNonDigitJobID(t *testing.T) {
 	}
 }
 
-// TestIsPublicIPRejectsReservedRanges pins the extra CGNAT/reserved/documentation ranges
-// (beyond the standard loopback/private/link-local predicates) that must never be dialed.
+// Pins the extra CGNAT/reserved/documentation ranges that must never be dialed.
 func TestIsPublicIPRejectsReservedRanges(t *testing.T) {
 	blocked := []string{
 		"100.64.0.1", // CGNAT
@@ -309,11 +308,7 @@ func TestIsPublicIPRejectsReservedRanges(t *testing.T) {
 	}
 }
 
-// TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription covers a real case: a JS-rendered
-// careers page (client-side widget, no JSON-LD, no known embed) whose static HTML body is
-// just nav/footer/legal text; the last-resort whole-body fallback used to accept that as
-// "the job description" and hand it to the AI match, which could only ever produce a
-// nonsense verdict from boilerplate with no actual role content.
+// JS-rendered careers page with only nav/footer text: the whole-body fallback must not accept it as a JD.
 func TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription(t *testing.T) {
 	server := fixtureServer(t, "testdata/js_rendered_no_signal.html")
 	defer server.Close()
@@ -328,11 +323,7 @@ func TestScrapeDoesNotAcceptFooterBoilerplateAsJobDescription(t *testing.T) {
 	}
 }
 
-// TestScrapeIgnoresNon2xxResponseBody covers a real bug: Go's http client does not treat a
-// 404/410/etc. as an error, so without an explicit status check a dead/removed job posting's
-// error page got scraped and extracted from as if it were a real posting, silently feeding a
-// 404 page's title/meta into the form (and from there into the AI match) instead of surfacing
-// a fetch failure the user could react to.
+// Go's client doesn't error on 404/410, so without a status check a dead posting's error page got scraped as real.
 func TestScrapeIgnoresNon2xxResponseBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

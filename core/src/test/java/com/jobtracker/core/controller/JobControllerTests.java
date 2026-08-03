@@ -101,9 +101,7 @@ class JobControllerTests {
             .andExpect(jsonPath("$[0].company").value("Carol's Co"));
     }
 
-    // Covers the batched query path in JobService.listJobs (findAllWithInterviewersByJobOwnerId)
-    // end-to-end against a real DB: a job with two interview rounds should report the later
-    // round as latestInterview and roundCount=2, while a job with none gets latestInterview=null.
+    // Exercises listJobs' batched query against a real DB, including a job with no rounds.
     @Test
     void listJobsReportsLatestInterviewAndRoundCountPerJob() throws Exception {
         Long ownerId = createUser("job_round_count");

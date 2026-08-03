@@ -73,11 +73,7 @@ public class InterviewService {
         Job job = event.getJob();
         stageEvents.delete(event);
 
-        // createInterview advances job.currentStage via advanceStageIfFurther, so deleting that
-        // event could leave the column pointing at a stage no surviving event supports, and the
-        // metrics funnel (recomputed from event history) would then disagree with it. Recompute
-        // the furthest stage from the remaining events and lower the column to match. The deleted
-        // event may not be flushed yet, so exclude it by id rather than trusting the query.
+        // Recompute so deleting the advancing event can't strand currentStage; the deleted id may not be flushed yet.
         Stage furthestRemaining = stageEvents.findByJobIdOrderByEnteredAtAsc(job.getId()).stream()
                 .filter(e -> !e.getId().equals(stageEventId))
                 .map(StageEvent::getStage)

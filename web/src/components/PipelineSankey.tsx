@@ -23,6 +23,16 @@ const NODE_PADDING = 16;
 const MIN_LINK_WIDTH = 2.5;
 // Thinner than the allocated slot so stacked flows show a gap instead of packing flush.
 const LINK_GAP = 5;
+// The labels need this much room; below it the chart scrolls instead of overlapping them.
+const MIN_WIDTH = 1300;
+
+// Measure label text so its highlight box hugs it; estimate without a canvas (SSR/tests).
+const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
+function labelWidth(text: string, font: number): number {
+  if (!measureCtx) return text.length * font * 0.55;
+  measureCtx.font = `600 ${font}px ui-sans-serif, system-ui, sans-serif`;
+  return measureCtx.measureText(text).width;
+}
 
 // Custom d3-sankey (not Recharts) so we control flow thickness and label rendering.
 export default function PipelineSankey({
@@ -47,26 +57,28 @@ export default function PipelineSankey({
     return () => observer.disconnect();
   }, []);
 
+  const chartWidth = width === 0 ? 0 : Math.max(width, MIN_WIDTH);
+
   const graph = useMemo(() => {
-    if (width <= MARGIN.left + MARGIN.right + 50) return null;
+    if (chartWidth === 0) return null;
     const layout = sankey<SankeyNodeInput, SankeyLinkInput>()
       .nodeWidth(NODE_WIDTH)
       .nodePadding(NODE_PADDING)
       .nodeAlign(sankeyJustify)
       .extent([
         [MARGIN.left, MARGIN.top],
-        [width - MARGIN.right, height - MARGIN.bottom],
+        [chartWidth - MARGIN.right, height - MARGIN.bottom],
       ]);
     return layout({
       nodes: nodes.map(n => ({ ...n })),
       links: links.map(l => ({ ...l })),
     });
-  }, [nodes, links, width, height]);
+  }, [nodes, links, chartWidth, height]);
 
   return (
-    <div ref={ref} className="w-full">
+    <div ref={ref} className="w-full overflow-x-auto">
       {graph && (
-        <svg width={width} height={height} className="text-neutral-700 dark:text-neutral-100">
+        <svg width={chartWidth} height={height} className="block text-neutral-700 dark:text-neutral-100">
           <g>
             {(graph.links as LayoutLink[]).map((link, i) => (
               <path
@@ -100,18 +112,18 @@ function NodeMark({ node, onClick }: { node: LayoutNode; onClick?: (key: string,
   const y0 = node.y0 ?? 0;
   const y1 = node.y1 ?? 0;
   const cy = (y0 + y1) / 2;
-  // SVG can't measure text, so the highlight box is sized from the label length.
-  const font = 14;
+  const font = 12;
   const label = `${node.name} - ${node.total}`;
   const labelX = x1 + 9;
   const boxHeight = font + 8;
-  const boxWidth = label.length * font * 0.6 + 14;
+  const boxWidth = labelWidth(label, font) + 12;
 
   return (
     <g
       onClick={onClick ? () => onClick(node.key, node.name) : undefined}
       style={onClick ? { cursor: "pointer" } : undefined}
     >
+      <title>{`${node.name}: ${node.total}`}</title>
       <rect x={x0} y={y0} width={x1 - x0} height={Math.max(y1 - y0, 1)} rx={2} fill={node.color} fillOpacity={0.95} />
       <rect
         x={labelX - 6}

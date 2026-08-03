@@ -1,7 +1,6 @@
 name: CI
 
-# Runs the full test suite on every PR to main (gates the merge) and again on every
-# push to main (the post-merge run).
+# Runs all four test suites on every PR to main (gates the merge) and every push to main.
 on:
   pull_request:
     branches: [main]
@@ -60,8 +59,7 @@ jobs:
       - run: mvn -B -q clean test
         working-directory: core
 
-  # If the post-merge run on main fails, revert the offending commit. Uses REVERT_TOKEN (a PAT
-  # that can bypass the branch ruleset) because the default GITHUB_TOKEN cannot push to locked main.
+  # Revert a failed post-merge commit. Needs REVERT_TOKEN (a PAT) since GITHUB_TOKEN can't push to locked main.
   auto-revert:
     needs: [web, bff, scraper, core]
     if: ${{ failure() && github.event_name == 'push' }}

@@ -17,8 +17,7 @@ public class InternalTokenFilter extends OncePerRequestFilter {
     private final String internalToken;
 
     public InternalTokenFilter(@Value("${app.internal-token}") String internalToken) {
-        // Fail fast: a blank internal token would let every request through, so refuse to start
-        // rather than silently running with authentication disabled.
+        // Fail fast: a blank token would let every request through, so refuse to start.
         if (internalToken == null || internalToken.isBlank()) {
             throw new IllegalStateException("app.internal-token must be configured and non-blank");
         }
@@ -40,7 +39,7 @@ public class InternalTokenFilter extends OncePerRequestFilter {
 
     // Constant-time compare so a caller cannot recover the token byte-by-byte via timing.
     private boolean tokenMatches(String provided) {
-        // Reject a blank or empty provided token outright so an empty header can never match.
+        // An empty header must never match.
         if (provided == null || provided.isBlank()) {
             return false;
         }

@@ -4,9 +4,7 @@ import com.jobtracker.core.dto.ResumeAnalysis;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-// Parses the cached resume-analysis JSON into a ResumeAnalysis, tolerating malformed or absent
-// JSON by returning null. Shared so ResumeService and ResumeRecommenderService decode a stored
-// analysis the same way.
+// Shared decoder for cached resume-analysis JSON; returns null on malformed or absent input.
 @Component
 public class ResumeAnalysisParser {
 

@@ -4,8 +4,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 
 const router = Router();
 
-// Shallow probe stays public for uptime monitors. The deep probe talks to internal
-// services, so it is gated behind auth.
+// Deep probe hits internal services, so it's gated behind auth; shallow stays public.
 router.get("/health", health);
 router.get("/health/deep", requireAuth, healthDeep);
 

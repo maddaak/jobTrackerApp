@@ -1,11 +1,6 @@
 package com.jobtracker.core.model;
 
-/**
- * Pipeline checkpoints only, in order. Terminal results live in {@link Outcome}
- * instead, so a job's furthest-reached Stage stays on record even after it's
- * rejected/ghosted/declined. The INTERVIEW_REQUEST -> INTERVIEW_STAGE ->
- * WAITING_INTERVIEW_RESULTS trio is re-entered once per interview round.
- */
+// Ordered pipeline checkpoints; terminal results live in Outcome so the furthest Stage survives rejection.
 public enum Stage {
     RESUME_CHECK,
     INTERVIEW_REQUEST,

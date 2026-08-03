@@ -9,8 +9,7 @@ server {
     client_max_body_size 10M;
 
     location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|ai-status) {
-        # Client routes like /metrics and /resumes collide with API paths. A browser refresh
-        # sends Accept: text/html, so serve the SPA shell for those; real API calls fall through.
+        # Client routes (/metrics, /resumes) collide with API paths; a browser refresh sends Accept: text/html, so serve the SPA for those.
         if ($http_accept ~* text/html) {
             rewrite ^ /index.html last;
         }
@@ -21,8 +20,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # index.html must never be cached: it points at the current hashed bundle, so a cached copy
-    # would keep loading an old (redeployed-over) bundle and make deploys look like no-ops.
+    # Never cache index.html: it points at the current hashed bundle, so a stale copy hides deploys.
     location = /index.html {
         root /usr/share/nginx/html;
         add_header Cache-Control "no-cache";

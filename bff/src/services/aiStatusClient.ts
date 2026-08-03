@@ -1,9 +1,6 @@
 import { SCRAPER_URL, INTERNAL_TOKEN, SCRAPER_TIMEOUT_MS } from "../config.js";
 
-// Asks the scraper (the only service holding the Anthropic key) whether AI is configured.
-// Fails closed: any network error, timeout, non-ok status, or non-JSON body returns false so the
-// frontend hides AI features rather than showing something that cannot work. The timeout stops a
-// stalled scraper from holding this request (and its BFF socket) open indefinitely.
+// Fail closed so a scraper outage hides AI features rather than exposing ones that can't work.
 export async function getAiConfigured(): Promise<boolean> {
   try {
     const res = await fetch(`${SCRAPER_URL}/ai-status`, {

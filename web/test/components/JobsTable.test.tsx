@@ -146,6 +146,24 @@ describe("JobsTable", () => {
     );
   });
 
+  it("moves a job to the Finalized stage when its outcome is set to Ghosted", async () => {
+    const onSaved = vi.fn();
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 1 }));
+    render(<JobsTable jobs={jobs} onSaved={onSaved} onDeleted={vi.fn()} />);
+
+    fireEvent.change(screen.getAllByLabelText("Outcome")[0], { target: { value: "GHOSTED" } });
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/jobs/1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining("\"currentStage\":\"FINALIZED\""),
+        }),
+      ),
+    );
+  });
+
   it("does not render a javascript: position URL as a clickable link", () => {
     const jsJob: JobSummary = { ...jobs[0], id: 3, role: "Evil Role", url: "javascript:alert(1)" };
     render(<JobsTable jobs={[jsJob]} onSaved={vi.fn()} onDeleted={vi.fn()} />);

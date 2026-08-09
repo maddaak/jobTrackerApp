@@ -81,6 +81,27 @@ Where a user's data actually is, which is the most common question:
   they are hidden. Add the key and restart to enable them.
 - **A saved change does not appear.** Check `bff` logs first; it reports the status `core` returned.
 
+## Rules for contributing to this repo
+
+**This repo is public. The data it manages is not.** Never put anything drawn from a running
+instance — application counts, company names, notes, salary figures, interview details, metrics
+output — into a commit message, PR, issue, or any other public surface. Verification evidence
+belongs in the conversation with whoever asked for it. Note that GitHub keeps PR and issue body
+revisions, so editing something out afterwards does not remove it.
+
+**A PR body says only `See CHANGELOG.md under <version>.`** Nothing else: no verification tables,
+no test counts, no summary of the diff. One extra line is acceptable only for an upgrade warning.
+CHANGELOG.md is the single source of truth for what changed, and the PR should not duplicate or
+compete with it.
+
+**Commit messages are one line, `V<version> - see CHANGELOG.md`,** matching every commit in the
+history. No `Co-Authored-By`, no "Generated with" footer, no trailers of any kind.
+
+**Merging to main publishes.** CI success on main triggers the image workflow, which reads the
+version from the top of CHANGELOG.md and, if that tag does not exist yet, builds and pushes all four
+images as `<version>` and `latest` and creates the git tag. So the changelog's top heading decides
+what ships, and a merge that does not bump it republishes nothing.
+
 ## Working on the code
 
 Only needed if the user wants to modify it. Build and test each service:
@@ -105,4 +126,22 @@ Two conventions worth knowing before changing anything:
 fresh install never needs them. Upgrading from a pre-v3 database is automatic: `core` detects the
 old shape on startup and converts it, dropping nothing, so Postgres stays the rollback. The one
 step that stays manual is `008_drop_relational_leftovers.sql`, which reclaims the old tables and is
-destructive.
+destructive. The conversion itself lives in `core/.../config/V3Migration.java`, and
+`config/MongoIndexes.java` creates the Mongo indexes at startup because `@Indexed` alone builds
+nothing (Spring Data defaults `autoIndexCreation` to false).
+
+## Where things stand
+
+v3 is the current release. Known gaps, so they are not rediscovered as if they were new:
+
+- **Schema management is still `ddl-auto=update` plus hand-written SQL, with no Flyway.** The v3
+  hop is handled by `V3Migration`, but the underlying gap remains, and it bites in a specific way:
+  Hibernate cannot add a `NOT NULL` column to a populated table, so any future non-nullable column
+  needs the add-nullable / backfill / constrain sequence that `007_backfill_source_category.sql`
+  shows.
+- **No test crosses a service boundary.** Each suite mocks its neighbours, so contract drift between
+  web, bff, and core is the one class of bug the tests structurally cannot catch. Two real defects
+  reached production this way before being found by review.
+- **`core` has almost no logging.** `/health` reports `indexes: ready | degraded | disabled`, and
+  that is close to all the runtime visibility there is. A failure elsewhere leaves only a generic
+  500 as evidence.

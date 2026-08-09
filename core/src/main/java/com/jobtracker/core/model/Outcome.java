@@ -6,5 +6,10 @@ public enum Outcome {
     OFFER_DECLINED,
     REJECTED,
     GHOSTED,
-    WITHDRAWN
+    WITHDRAWN;
+
+    // Offer outcomes excluded: they stay at OFFER_STAGE, which the Sankey reads to route them.
+    public boolean closesPipeline() {
+        return this == REJECTED || this == GHOSTED || this == WITHDRAWN;
+    }
 }

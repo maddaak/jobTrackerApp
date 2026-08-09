@@ -2,9 +2,10 @@ package com.jobtracker.core.service;
 
 import com.jobtracker.core.dto.ResumeAnalysis;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
-// Shared decoder for cached resume-analysis JSON; returns null on malformed or absent input.
+// Absent input means not analyzed yet; unreadable input is a corrupt blob, not an empty analysis.
 @Component
 public class ResumeAnalysisParser {
 
@@ -20,8 +21,9 @@ public class ResumeAnalysisParser {
         }
         try {
             return objectMapper.readValue(analysisJson, ResumeAnalysis.class);
-        } catch (RuntimeException e) {
-            return null;
+        } catch (JacksonException e) {
+            // Matches Gzip.decompress: a corrupt blob we stored is a 500, not a quietly empty read.
+            throw new IllegalStateException("stored resume analysis is not readable JSON", e);
         }
     }
 }

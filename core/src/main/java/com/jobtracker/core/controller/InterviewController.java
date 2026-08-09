@@ -27,7 +27,7 @@ public class InterviewController {
 
     @PatchMapping("/{id}")
     public InterviewResponse update(
-            @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
+            @RequestHeader("X-User-Id") Long ownerId, @PathVariable String id,
             @Valid @RequestBody UpdateInterviewRequest request) {
         return interviewService.updateInterview(ownerId, id, request);
     }
@@ -43,7 +43,7 @@ public class InterviewController {
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Boolean> delete(@RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id) {
+    public Map<String, Boolean> delete(@RequestHeader("X-User-Id") Long ownerId, @PathVariable String id) {
         interviewService.deleteInterview(ownerId, id);
         return Map.of("deleted", true);
     }

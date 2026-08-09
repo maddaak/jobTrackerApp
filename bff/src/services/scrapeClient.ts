@@ -1,5 +1,13 @@
 import { SCRAPER_URL, INTERNAL_TOKEN, SCRAPER_TIMEOUT_MS } from "../config.js";
 
+export type ScrapeFailureReason =
+  | "blocked_host"
+  | "request_failed"
+  | "unreachable"
+  | "http_error"
+  | "unreadable"
+  | "no_job_data";
+
 export interface ScrapeResultData {
   company: string;
   role: string;
@@ -7,6 +15,9 @@ export interface ScrapeResultData {
   compMin: number | null;
   compMax: number | null;
   raw: string;
+  // The page loaded, whether or not any job data came out of it.
+  fetched: boolean;
+  reason?: ScrapeFailureReason;
 }
 
 export interface ScrapeCallResult {

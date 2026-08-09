@@ -3,8 +3,10 @@ package com.jobtracker.core.controller;
 import tools.jackson.databind.ObjectMapper;
 import com.jobtracker.core.dto.JobDetailResponse;
 import com.jobtracker.core.model.User;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.UserRepository;
 import com.jobtracker.core.support.InMemoryMongo;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -44,12 +46,22 @@ class JobControllerTests {
         registry.add("spring.mongodb.uri", InMemoryMongo::connectionString);
     }
 
+    @Autowired
+    private JobDetailRepository jobDetails;
+
+    // The in-memory Mongo is shared across suites and outlives the Postgres rollback, so rolled-back
+    // job ids get reused and a stale document would collide with the new one.
+    @BeforeEach
+    void clearDocuments() {
+        jobDetails.deleteAll();
+    }
+
     private Long createUser(String username) {
         return users.save(new User(username, "hash")).getId();
     }
 
     @Test
-    void createJobPersistsSourceJobAndInitialStageEvent() throws Exception {
+    void createJobPersistsJobAndInitialStageEntry() throws Exception {
         Long ownerId = createUser("job_alice");
 
         mockMvc.perform(post("/jobs")
@@ -66,7 +78,6 @@ class JobControllerTests {
             .andExpect(jsonPath("$.company").value("Acme"))
             .andExpect(jsonPath("$.currentStage").value("RESUME_CHECK"))
             .andExpect(jsonPath("$.outcome").value("ACTIVE"))
-            .andExpect(jsonPath("$.notes").value("spoke to Kim"))
             .andExpect(jsonPath("$.stageEvents", hasSize(1)))
             .andExpect(jsonPath("$.stageEvents[0].stage").value("RESUME_CHECK"));
     }

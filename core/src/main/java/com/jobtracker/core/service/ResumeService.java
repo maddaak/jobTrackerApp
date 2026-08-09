@@ -8,6 +8,8 @@ import com.jobtracker.core.dto.ResumeTextResponse;
 import com.jobtracker.core.exception.ResumeNotFoundException;
 import com.jobtracker.core.model.Resume;
 import com.jobtracker.core.repository.ResumeRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -17,6 +19,8 @@ import java.util.List;
 
 @Service
 public class ResumeService {
+
+    private static final Logger log = LoggerFactory.getLogger(ResumeService.class);
 
     private final ResumeRepository resumes;
     private final ResumeTextExtractor extractor;
@@ -64,9 +68,18 @@ public class ResumeService {
     }
 
     private ResumeSummaryResponse toSummary(Resume resume) {
-        ResumeAnalysis analysis = analysisParser.parse(resume.getAnalysisJson());
+        ResumeAnalysis analysis;
+        String status = resume.getAnalysisStatus();
+        try {
+            analysis = analysisParser.parse(resume.getAnalysisJson());
+        } catch (IllegalStateException corruptBlob) {
+            // One bad blob must not fail the list, but "ok" with null fields is a lie to the UI.
+            log.warn("resume {} has unreadable stored analysis; reporting it as unavailable", resume.getId());
+            analysis = null;
+            status = Resume.AnalysisStatus.UNAVAILABLE;
+        }
         return new ResumeSummaryResponse(
-                resume.getId(), resume.getFileName(), resume.getUploadedAt(), resume.getAnalysisStatus(),
+                resume.getId(), resume.getFileName(), resume.getUploadedAt(), status,
                 resume.getAnalysisSource(),
                 analysis == null ? null : analysis.summary(),
                 analysis == null ? null : analysis.skills(),

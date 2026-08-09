@@ -253,6 +253,13 @@ func analyzeResumeHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "unavailable")
 		return
 	}
+	// "{}" unmarshals cleanly. Returning it would be stored with analysisStatus "ok", so the UI
+	// shows an analyzed resume with no summary and the recommender silently drops it from scoring.
+	if strings.TrimSpace(analysis.Summary) == "" {
+		log.Printf("resume analysis: claude returned no summary; raw response: %s", truncate(raw, 2000))
+		writeError(w, http.StatusBadGateway, "unavailable")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, analysis)
 }
@@ -267,6 +274,13 @@ type resumeDocument struct {
 type matchResumeRequest struct {
 	JobDescriptionText string           `json:"jobDescriptionText"`
 	Resumes            []resumeDocument `json:"resumes"`
+}
+
+// The exact set bff and web are typed against; a parse outside it is a failure, not a verdict.
+var validRecommendations = map[string]bool{
+	"APPLY":           true,
+	"DO_NOT_APPLY":    true,
+	"INSUFFICIENT_JD": true,
 }
 
 type matchResult struct {
@@ -330,6 +344,13 @@ func matchResumeHandler(w http.ResponseWriter, r *http.Request) {
 	var result matchResult
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &result); err != nil {
 		log.Printf("resume match: failed to parse claude response as JSON: %v; raw response: %s", err, truncate(raw, 2000))
+		writeError(w, http.StatusBadGateway, "unavailable")
+		return
+	}
+	// bff and web type this as a union, but nothing enforced it: anything other than "APPLY"
+	// renders as "You should not apply", so an empty parse became a confident rejection.
+	if !validRecommendations[result.Recommendation] {
+		log.Printf("resume match: claude returned recommendation %q; raw response: %s", result.Recommendation, truncate(raw, 2000))
 		writeError(w, http.StatusBadGateway, "unavailable")
 		return
 	}
@@ -410,6 +431,11 @@ func recommendResumeVariantHandler(w http.ResponseWriter, r *http.Request) {
 	var result recommendVariantResult
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &result); err != nil {
 		log.Printf("resume variant recommendation: failed to parse claude response as JSON: %v; raw response: %s", err, truncate(raw, 2000))
+		writeError(w, http.StatusBadGateway, "unavailable")
+		return
+	}
+	if strings.TrimSpace(result.Reason) == "" {
+		log.Printf("resume variant recommendation: claude returned no reason; raw response: %s", truncate(raw, 2000))
 		writeError(w, http.StatusBadGateway, "unavailable")
 		return
 	}

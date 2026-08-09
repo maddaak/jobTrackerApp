@@ -14,9 +14,10 @@ view of your whole pipeline.
 > ⚠️ **This app does not apply to jobs for you.** It is a personal tracker for applications
 > you submit yourself. It never sends applications, contacts employers, or takes any action on
 > a posting on your behalf. Its only outside calls are reading a posting URL you paste (to
-> pre-fill fields) and, optionally, asking Claude to summarize a resume or suggest which of
-> your resumes best fits a posting. The apply / don't-apply output is a suggestion for you to
-> read, nothing more.
+> pre-fill fields), optionally asking Claude to summarize a resume or suggest which of your
+> resumes best fits a posting, and a once-a-day check of this repo's public tag list to tell you
+> when a new version is out (`UPDATE_CHECK=false` turns that off; it sends nothing about you).
+> The apply / don't-apply output is a suggestion for you to read, nothing more.
 
 Built as a **polyglot, fully containerized** system - one `docker compose up` runs the
 whole thing (frontend, two backend services, a scraper, Postgres, and MongoDB) on any
@@ -57,7 +58,7 @@ machine with Docker. No local Node/Java/Go/database install required.
   features are hidden across the UI, with a short disclaimer that no Anthropic key is
   configured; everything else still works.
 - **Job Details** - a per-job modal holding the full job description text, your own notes,
-  rejection reason, and interview notes.
+  rejection reason, interview notes, the job's stage history, and its interview rounds.
 
 ## Quick start
 
@@ -138,25 +139,34 @@ React + TypeScript (Vite), served over HTTPS by nginx    UI (only port exposed t
 TypeScript BFF (Express)          the ONLY service the UI talks to; orchestrates everything below
         |------------------|
 Java Spring Boot CORE         Go SCRAPER
- jobs / stages / sources /     paste a job URL -> best-effort parse of company/role/
- interviews / funnel metrics   location/comp; also owns all outbound Claude API calls
+ jobs / interviews /           paste a job URL -> best-effort parse of company/role/
+ stage history / metrics       location/comp; also owns all outbound Claude API calls
  (resume storage + text)       (resume analysis, job-fit match)
    |
-Postgres (jobs, users, stages)   +   MongoDB (job description text, resume text, notes)
+Postgres (users + the job rows the table page shows)
+MongoDB  (per job: everything the details modal shows, plus resumes)
 ```
 
 **Why polyglot (each language does what it's best at):**
 - **TypeScript BFF** - the single door the UI talks to; aggregates the backend services
   and shapes responses for the frontend (Backend-for-Frontend pattern). It's also the only
   service that talks to *both* core and the scraper - core and scraper never call each other.
-- **Java / Spring Boot** - the core domain: jobs, stages, sources, interviews, funnel
+- **Java / Spring Boot** - the core domain: jobs, interviews, stage history, funnel
   metrics, and resume storage/text-extraction (PDF/DOCX/plain text).
 - **Go** - a focused scraper for job postings, and the service that makes all outbound
   calls to Anthropic's Claude API (resume analysis, job-fit recommendations) - kept
   alongside the scraping code since both are "fetch something from the outside world."
-- **Postgres** - structured, relational data (jobs, stages, users, sources).
-- **MongoDB** - larger free-text content that doesn't need relations (job description
-  text, resume text, notes), gzip-compressed at rest.
+- **Postgres** - accounts, and exactly the job columns the table page renders and
+  filters on: company, role, posting URL, how you applied, location, comp range, stage,
+  and outcome. Two tables, `jobs` and `users`.
+- **MongoDB** - everything the job details modal shows, as one document per job: the job
+  description text, your notes, rejected reason, the stage history, and the interview
+  rounds with their interviewers nested inside each round. Resumes and their AI analysis
+  live here too. Large text is gzip-compressed at rest.
+
+  The split is deliberate: a job has a variable number of interview rounds and each round
+  a variable number of interviewers, which is a document rather than three joined tables.
+  Anything the table page has to sort or filter on stays relational.
 
 ## Security between layers
 
@@ -203,10 +213,10 @@ Gemini, etc.) would need actual code changes, not just config.
 (default `latest`), both overridable in `.env` to pin a version or run your own fork's images:
 
 ```bash
-IMAGE_TAG=v2
+IMAGE_TAG=v3
 ```
 
-To publish images from your own fork, push a version tag (`git tag v2 && git push origin v2`); the
+To publish images from your own fork, push a version tag (`git tag v3 && git push origin v3`); the
 `publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
 Container Registry. The first time, make the resulting packages public in your GitHub Packages
 settings so others can pull them without authenticating.
@@ -299,6 +309,15 @@ Open `https://your.domain` and register the first account.
   `docker compose down -v` deletes them. Back them up, for example:
   `docker run --rm -v jobapp_pgdata:/data -v "$PWD":/backup alpine tar czf /backup/pg.tgz /data`.
 - To update: `git pull && docker compose up -d --build`.
+- **Upgrading to v3 from any earlier version converts your data automatically.** v3 moved the
+  interview and stage data out of Postgres; core detects a pre-v3 database on startup and converts
+  it, so `docker compose up -d` is the whole upgrade. It decides by looking at the schema, not a
+  version number, and a fresh install is left alone. Back up first anyway (see above) — the
+  conversion drops nothing, so Postgres keeps every old column and table as the rollback, and if it
+  cannot finish it refuses to start rather than half-running.
+- Once v3 is confirmed working you can reclaim the old tables with
+  `core/migrations/008_drop_relational_leftovers.sql`. That step is destructive, so it stays manual
+  and is entirely optional. `run_migration.sh` remains for converting by hand if you prefer.
 - Only the `web` container is meant to face the internet. Everything else (bff, core,
   scraper, and both databases) stays on the private Docker network.
 
@@ -309,6 +328,13 @@ Open `https://your.domain` and register the first account.
   restart your browser; it's a real locally-trusted cert, not a security issue.
 - **`docker compose build` fails reading `.env`** - usually a stray line that isn't valid
   `KEY=value`. Open `.env` and check for anything that doesn't look like the `.env.example` format.
+- **`core` won't start / exits immediately** - check `docker compose logs core`. The usual cause is
+  a `JWT_SECRET` shorter than 64 bytes, which HS512 signing requires; the log names the length it
+  found. `openssl rand -hex 32` gives exactly 64 characters, so use that command, not the `-hex 16`
+  one used for the database password.
+- **A service shows `unhealthy` in `docker compose ps`** - every service has a health check and
+  restarts unless you stopped it, so a transient failure recovers on its own. If it stays
+  unhealthy, `docker compose logs <service>` says why.
 - **AI features are hidden / show a "no Anthropic key" disclaimer.** `ANTHROPIC_API_KEY` is
   blank; set it and restart to enable them. If the key is set but AI calls still fail, the
   key likely has no billing credit attached yet.

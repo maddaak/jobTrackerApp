@@ -74,6 +74,9 @@ jobs:
         with:
           context: ./${{ matrix.service }}
           platforms: linux/${{ matrix.platform.arch }}
+          # Only bff reads it; harmless for the others, which have no such ARG.
+          build-args: |
+            APP_VERSION=${{ needs.check.outputs.version }}
           outputs: type=image,name=ghcr.io/${{ steps.owner.outputs.lc }}/jobtrackerapp-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
       - name: Export digest
         run: |

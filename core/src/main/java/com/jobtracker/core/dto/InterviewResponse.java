@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record InterviewResponse(
-        Long stageEventId,
+        String roundId,
         Long jobId,
         String company,
         String role,

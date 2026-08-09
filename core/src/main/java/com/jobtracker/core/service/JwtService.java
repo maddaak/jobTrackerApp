@@ -13,13 +13,22 @@ import java.util.Date;
 @Service
 public class JwtService {
 
+    // Keys.hmacShaKeyFor only enforces 32, so a 32-63 byte secret boots clean then 500s every login.
+    private static final int MIN_SECRET_BYTES = 64;
+
     private final SecretKey key;
     private final Duration expiry;
 
     public JwtService(
             @Value("${app.jwt-secret}") String secret,
             @Value("${app.jwt-expiry-days}") long expiryDays) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "app.jwt-secret must be at least " + MIN_SECRET_BYTES + " bytes for HS512, got "
+                            + secretBytes.length);
+        }
+        this.key = Keys.hmacShaKeyFor(secretBytes);
         this.expiry = Duration.ofDays(expiryDays);
     }
 

@@ -15,8 +15,8 @@ export async function create(req: AuthedRequest, res: Response) {
 }
 
 export async function update(req: AuthedRequest, res: Response) {
-  const stageEventId = req.params.id as string;
-  const result = await updateInterview(req.userId!, stageEventId, req.body ?? {});
+  const roundId = req.params.id as string;
+  const result = await updateInterview(req.userId!, roundId, req.body ?? {});
   sendUpstream(res, result);
 }
 
@@ -31,7 +31,7 @@ export async function upcoming(req: AuthedRequest, res: Response) {
 }
 
 export async function remove(req: AuthedRequest, res: Response) {
-  const stageEventId = req.params.id as string;
-  const result = await deleteInterview(req.userId!, stageEventId);
+  const roundId = req.params.id as string;
+  const result = await deleteInterview(req.userId!, roundId);
   sendUpstream(res, result);
 }

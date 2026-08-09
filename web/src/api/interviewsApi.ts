@@ -15,7 +15,8 @@ export type InterviewType =
   | "PANEL_SYSTEM_DESIGN"
   | "PANEL_BEHAVIOR"
   | "PANEL_CULTURE_FIT"
-  | "PANEL_VALUES";
+  | "PANEL_VALUES"
+  | "RECRUITER_DEBRIEF";
 
 export const INTERVIEW_TYPES: InterviewType[] = [
   "RECRUITER_PHONE_SCREEN",
@@ -32,6 +33,7 @@ export const INTERVIEW_TYPES: InterviewType[] = [
   "PANEL_BEHAVIOR",
   "PANEL_CULTURE_FIT",
   "PANEL_VALUES",
+  "RECRUITER_DEBRIEF",
 ];
 
 export const INTERVIEW_TYPE_LABELS: Record<InterviewType, string> = {
@@ -49,10 +51,10 @@ export const INTERVIEW_TYPE_LABELS: Record<InterviewType, string> = {
   PANEL_BEHAVIOR: "Panel - Behavior",
   PANEL_CULTURE_FIT: "Panel - Culture Fit",
   PANEL_VALUES: "Panel - Values",
+  RECRUITER_DEBRIEF: "Recruiter Debrief",
 };
 
 export interface Interviewer {
-  id: number;
   name: string;
   linkedInUrl: string | null;
 }
@@ -63,7 +65,7 @@ export interface InterviewerInput {
 }
 
 export interface Interview {
-  stageEventId: number;
+  roundId: string;
   jobId: number;
   company: string;
   role: string;
@@ -79,7 +81,7 @@ export interface CreateInterviewInput {
   jobId: number;
   stage: Stage;
   interviewDateTime: string;
-  interviewType?: InterviewType;
+  interviewType: InterviewType;
   meetingLink?: string;
   location?: string;
   interviewers?: InterviewerInput[];
@@ -87,7 +89,7 @@ export interface CreateInterviewInput {
 
 export interface UpdateInterviewInput {
   interviewDateTime: string;
-  interviewType: InterviewType | null;
+  interviewType: InterviewType;
   meetingLink: string | null;
   location: string | null;
   interviewers: InterviewerInput[];
@@ -113,14 +115,14 @@ export async function createInterview(input: CreateInterviewInput): Promise<Inte
   });
 }
 
-export async function updateInterview(stageEventId: number, input: UpdateInterviewInput): Promise<Interview> {
-  return request<Interview>(`/interviews/${stageEventId}`, "failed to update interview", {
+export async function updateInterview(roundId: string, input: UpdateInterviewInput): Promise<Interview> {
+  return request<Interview>(`/interviews/${roundId}`, "failed to update interview", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
 }
 
-export async function deleteInterview(stageEventId: number): Promise<void> {
-  await request<unknown>(`/interviews/${stageEventId}`, "failed to delete interview", { method: "DELETE" });
+export async function deleteInterview(roundId: string): Promise<void> {
+  await request<unknown>(`/interviews/${roundId}`, "failed to delete interview", { method: "DELETE" });
 }

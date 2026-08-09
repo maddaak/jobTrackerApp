@@ -28,6 +28,7 @@ export interface MetricsData {
   outcomeCounts: OutcomeCountData[];
   interviewRoundCounts: InterviewRoundCountData[];
   sankeyLinks: SankeyLinkData[];
+  companiesByNode: Record<string, Record<string, number>>;
 }
 
 export function getMetrics(userId: string) {

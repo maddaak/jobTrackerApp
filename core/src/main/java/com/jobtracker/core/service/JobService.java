@@ -8,15 +8,15 @@ import com.jobtracker.core.dto.LatestInterviewSummary;
 import com.jobtracker.core.dto.StageEventResponse;
 import com.jobtracker.core.dto.UpdateJobRequest;
 import com.jobtracker.core.exception.JobNotFoundException;
+import com.jobtracker.core.model.InterviewRound;
 import com.jobtracker.core.model.Job;
-import com.jobtracker.core.model.Outcome;
-import com.jobtracker.core.model.Source;
+import com.jobtracker.core.model.JobDetail;
+import com.jobtracker.core.model.JobJourney;
 import com.jobtracker.core.model.Stage;
-import com.jobtracker.core.model.StageEvent;
+import com.jobtracker.core.model.StageHistoryEntry;
 import com.jobtracker.core.model.User;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
-import com.jobtracker.core.repository.SourceRepository;
-import com.jobtracker.core.repository.StageEventRepository;
 import com.jobtracker.core.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,54 +24,58 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 public class JobService {
 
     private final JobRepository jobs;
-    private final SourceRepository sources;
-    private final StageEventRepository stageEvents;
     private final UserRepository users;
-    private final JobDetailService jobDetails;
+    private final JobDetailRepository jobDetails;
+    private final JobDetailService jobDetailService;
 
-    public JobService(JobRepository jobs, SourceRepository sources,
-            StageEventRepository stageEvents, UserRepository users, JobDetailService jobDetails) {
+    public JobService(JobRepository jobs, UserRepository users, JobDetailRepository jobDetails,
+            JobDetailService jobDetailService) {
         this.jobs = jobs;
-        this.sources = sources;
-        this.stageEvents = stageEvents;
         this.users = users;
         this.jobDetails = jobDetails;
+        this.jobDetailService = jobDetailService;
     }
 
     @Transactional
     public JobDetailResponse createJob(Long ownerId, CreateJobRequest request) {
         User owner = users.getReferenceById(ownerId);
-        Source source = sources.save(new Source(request.sourceCategory()));
-        Job job = jobs.save(new Job(request.company(), request.role(), owner, source,
-                request.url(), request.location(), request.compMin(), request.compMax(), request.notes()));
-        StageEvent initialEvent = stageEvents.save(
-                new StageEvent(job, Stage.RESUME_CHECK, Instant.now(), null));
+        Job job = jobs.save(new Job(request.company(), request.role(), owner, request.sourceCategory(),
+                request.url(), request.location(), request.compMin(), request.compMax()));
 
-        return toDetailResponse(job, List.of(initialEvent));
+        JobDetail detail = jobDetailService.createDetail(job.getId(), ownerId, request.notes());
+        detail.recordStage(Stage.RESUME_CHECK, Instant.now(), null);
+        jobDetails.save(detail);
+
+        return toDetailResponse(job, detail.getStageHistory());
     }
 
     public List<JobSummaryResponse> listJobs(Long ownerId) {
-        // Fetch-joins source so buildSummaryResponse's job.getSource() fires no per-job select.
-        List<Job> ownerJobs = jobs.findByOwnerIdWithSourceOrderByCreatedAtDesc(ownerId);
-        // One batched query for all interview history instead of 2-3 per job.
-        Map<Long, List<StageEvent>> interviewsByJobId = stageEvents
-                .findAllWithInterviewersByJobOwnerId(ownerId).stream()
-                .collect(Collectors.groupingBy(e -> e.getJob().getId()));
+        List<Job> ownerJobs = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId);
+        // One document per job already is the per-job grouping the flat event table had to rebuild.
+        Map<Long, JobJourney> detailsByJobId = jobDetails.findJourneysByOwnerId(ownerId).stream()
+                .collect(Collectors.toMap(JobJourney::jobId, Function.identity(), (a, b) -> a));
         return ownerJobs.stream()
-                .map(job -> toSummaryResponse(job, interviewsByJobId.getOrDefault(job.getId(), List.of())))
+                .map(job -> {
+                    JobJourney journey = detailsByJobId.get(job.getId());
+                    return buildSummaryResponse(job,
+                            latestInterview(journey == null ? List.of() : journey.interviews()));
+                })
                 .toList();
     }
 
     public JobDetailResponse getJob(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
-        List<StageEvent> events = stageEvents.findByJobIdOrderByEnteredAtAsc(jobId);
-        return toDetailResponse(job, events);
+        List<StageHistoryEntry> history = jobDetails.findByJobId(jobId)
+                .map(JobDetail::getStageHistory)
+                .orElse(List.of());
+        return toDetailResponse(job, history);
     }
 
     @Transactional
@@ -79,17 +83,17 @@ public class JobService {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
 
         Stage previousStage = job.getCurrentStage();
-        String effectiveRejectedReason =
-                request.outcome() == Outcome.REJECTED ? request.rejectedReason() : null;
-
-        job.getSource().setCategory(request.sourceCategory());
-        job.applyUpdate(request.company(), request.role(), request.url(), request.location(),
-                request.compMin(), request.compMax(), request.notes(), effectiveRejectedReason,
+        job.applyUpdate(request.company(), request.role(), request.sourceCategory(), request.url(),
+                request.location(), request.compMin(), request.compMax(),
                 request.currentStage(), request.outcome());
         jobs.save(job);
 
-        if (request.currentStage() != previousStage) {
-            stageEvents.save(new StageEvent(job, request.currentStage(), Instant.now(), null));
+        // Postgres first, then its history entry; create the document rather than drop the transition.
+        if (job.getCurrentStage() != previousStage) {
+            JobDetail detail = jobDetails.findByJobId(jobId)
+                    .orElseGet(() -> jobDetailService.createDetail(jobId, ownerId, null));
+            detail.recordStage(job.getCurrentStage(), Instant.now(), null);
+            jobDetails.save(detail);
         }
 
         return toSummaryResponse(job);
@@ -98,59 +102,48 @@ public class JobService {
     @Transactional
     public void deleteJob(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
-        Source source = job.getSource();
-        stageEvents.deleteByJobId(job.getId());
         jobs.delete(job);
-        // Each job owns a dedicated Source; flush the job delete first so the FK is gone before it.
-        jobs.flush();
-        sources.delete(source);
         // JobDetail lives in Mongo, outside this transaction, so delete it explicitly.
-        jobDetails.deleteDetail(job.getId());
+        jobDetailService.deleteDetail(job.getId());
     }
 
-    // Single-job path (create/update): targeted queries are fine since it never runs per-row.
     private JobSummaryResponse toSummaryResponse(Job job) {
-        LatestInterviewSummary latestInterview = stageEvents
-                .findTopByJobIdAndInterviewDateTimeIsNotNullOrderByInterviewDateTimeDesc(job.getId())
-                .map(e -> buildLatestInterviewSummary(e, stageEvents.countByJobIdAndInterviewDateTimeIsNotNull(job.getId())))
-                .orElse(null);
-        return buildSummaryResponse(job, latestInterview);
+        List<InterviewRound> rounds = jobDetails.findByJobId(job.getId())
+                .map(JobDetail::getInterviews)
+                .orElse(List.of());
+        return buildSummaryResponse(job, latestInterview(rounds));
     }
 
-    // List path: interviewEvents is a slice of listJobs' batched query, so this fires zero queries.
-    private JobSummaryResponse toSummaryResponse(Job job, List<StageEvent> interviewEvents) {
-        LatestInterviewSummary latestInterview = interviewEvents.stream()
-                .max(Comparator.comparing(StageEvent::getInterviewDateTime))
-                .map(e -> buildLatestInterviewSummary(e, (long) interviewEvents.size()))
+    // Takes the rounds themselves, so the projected list and a whole document both feed it.
+    private LatestInterviewSummary latestInterview(List<InterviewRound> allRounds) {
+        List<InterviewRound> rounds = allRounds.stream()
+                .filter(round -> round.getInterviewDateTime() != null)
+                .toList();
+        return rounds.stream()
+                .max(Comparator.comparing(InterviewRound::getInterviewDateTime))
+                .map(round -> new LatestInterviewSummary(round.getRoundId(), round.getInterviewDateTime(),
+                        round.getInterviewType(), rounds.size(), round.getMeetingLink(), round.getLocation(),
+                        round.getInterviewers().stream()
+                                .map(i -> new InterviewerResponse(i.getName(), i.getLinkedInUrl()))
+                                .toList()))
                 .orElse(null);
-        return buildSummaryResponse(job, latestInterview);
-    }
-
-    private LatestInterviewSummary buildLatestInterviewSummary(StageEvent e, long roundCount) {
-        return new LatestInterviewSummary(e.getId(), e.getInterviewDateTime(), e.getInterviewType(), roundCount,
-                e.getMeetingLink(), e.getLocation(), e.getInterviewers().stream()
-                        .map(i -> new InterviewerResponse(i.getId(), i.getName(), i.getLinkedInUrl()))
-                        .toList());
     }
 
     private JobSummaryResponse buildSummaryResponse(Job job, LatestInterviewSummary latestInterview) {
         return new JobSummaryResponse(
-                job.getId(), job.getCompany(), job.getRole(),
-                job.getSource().getCategory(),
+                job.getId(), job.getCompany(), job.getRole(), job.getSourceCategory(),
                 job.getCurrentStage(), job.getOutcome(), job.getUrl(), job.getLocation(),
-                job.getCompMin(), job.getCompMax(), job.getRejectedReason(), job.getNotes(), job.getCreatedAt(),
-                latestInterview);
+                job.getCompMin(), job.getCompMax(), job.getCreatedAt(), latestInterview);
     }
 
-    private JobDetailResponse toDetailResponse(Job job, List<StageEvent> events) {
-        List<StageEventResponse> eventResponses = events.stream()
+    private JobDetailResponse toDetailResponse(Job job, List<StageHistoryEntry> history) {
+        List<StageEventResponse> eventResponses = history.stream()
+                .sorted(Comparator.comparing(StageHistoryEntry::getEnteredAt))
                 .map(e -> new StageEventResponse(e.getStage(), e.getEnteredAt(), e.getNote()))
                 .toList();
         return new JobDetailResponse(
-                job.getId(), job.getCompany(), job.getRole(),
-                job.getSource().getCategory(),
+                job.getId(), job.getCompany(), job.getRole(), job.getSourceCategory(),
                 job.getCurrentStage(), job.getOutcome(), job.getUrl(), job.getLocation(),
-                job.getCompMin(), job.getCompMax(), job.getRejectedReason(), job.getNotes(), job.getCreatedAt(),
-                eventResponses);
+                job.getCompMin(), job.getCompMax(), job.getCreatedAt(), eventResponses);
     }
 }

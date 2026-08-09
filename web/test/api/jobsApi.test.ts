@@ -13,10 +13,8 @@ const baseInput: UpdateJobInput = {
   location: null,
   compMin: null,
   compMax: null,
-  notes: null,
   currentStage: "RESUME_CHECK",
   outcome: "ACTIVE",
-  rejectedReason: null,
 };
 
 describe("updateJob", () => {

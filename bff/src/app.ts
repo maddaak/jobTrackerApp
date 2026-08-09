@@ -4,6 +4,7 @@ import { generalLimiter } from "./middleware/rateLimiters.js";
 import authRoutes from "./routes/authRoutes.js";
 import healthRoutes from "./routes/healthRoutes.js";
 import aiStatusRoutes from "./routes/aiStatusRoutes.js";
+import updateRoutes from "./routes/updateRoutes.js";
 import jobsRoutes from "./routes/jobsRoutes.js";
 import interviewsRoutes from "./routes/interviewsRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
@@ -22,6 +23,8 @@ app.use(generalLimiter);
 
 // Unauthenticated but rate limited, so after generalLimiter unlike health.
 app.use(aiStatusRoutes);
+
+app.use(updateRoutes);
 
 app.use("/auth", authRoutes);
 app.use("/jobs", jobsRoutes);

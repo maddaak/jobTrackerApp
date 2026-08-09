@@ -1,21 +1,9 @@
 package com.jobtracker.core.model;
 
-import jakarta.persistence.*;
-
-@Entity
-@Table(name = "interviewers")
+// Embedded: nothing ever queried these rows on their own, every read joined from the owning round.
 public class Interviewer {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @ManyToOne(optional = false)
-    private StageEvent stageEvent;
-
-    @Column(nullable = false)
     private String name;
-
     private String linkedInUrl;
 
     protected Interviewer() {
@@ -24,14 +12,6 @@ public class Interviewer {
     public Interviewer(String name, String linkedInUrl) {
         this.name = name;
         this.linkedInUrl = linkedInUrl;
-    }
-
-    void setStageEvent(StageEvent stageEvent) {
-        this.stageEvent = stageEvent;
-    }
-
-    public Long getId() {
-        return id;
     }
 
     public String getName() {

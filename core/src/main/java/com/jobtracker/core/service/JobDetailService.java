@@ -5,6 +5,7 @@ import com.jobtracker.core.dto.UpdateJobDetailRequest;
 import com.jobtracker.core.exception.JobNotFoundException;
 import com.jobtracker.core.model.Job;
 import com.jobtracker.core.model.JobDetail;
+import com.jobtracker.core.model.Outcome;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
 import org.springframework.dao.DuplicateKeyException;
@@ -34,26 +35,40 @@ public class JobDetailService {
     private JobDetailDocumentResponse loadDetail(Long jobId) {
         return jobDetails.findByJobId(jobId)
                 .map(this::toResponse)
-                .orElse(new JobDetailDocumentResponse(jobId, "", "", null));
+                .orElse(new JobDetailDocumentResponse(jobId, "", "", null, null, null));
+    }
+
+    // Created with the job so every job has a document for its stage history from the start.
+    public JobDetail createDetail(Long jobId, Long ownerId, String notes) {
+        JobDetail detail = new JobDetail(jobId, ownerId, Gzip.compress(""), "");
+        detail.setNotes(notes);
+        return jobDetails.save(detail);
     }
 
     public JobDetailDocumentResponse updateDetail(Long ownerId, Long jobId, UpdateJobDetailRequest request) {
-        requireOwnedJob(ownerId, jobId);
+        Job job = requireOwnedJob(ownerId, jobId);
         try {
-            return toResponse(saveDetail(jobId, request));
+            return toResponse(saveDetail(job, request));
         } catch (DuplicateKeyException race) {
             // Lost a first-save race on the jobId unique index; retry against the now-existing doc.
-            return toResponse(saveDetail(jobId, request));
+            return toResponse(saveDetail(job, request));
         }
     }
 
-    private JobDetail saveDetail(Long jobId, UpdateJobDetailRequest request) {
-        JobDetail detail = jobDetails.findByJobId(jobId)
-                .orElseGet(() -> new JobDetail(jobId, Gzip.compress(""), ""));
+    private JobDetail saveDetail(Job job, UpdateJobDetailRequest request) {
+        JobDetail detail = jobDetails.findByJobId(job.getId())
+                .orElseGet(() -> new JobDetail(job.getId(), job.getOwner().getId(), Gzip.compress(""), ""));
         detail.update(Gzip.compress(request.jdText()), request.interviewNotes());
-        // A save that omits the recommendation (null) must not wipe an existing value.
+        // null means leave alone, "" means clear: AddJobForm's follow-up save sends neither.
         if (request.recommendedResume() != null) {
             detail.setRecommendedResume(request.recommendedResume());
+        }
+        if (request.notes() != null) {
+            detail.setNotes(request.notes());
+        }
+        // Enforced here, not in the UI, so a direct PUT can't strand a reason on an active job.
+        if (request.rejectedReason() != null) {
+            detail.setRejectedReason(job.getOutcome() == Outcome.REJECTED ? request.rejectedReason() : null);
         }
         return jobDetails.save(detail);
     }
@@ -63,13 +78,13 @@ public class JobDetailService {
         jobDetails.deleteByJobId(jobId);
     }
 
-    private void requireOwnedJob(Long ownerId, Long jobId) {
-        jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+    private Job requireOwnedJob(Long ownerId, Long jobId) {
+        return jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
     }
 
     private JobDetailDocumentResponse toResponse(JobDetail detail) {
         return new JobDetailDocumentResponse(
                 detail.getJobId(), Gzip.decompress(detail.getJdTextCompressed()), detail.getInterviewNotes(),
-                detail.getRecommendedResume());
+                detail.getRecommendedResume(), detail.getNotes(), detail.getRejectedReason());
     }
 }

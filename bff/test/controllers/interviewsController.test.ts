@@ -3,7 +3,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import { app } from "../../src/app.js";
 
-const JWT_SECRET = "test-secret-not-for-production";
+const JWT_SECRET = "test-secret-not-for-production-use-only-in-tests-hs512-min-64-bytes";
 
 function authCookie(userId = "1", username = "alice") {
   const token = jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: "7d", algorithm: "HS512" });
@@ -63,7 +63,7 @@ describe("POST /interviews", () => {
 
 describe("PATCH /interviews/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).patch("/interviews/5").send({ interviewDateTime: "2026-08-01T18:00:00Z" });
+    const res = await request(app).patch("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30").send({ interviewDateTime: "2026-08-01T18:00:00Z" });
     expect(res.status).toBe(401);
   });
 
@@ -73,12 +73,12 @@ describe("PATCH /interviews/:id", () => {
 
     const patch = { interviewDateTime: "2026-08-05T15:30:00Z", interviewType: "BEHAVIOR",
       meetingLink: null, interviewerName: null, interviewerLinkedInUrl: null };
-    const res = await request(app).patch("/interviews/5").set("Cookie", authCookie("42")).send(patch);
+    const res = await request(app).patch("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30").set("Cookie", authCookie("42")).send(patch);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(interview);
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/interviews/5"),
+      expect.stringContaining("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30"),
       expect.objectContaining({
         method: "PATCH",
         headers: expect.objectContaining({ "X-User-Id": "42" }),
@@ -91,7 +91,7 @@ describe("PATCH /interviews/:id", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
     const res = await request(app)
-      .patch("/interviews/5")
+      .patch("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30")
       .set("Cookie", authCookie())
       .send({ interviewDateTime: "2026-08-05T15:30:00Z" });
 
@@ -143,19 +143,19 @@ describe("GET /interviews/upcoming", () => {
 
 describe("DELETE /interviews/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).delete("/interviews/5");
+    const res = await request(app).delete("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30");
     expect(res.status).toBe(401);
   });
 
   it("forwards the caller's id to core and returns success", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, { deleted: true }));
 
-    const res = await request(app).delete("/interviews/5").set("Cookie", authCookie("42"));
+    const res = await request(app).delete("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ deleted: true });
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/interviews/5"),
+      expect.stringContaining("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30"),
       expect.objectContaining({
         method: "DELETE",
         headers: expect.objectContaining({ "X-User-Id": "42" }),
@@ -166,7 +166,7 @@ describe("DELETE /interviews/:id", () => {
   it("proxies core's 404 through unchanged when the interview isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
-    const res = await request(app).delete("/interviews/5").set("Cookie", authCookie());
+    const res = await request(app).delete("/interviews/3f2a1c9e-0b4d-4a17-9c6e-2d5f8a1b7c30").set("Cookie", authCookie());
 
     expect(res.status).toBe(404);
   });

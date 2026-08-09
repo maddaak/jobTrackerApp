@@ -44,7 +44,7 @@ describe("HomePage", () => {
     stubFetch();
     renderHomePage();
 
-    await screen.findByText("Logged in as alice");
+    await screen.findByRole("button", { name: "Add job" });
     expect(screen.queryByLabelText("Company")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add job" }));

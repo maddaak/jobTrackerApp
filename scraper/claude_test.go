@@ -458,3 +458,48 @@ func TestRecommendResumeVariantHandlerReturnsVerdict(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+// F49: a syntactically valid but semantically empty parse used to be returned as a real result.
+// "{}" unmarshals cleanly into every one of these structs, so each handler must reject it.
+
+func TestAnalyzeResumeHandlerRejectsEmptySummary(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	server := fakeAnthropicServer(t, `{}`)
+	withAnthropicBaseURL(t, server.URL)
+
+	w := doPost(t, analyzeResumeHandler, `{"text":"Backend engineer with Go experience."}`)
+
+	// Previously this returned 200 with summary:"", stored upstream as analysisStatus "ok".
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 for an empty summary, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMatchResumeHandlerRejectsUnknownRecommendation(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	server := fakeAnthropicServer(t, `{"bestResumeId":"1","reasoning":"..."}`)
+	withAnthropicBaseURL(t, server.URL)
+
+	body := `{"jobDescriptionText":"We need a backend engineer.",` +
+		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
+	w := doPost(t, matchResumeHandler, body)
+
+	// An empty recommendation rendered as "You should not apply" in the UI.
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 for a missing recommendation, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRecommendResumeVariantHandlerRejectsEmptyReason(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	server := fakeAnthropicServer(t, `{"variantId":"backend"}`)
+	withAnthropicBaseURL(t, server.URL)
+
+	body := `{"jobDescriptionText":"We need a backend engineer.",` +
+		`"variants":[{"id":"backend","displayName":"Backend","blurb":"Go and Java"}]}`
+	w := doPost(t, recommendResumeVariantHandler, body)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 for an empty reason, got %d: %s", w.Code, w.Body.String())
+	}
+}

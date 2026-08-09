@@ -242,23 +242,22 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     setEditingCell(null);
   }
 
-  // Always create a new round, never update: latestInterview may point at an older round, so guessing risks overwriting it. Blank date = cancel.
+  // Always create a new round, never update: latestInterview may point at an older round, so guessing risks overwriting it.
   async function saveInterview(jobId: number, draft: InlineInterviewDraft) {
-    if (!draft.interviewDateTime) {
-      cancelInterviewEditor();
-      return;
-    }
     const job = jobsRef.current.find(j => j.id === jobId);
     if (!job) return;
 
     setSavingJobIds(prev => new Set(prev).add(jobId));
     setError(null);
     try {
+      if (!draft.interviewType) {
+        throw new Error("select an interview type");
+      }
       await createInterview({
         jobId,
         stage: effective(job, pendingEditsRef.current, "currentStage"),
         interviewDateTime: new Date(draft.interviewDateTime).toISOString(),
-        interviewType: draft.interviewType || undefined,
+        interviewType: draft.interviewType,
         meetingLink: draft.meetingLink || undefined,
         location: draft.location || undefined,
         interviewers: draft.interviewers,
@@ -276,12 +275,12 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     }
   }
 
-  async function handleDeleteInterview(jobId: number, stageEventId: number) {
+  async function handleDeleteInterview(jobId: number, roundId: string) {
     if (!window.confirm("Delete this interview permanently?")) return;
     setSavingJobIds(prev => new Set(prev).add(jobId));
     setError(null);
     try {
-      await deleteInterview(stageEventId);
+      await deleteInterview(roundId);
       onSavedRef.current();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to delete interview");
@@ -567,7 +566,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
                       <button
                         type="button"
                         aria-label="Delete interview"
-                        onClick={() => handleDeleteInterview(job.id, job.latestInterview!.stageEventId)}
+                        onClick={() => handleDeleteInterview(job.id, job.latestInterview!.roundId)}
                         className="text-red-600 hover:underline dark:text-red-400"
                       >
                         ✕

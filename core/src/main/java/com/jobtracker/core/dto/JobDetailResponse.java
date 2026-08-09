@@ -18,8 +18,6 @@ public record JobDetailResponse(
         Location location,
         Integer compMin,
         Integer compMax,
-        String rejectedReason,
-        String notes,
         Instant createdAt,
         List<StageEventResponse> stageEvents) {
 }

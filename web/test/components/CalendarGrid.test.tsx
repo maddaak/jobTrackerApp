@@ -5,7 +5,7 @@ import type { Interview } from "../../src/api/interviewsApi";
 
 const interviews: Interview[] = [
   {
-    stageEventId: 1,
+    roundId: "round-1",
     jobId: 10,
     company: "Acme",
     role: "Engineer",

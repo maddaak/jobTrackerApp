@@ -2,12 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import Modal from "./Modal";
 import { safeHref } from "../safeHref";
 import {
-  getJob,
   getJobDetail,
   getJobStages,
-  updateJob,
   updateJobDetail,
-  toUpdateJobInput,
   STAGE_LABELS,
   type JobSummary,
   type StageHistoryEntry,
@@ -46,8 +43,8 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
     if (!job) return;
     // Ignore a response that resolves after the user switched jobs, else A's load overwrites B.
     let ignore = false;
-    setNotes(job.notes ?? "");
-    setRejectedReason(job.rejectedReason ?? "");
+    setNotes("");
+    setRejectedReason("");
     setLoading(true);
     setError(null);
     setRounds([]);
@@ -59,6 +56,8 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
         setJdText(detail.jdText);
         setInterviewNotes(detail.interviewNotes);
         setRecommendedResume(detail.recommendedResume);
+        setNotes(detail.notes ?? "");
+        setRejectedReason(detail.rejectedReason ?? "");
       })
       .catch(err => {
         if (ignore) return;
@@ -77,13 +76,19 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
             .sort((a, b) => a.interviewDateTime.localeCompare(b.interviewDateTime)),
         );
       })
-      .catch(() => {});
+      .catch(err => {
+        if (ignore) return;
+        setError(err instanceof Error ? err.message : "failed to load interview rounds");
+      });
     getJobStages(job.id)
       .then(history => {
         if (ignore) return;
         setStageHistory(history);
       })
-      .catch(() => {});
+      .catch(err => {
+        if (ignore) return;
+        setError(err instanceof Error ? err.message : "failed to load stage history");
+      });
     return () => {
       ignore = true;
     };
@@ -102,13 +107,8 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
     setSaving(true);
     setError(null);
     try {
-      // Re-fetch the live job (the prop is a stale snapshot) so PATCH preserves fields the table may have autosaved.
-      const fresh = await getJob(job.id);
-      const applyRejectedReason = fresh.outcome === "REJECTED";
-      await Promise.all([
-        updateJob(job.id, { ...toUpdateJobInput(fresh), notes, rejectedReason: applyRejectedReason ? rejectedReason : null }),
-        updateJobDetail(job.id, { jdText, interviewNotes }),
-      ]);
+      // Everything this modal edits is on the detail document now, so one store, one call.
+      await updateJobDetail(job.id, { jdText, interviewNotes, notes, rejectedReason });
       onSaved();
       onClose();
     } catch (err) {
@@ -159,7 +159,7 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
               <ol className="space-y-1 text-sm">
                 {rounds.map((round, i) => (
                   <li
-                    key={round.stageEventId}
+                    key={round.roundId}
                     className="rounded border border-neutral-200 px-2 py-1 dark:border-neutral-700"
                   >
                     <span className="font-medium">Round {i + 1}:</span>{" "}

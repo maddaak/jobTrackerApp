@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 const interviewWithLinkedIn: Interview = {
-  stageEventId: 5,
+  roundId: "round-5",
   jobId: 1,
   company: "Acme",
   role: "Backend Engineer",
@@ -23,7 +23,7 @@ const interviewWithLinkedIn: Interview = {
   interviewType: "SYSTEM_DESIGN",
   meetingLink: "https://meet.example/abc",
   location: null,
-  interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: "https://linkedin.com/in/jordanlee" }],
+  interviewers: [{ name: "Jordan Lee", linkedInUrl: "https://linkedin.com/in/jordanlee" }],
 };
 
 describe("InterviewFormModal", () => {
@@ -90,7 +90,8 @@ describe("InterviewFormModal", () => {
 
     await screen.findByText("Acme — Engineer");
     fireEvent.change(screen.getByLabelText("Job"), { target: { value: "1" } });
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 9 }));
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "SYSTEM_DESIGN" } });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-9" }));
     fireEvent.click(screen.getByRole("button", { name: "Add interview" }));
 
     await waitFor(() =>
@@ -144,7 +145,7 @@ describe("InterviewFormModal", () => {
         <InterviewFormModal
           mode={{
             kind: "edit",
-            interview: { ...interviewWithLinkedIn, interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: null }] },
+            interview: { ...interviewWithLinkedIn, interviewers: [{ name: "Jordan Lee", linkedInUrl: null }] },
           }}
           onClose={vi.fn()}
           onSaved={vi.fn()}
@@ -164,7 +165,7 @@ describe("InterviewFormModal", () => {
             kind: "edit",
             interview: {
               ...interviewWithLinkedIn,
-              interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: "javascript:alert(1)" }],
+              interviewers: [{ name: "Jordan Lee", linkedInUrl: "javascript:alert(1)" }],
             },
           }}
           onClose={vi.fn()}
@@ -211,12 +212,12 @@ describe("InterviewFormModal", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Interviewer name"), { target: { value: "New Name" } });
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 5 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-5" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/interviews/5",
+        "/interviews/round-5",
         expect.objectContaining({
           method: "PATCH",
           body: expect.stringContaining("\"name\":\"New Name\""),
@@ -243,7 +244,7 @@ describe("InterviewFormModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete interview" }));
 
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith("/interviews/5", expect.objectContaining({ method: "DELETE" })),
+      expect(fetch).toHaveBeenCalledWith("/interviews/round-5", expect.objectContaining({ method: "DELETE" })),
     );
     expect(onDeleted).toHaveBeenCalled();
   });

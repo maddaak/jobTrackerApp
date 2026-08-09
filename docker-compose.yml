@@ -1,5 +1,6 @@
 services:
   web:
+    restart: unless-stopped
     build: ./web
     environment:
       SERVER_NAME: ${SERVER_NAME:-localhost}
@@ -8,6 +9,7 @@ services:
     depends_on: [bff]
 
   bff:
+    restart: unless-stopped
     build: ./bff
     environment:
       PORT: "3000"
@@ -16,10 +18,13 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
+      # Daily check for a newer release. Set UPDATE_CHECK=false to stop it calling out.
+      UPDATE_CHECK: ${UPDATE_CHECK:-true}
     expose: ["3000"]
     depends_on: [core, scraper]
 
   core:
+    restart: unless-stopped
     build: ./core
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -33,6 +38,7 @@ services:
     depends_on: [postgres, mongo]
 
   scraper:
+    restart: unless-stopped
     build: ./scraper
     environment:
       PORT: "8081"
@@ -42,6 +48,7 @@ services:
     expose: ["8081"]
 
   postgres:
+    restart: unless-stopped
     image: postgres:16
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -51,6 +58,7 @@ services:
     volumes: ["pgdata:/var/lib/postgresql/data"]
 
   mongo:
+    restart: unless-stopped
     image: mongo:7
     environment:
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}

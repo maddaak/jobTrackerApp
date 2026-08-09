@@ -22,7 +22,8 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const [modalMode, setModalMode] = useState<InterviewFormMode | null>(null);
-  const knownIdsRef = useRef<Set<number>>(new Set());
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const knownIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     // Guard against out-of-order responses and setState after unmount.
@@ -31,13 +32,16 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
       try {
         const data = await listUpcomingInterviews();
         if (ignore) return;
-        const hasNewInterview = data.some(i => !knownIdsRef.current.has(i.stageEventId));
-        knownIdsRef.current = new Set(data.map(i => i.stageEventId));
+        setLoadError(null);
+        const hasNewInterview = data.some(i => !knownIdsRef.current.has(i.roundId));
+        knownIdsRef.current = new Set(data.map(i => i.roundId));
         setInterviews(data);
         // Resurface a dismissed banner only when a new interview id appears, not on unrelated saves.
         if (hasNewInterview) setDismissed(false);
-      } catch {
-        // A failed fetch just means no banner this load, not a page-level error.
+      } catch (err) {
+        if (ignore) return;
+        // Say the load failed rather than silently showing nothing, which reads as "no interviews".
+        setLoadError(err instanceof Error ? err.message : "failed to load upcoming interviews");
       }
     }
     refresh();
@@ -56,6 +60,15 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
     onInterviewChanged();
   }
 
+  // A failed load must not look like "no interviews in the next 72 hours".
+  if (loadError && !dismissed) {
+    return (
+      <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+        Couldn't check for upcoming interviews: {loadError}
+      </p>
+    );
+  }
+
   if (dismissed || interviews.length === 0) return null;
 
   return (
@@ -65,7 +78,7 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
           <p className="font-semibold">Upcoming interviews:</p>
           <ul className="mt-1 space-y-1">
             {interviews.map(interview => (
-              <li key={interview.stageEventId}>
+              <li key={interview.roundId}>
                 <button
                   type="button"
                   onClick={() => setModalMode({ kind: "edit", interview })}

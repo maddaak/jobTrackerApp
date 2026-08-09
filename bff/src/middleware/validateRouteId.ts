@@ -11,6 +11,7 @@ export function validateRouteId(pattern: RegExp, errorMessage: string) {
   };
 }
 
-// Numeric ids (jobs, interviews) and opaque uuid-like resume ids.
+// Numeric job ids, opaque resume ids, and the uuid an embedded round carries instead of a row id.
 export const NUMERIC_ID = /^\d+$/;
 export const RESUME_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export const ROUND_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

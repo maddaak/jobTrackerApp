@@ -15,8 +15,6 @@ public record UpdateJobRequest(
         Location location,
         Integer compMin,
         Integer compMax,
-        String notes,
         @NotNull Stage currentStage,
-        @NotNull Outcome outcome,
-        String rejectedReason) {
+        @NotNull Outcome outcome) {
 }

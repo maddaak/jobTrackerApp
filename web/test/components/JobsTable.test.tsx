@@ -22,8 +22,6 @@ const jobs: JobSummary[] = [
     location: "REMOTE",
     compMin: 100000,
     compMax: 120000,
-    rejectedReason: null,
-    notes: null,
     createdAt: "2026-01-01T00:00:00Z",
     latestInterview: null,
   },
@@ -38,11 +36,9 @@ const jobs: JobSummary[] = [
     location: "NYC_HYBRID",
     compMin: 130000,
     compMax: 150000,
-    rejectedReason: null,
-    notes: "great team",
     createdAt: "2026-01-02T00:00:00Z",
     latestInterview: {
-      stageEventId: 99,
+      roundId: "round-99",
       interviewDateTime: "2026-08-14T18:00:00.000Z",
       interviewType: "SYSTEM_DESIGN",
       roundCount: 1,
@@ -446,8 +442,9 @@ describe("JobsTable", () => {
 
     fireEvent.click(screen.getByText("+ Add interview"));
     fireEvent.change(screen.getByLabelText("Interview date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Interview type"), { target: { value: "SYSTEM_DESIGN" } });
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 100 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-100" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -455,6 +452,22 @@ describe("JobsTable", () => {
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(screen.queryByLabelText("Interview date and time")).not.toBeInTheDocument();
+  });
+
+  it("blocks saving an interview with no date or type instead of discarding it", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("+ Add interview"));
+    fireEvent.change(screen.getByLabelText("Meeting link"), { target: { value: "https://meet.example/abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Date, time, and type are required.");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Meeting link")).toHaveValue("https://meet.example/abc");
+
+    fireEvent.change(screen.getByLabelText("Interview date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Interview type"), { target: { value: "SYSTEM_DESIGN" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("cancelling the interview editor closes it without calling the API", () => {
@@ -474,6 +487,7 @@ describe("JobsTable", () => {
 
     fireEvent.click(screen.getByText("+ Add interview"));
     fireEvent.change(screen.getByLabelText("Interview date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Interview type"), { target: { value: "SYSTEM_DESIGN" } });
     fireEvent.change(screen.getByLabelText("Interview location"), { target: { value: "123 Main St, NYC" } });
 
     expect(screen.getByText("Open in Google Maps ↗")).toHaveAttribute(
@@ -481,7 +495,7 @@ describe("JobsTable", () => {
       "https://www.google.com/maps/search/?api=1&query=123%20Main%20St%2C%20NYC",
     );
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 100 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-100" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -500,6 +514,7 @@ describe("JobsTable", () => {
 
     fireEvent.click(screen.getByText("+ Add interview"));
     fireEvent.change(screen.getByLabelText("Interview date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Interview type"), { target: { value: "SYSTEM_DESIGN" } });
 
     fireEvent.click(screen.getByText("+ Add interviewer"));
     fireEvent.click(screen.getByText("+ Add interviewer"));
@@ -517,7 +532,7 @@ describe("JobsTable", () => {
       target: { value: "https://linkedin.com/in/samrivera" },
     });
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 100 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-100" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -542,7 +557,7 @@ describe("JobsTable", () => {
     fireEvent.click(screen.getByLabelText("Delete interview"));
 
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith("/interviews/99", expect.objectContaining({ method: "DELETE" })),
+      expect(fetch).toHaveBeenCalledWith("/interviews/round-99", expect.objectContaining({ method: "DELETE" })),
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
@@ -565,11 +580,11 @@ describe("JobsTable", () => {
     fireEvent.click(screen.getByText(/System Design/));
     await screen.findByRole("dialog");
 
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEventId: 99 }));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-99" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith("/interviews/99", expect.objectContaining({ method: "PATCH" })),
+      expect(fetch).toHaveBeenCalledWith("/interviews/round-99", expect.objectContaining({ method: "PATCH" })),
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

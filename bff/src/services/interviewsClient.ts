@@ -15,10 +15,10 @@ export type InterviewType =
   | "PANEL_SYSTEM_DESIGN"
   | "PANEL_BEHAVIOR"
   | "PANEL_CULTURE_FIT"
-  | "PANEL_VALUES";
+  | "PANEL_VALUES"
+  | "RECRUITER_DEBRIEF";
 
 export interface InterviewerData {
-  id: number;
   name: string;
   linkedInUrl: string | null;
 }
@@ -29,7 +29,7 @@ export interface InterviewerInput {
 }
 
 export interface InterviewData {
-  stageEventId: number;
+  roundId: string;
   jobId: number;
   company: string;
   role: string;
@@ -45,7 +45,7 @@ export interface CreateInterviewData {
   jobId: number;
   stage: Stage;
   interviewDateTime: string;
-  interviewType?: InterviewType;
+  interviewType: InterviewType;
   meetingLink?: string;
   location?: string;
   interviewers?: InterviewerInput[];
@@ -53,7 +53,7 @@ export interface CreateInterviewData {
 
 export interface UpdateInterviewData {
   interviewDateTime: string;
-  interviewType: InterviewType | null;
+  interviewType: InterviewType;
   meetingLink: string | null;
   location: string | null;
   interviewers: InterviewerInput[];
@@ -65,8 +65,8 @@ export function createInterview(userId: string, request: CreateInterviewData) {
   });
 }
 
-export function updateInterview(userId: string, stageEventId: string, patch: UpdateInterviewData) {
-  return callCore<InterviewData & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(stageEventId)}`, {
+export function updateInterview(userId: string, roundId: string, patch: UpdateInterviewData) {
+  return callCore<InterviewData & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(roundId)}`, {
     method: "PATCH", userId, body: patch,
   });
 }
@@ -79,8 +79,8 @@ export function listUpcomingInterviews(userId: string) {
   return callCore<InterviewData[] & Partial<ErrorResponseData>>("/interviews/upcoming", { userId });
 }
 
-export function deleteInterview(userId: string, stageEventId: string) {
-  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(stageEventId)}`, {
+export function deleteInterview(userId: string, roundId: string) {
+  return callCore<{ deleted: boolean } & Partial<ErrorResponseData>>(`/interviews/${encodeURIComponent(roundId)}`, {
     method: "DELETE", userId,
   });
 }

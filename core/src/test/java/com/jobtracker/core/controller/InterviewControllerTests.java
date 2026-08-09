@@ -3,14 +3,18 @@ package com.jobtracker.core.controller;
 import tools.jackson.databind.ObjectMapper;
 import com.jobtracker.core.dto.InterviewResponse;
 import com.jobtracker.core.dto.JobDetailResponse;
+import com.jobtracker.core.model.InterviewType;
 import com.jobtracker.core.model.User;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.UserRepository;
+import com.jobtracker.core.support.InMemoryMongo;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,7 +44,19 @@ class InterviewControllerTests {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private JobDetailRepository jobDetails;
+
+    // Interviews and stage history live in Mongo now, so this suite needs a real Mongo path.
+    @DynamicPropertySource
+    static void mongoProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.mongodb.uri", InMemoryMongo::connectionString);
+    }
+
+    // @Transactional rolls back Postgres but not Mongo, and rolled-back user ids get reused.
+    @BeforeEach
+    void clearDocuments() {
+        jobDetails.deleteAll();
+    }
 
     private Long createUser(String username) {
         return users.save(new User(username, "hash")).getId();
@@ -94,7 +110,7 @@ class InterviewControllerTests {
                 .header("X-User-Id", otherId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andExpect(status().isNotFound());
     }
@@ -121,12 +137,12 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        mockMvc.perform(patch("/interviews/" + stageEventId)
+        mockMvc.perform(patch("/interviews/" + roundId)
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
@@ -145,7 +161,7 @@ class InterviewControllerTests {
             .andExpect(jsonPath("$.currentStage").value("INTERVIEW_STAGE"));
     }
 
-    // Commits via TestTransaction so a raw JDBC read catches a missing save() the outer test transaction would hide.
+    // Reads the stored document back so a missing save() the response object would still show is caught.
     @Test
     void updateInterviewPersistsToTheDatabaseRow() throws Exception {
         Long ownerId = createUser("interview_nora");
@@ -156,12 +172,12 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        mockMvc.perform(patch("/interviews/" + stageEventId)
+        mockMvc.perform(patch("/interviews/" + roundId)
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
@@ -171,20 +187,12 @@ class InterviewControllerTests {
                         """))
             .andExpect(status().isOk());
 
-        TestTransaction.flagForCommit();
-        TestTransaction.end();
-        TestTransaction.start();
-
-        String persistedType = jdbcTemplate.queryForObject(
-                "SELECT interview_type FROM stage_events WHERE id = ?", String.class, stageEventId);
-        assertThat(persistedType).isEqualTo("BEHAVIOR");
-
-        String persistedInterviewerName = jdbcTemplate.queryForObject(
-                "SELECT name FROM interviewers WHERE stage_event_id = ?", String.class, stageEventId);
-        assertThat(persistedInterviewerName).isEqualTo("Priya Shah");
+        var persisted = jobDetails.findByJobId(jobId).orElseThrow().findInterview(roundId);
+        assertThat(persisted.getInterviewType()).isEqualTo(InterviewType.BEHAVIOR);
+        assertThat(persisted.getInterviewers()).extracting("name").containsExactly("Priya Shah");
     }
 
-    // Pins createInterview at the DB-row level: it only persists because the trailing jobs.save(job) flushes the context.
+    // Pins createInterview at the storage level, not just the response it echoes back.
     @Test
     void createInterviewPersistsToTheDatabaseRow() throws Exception {
         Long ownerId = createUser("interview_owen");
@@ -199,19 +207,11 @@ class InterviewControllerTests {
                          "interviewType":"BEHAVIOR","interviewers":[{"name":"Priya Shah"}]}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        TestTransaction.flagForCommit();
-        TestTransaction.end();
-        TestTransaction.start();
-
-        String persistedType = jdbcTemplate.queryForObject(
-                "SELECT interview_type FROM stage_events WHERE id = ?", String.class, stageEventId);
-        assertThat(persistedType).isEqualTo("BEHAVIOR");
-
-        String persistedInterviewerName = jdbcTemplate.queryForObject(
-                "SELECT name FROM interviewers WHERE stage_event_id = ?", String.class, stageEventId);
-        assertThat(persistedInterviewerName).isEqualTo("Priya Shah");
+        var persisted = jobDetails.findByJobId(jobId).orElseThrow().findInterview(roundId);
+        assertThat(persisted.getInterviewType()).isEqualTo(InterviewType.BEHAVIOR);
+        assertThat(persisted.getInterviewers()).extracting("name").containsExactly("Priya Shah");
     }
 
     @Test
@@ -225,17 +225,17 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        mockMvc.perform(patch("/interviews/" + stageEventId)
+        mockMvc.perform(patch("/interviews/" + roundId)
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", otherId)
                 .contentType("application/json")
                 .content("""
-                        {"interviewDateTime":"2026-08-05T15:30:00Z"}
+                        {"interviewDateTime":"2026-08-05T15:30:00Z","interviewType":"BEHAVIOR"}
                         """))
             .andExpect(status().isNotFound());
     }
@@ -252,7 +252,7 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andExpect(status().isOk());
 
@@ -261,7 +261,7 @@ class InterviewControllerTests {
                 .header("X-User-Id", otherId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-02T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-02T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(otherJobId)))
             .andExpect(status().isOk());
 
@@ -305,12 +305,12 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        mockMvc.perform(delete("/interviews/" + stageEventId)
+        mockMvc.perform(delete("/interviews/" + roundId)
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", ownerId))
             .andExpect(status().isOk())
@@ -334,12 +334,12 @@ class InterviewControllerTests {
                 .header("X-User-Id", ownerId)
                 .contentType("application/json")
                 .content("""
-                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z"}
+                        {"jobId":%d,"stage":"INTERVIEW_STAGE","interviewDateTime":"2026-08-01T18:00:00Z","interviewType":"SYSTEM_DESIGN"}
                         """.formatted(jobId)))
             .andReturn().getResponse().getContentAsString();
-        Long stageEventId = objectMapper.readValue(createBody, InterviewResponse.class).stageEventId();
+        String roundId = objectMapper.readValue(createBody, InterviewResponse.class).roundId();
 
-        mockMvc.perform(delete("/interviews/" + stageEventId)
+        mockMvc.perform(delete("/interviews/" + roundId)
                 .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
                 .header("X-User-Id", otherId))
             .andExpect(status().isNotFound());

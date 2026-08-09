@@ -3,7 +3,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import { app } from "../../src/app.js";
 
-const JWT_SECRET = "test-secret-not-for-production";
+const JWT_SECRET = "test-secret-not-for-production-use-only-in-tests-hs512-min-64-bytes";
 
 function fakeCoreResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };

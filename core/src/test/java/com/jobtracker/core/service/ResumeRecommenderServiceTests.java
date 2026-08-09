@@ -41,14 +41,14 @@ class ResumeRecommenderServiceTests {
 
     private Job newJob(String role) {
         User owner = new User("alice", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        return new Job("Acme", role, owner, source, null, null, null, null, null);
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        return new Job("Acme", role, owner, source, null, null, null, null);
     }
 
     private void stubJob(Long jobId, Long ownerId, String role, String jdText) {
         when(jobs.findByIdAndOwnerId(jobId, ownerId)).thenReturn(Optional.of(newJob(role)));
         // recommend passes the loaded job to getDetail, so stub the Job overload.
-        when(jobDetailService.getDetail(any(Job.class))).thenReturn(new JobDetailDocumentResponse(jobId, jdText, "", null));
+        when(jobDetailService.getDetail(any(Job.class))).thenReturn(new JobDetailDocumentResponse(jobId, jdText, "", null, null, null));
     }
 
     // Fixtures skip the repository, so assign ids here or they'd all be null and collide in the score map.

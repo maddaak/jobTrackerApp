@@ -1,11 +1,16 @@
 package com.jobtracker.core.controller;
 
 import com.jobtracker.core.model.User;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.UserRepository;
+import com.jobtracker.core.support.InMemoryMongo;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +32,22 @@ class MetricsControllerTests {
 
     @Autowired
     private UserRepository users;
+
+    // Creating a job now writes its detail document, so this suite needs a real Mongo path.
+    @DynamicPropertySource
+    static void mongoProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.mongodb.uri", InMemoryMongo::connectionString);
+    }
+
+    @Autowired
+    private JobDetailRepository jobDetails;
+
+    // The in-memory Mongo is shared across suites and outlives the Postgres rollback, so rolled-back
+    // job ids get reused and a stale document would collide with the new one.
+    @BeforeEach
+    void clearDocuments() {
+        jobDetails.deleteAll();
+    }
 
     private Long createUser(String username) {
         return users.save(new User(username, "hash")).getId();
@@ -56,7 +77,7 @@ class MetricsControllerTests {
             .andExpect(jsonPath("$.funnel[0].stage").value("RESUME_CHECK"))
             .andExpect(jsonPath("$.funnel[0].count").value(1))
             .andExpect(jsonPath("$.outcomeCounts", hasSize(5)))
-            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(14)))
+            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(15)))
             // A fresh active job at Resume Check terminates at IN_PROGRESS.
             .andExpect(jsonPath("$.sankeyLinks", hasSize(1)))
             .andExpect(jsonPath("$.sankeyLinks[0].source").value("RESUME_CHECK"))

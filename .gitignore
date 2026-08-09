@@ -14,6 +14,8 @@ FEATURE_resume_recommender.md
 # secrets & deps
 .env
 certs/
+# Migration backups are full dumps of real job data (companies, notes, rejected reasons, comp).
+core/migrations/backups/
 node_modules/
 web/node_modules/
 bff/node_modules/

@@ -18,6 +18,8 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
+      # Daily check for a newer release. Set UPDATE_CHECK=false to stop it calling out.
+      UPDATE_CHECK: ${UPDATE_CHECK:-true}
     expose: ["3000"]
     depends_on: [core, scraper]
 

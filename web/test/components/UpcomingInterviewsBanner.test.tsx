@@ -9,7 +9,7 @@ function fakeResponse(status: number, body: unknown) {
 }
 
 const acmeInterview: Interview = {
-  stageEventId: 5,
+  roundId: "round-5",
   jobId: 1,
   company: "Acme",
   role: "Backend Engineer",
@@ -21,7 +21,7 @@ const acmeInterview: Interview = {
   interviewers: [],
 };
 
-const globexInterview: Interview = { ...acmeInterview, stageEventId: 6, jobId: 2, company: "Globex" };
+const globexInterview: Interview = { ...acmeInterview, roundId: "round-6", jobId: 2, company: "Globex" };
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
@@ -109,5 +109,14 @@ describe("UpcomingInterviewsBanner", () => {
 
     expect(await screen.findByText("Upcoming interviews:")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Globex" })).toBeInTheDocument();
+  });
+
+  it("says the check failed instead of silently rendering nothing", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(500, { error: "core is down" }));
+
+    renderBanner(0);
+
+    // Rendering nothing would read as "no interviews in the next 72 hours".
+    expect(await screen.findByRole("alert")).toHaveTextContent("core is down");
   });
 });

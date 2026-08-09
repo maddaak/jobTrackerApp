@@ -1,7 +1,4 @@
 package com.jobtracker.core.dto;
 
-public record InterviewerResponse(
-        Long id,
-        String name,
-        String linkedInUrl) {
+public record InterviewerResponse(String name, String linkedInUrl) {
 }

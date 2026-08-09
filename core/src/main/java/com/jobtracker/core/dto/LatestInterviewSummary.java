@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record LatestInterviewSummary(
-        Long stageEventId,
+        String roundId,
         Instant interviewDateTime,
         InterviewType interviewType,
         long roundCount,

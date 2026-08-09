@@ -8,7 +8,7 @@ server {
     # Default 1MB limit would reject resume uploads; matches the 10MB limit on core/BFF.
     client_max_body_size 10M;
 
-    location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|ai-status) {
+    location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|ai-status|update-status) {
         # Client routes (/metrics, /resumes) collide with API paths; a browser refresh sends Accept: text/html, so serve the SPA for those.
         if ($http_accept ~* text/html) {
             rewrite ^ /index.html last;

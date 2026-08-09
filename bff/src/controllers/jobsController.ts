@@ -76,17 +76,22 @@ export async function getResumeRecommendationForJob(req: AuthedRequest, res: Res
   }
 
   const aiResult = await recommendResumeVariant(detailResult.data.jdText, rulesResult.data.variants);
+  // An id matching no variant means the model picked nothing; the raw id would look like a real pick.
+  const picked =
+    aiResult.status === "ok"
+      ? rulesResult.data.variants.find(v => v.id === aiResult.data.variantId)
+      : undefined;
   const ai =
     aiResult.status !== "ok"
       ? { status: aiResult.status }
-      : {
-          status: "ok",
-          recommendedVariantId: aiResult.data.variantId,
-          recommendedDisplayName:
-            rulesResult.data.variants.find(v => v.id === aiResult.data.variantId)?.displayName ??
-            aiResult.data.variantId,
-          reason: aiResult.data.reason,
-        };
+      : !picked
+        ? { status: "unavailable" }
+        : {
+            status: "ok",
+            recommendedVariantId: picked.id,
+            recommendedDisplayName: picked.displayName,
+            reason: aiResult.data.reason,
+          };
 
   res.json({
     rules: {

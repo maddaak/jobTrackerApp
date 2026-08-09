@@ -256,6 +256,10 @@ func TestScrapeBlocksInternalAddresses(t *testing.T) {
 		if resp.Company != "" || resp.Role != "" || resp.Raw != "" {
 			t.Errorf("%s: expected all-blank result for a blocked host, got %+v", target, resp)
 		}
+		if resp.Fetched || resp.Reason != reasonBlockedHost {
+			t.Errorf("%s: expected fetched=false reason=%s, got fetched=%v reason=%q",
+				target, reasonBlockedHost, resp.Fetched, resp.Reason)
+		}
 	}
 }
 
@@ -408,5 +412,75 @@ func TestRequireInternalTokenRejectsMissingOrWrongToken(t *testing.T) {
 	handler(w3, req3)
 	if w3.Code != http.StatusOK {
 		t.Fatalf("expected 200 with correct token, got %d", w3.Code)
+	}
+}
+
+// F65: the Greenhouse path used to park the whole JD in a location-typed field and rely on a later
+// pass to normalize it. It classifies in place now, so classifyLocation must accept its own output.
+func TestClassifyLocationIsIdempotent(t *testing.T) {
+	for _, value := range []string{"REMOTE", "NYC_HYBRID", "NYC_IN_PERSON"} {
+		if got := classifyLocation(value); got != value {
+			t.Fatalf("classifyLocation(%q) = %q, want %q", value, got, value)
+		}
+	}
+}
+
+// F57: every failure mode used to be one blank 200, so the client inferred "fetch failed" purely
+// from an empty Raw and couldn't tell a dead link from a page with no job data.
+func TestScrapeReportsWhyItFoundNothing(t *testing.T) {
+	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer notFound.Close()
+
+	code, resp := doScrape(t, notFound.URL)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if resp.Fetched || resp.Reason != reasonHTTPError {
+		t.Fatalf("expected fetched=false reason=%s, got fetched=%v reason=%q", reasonHTTPError, resp.Fetched, resp.Reason)
+	}
+
+	// A page that loads fine but carries no job content is a different outcome from a dead link.
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<html><body><nav>Home About Contact</nav></body></html>"))
+	}))
+	defer empty.Close()
+
+	code, resp = doScrape(t, empty.URL)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if !resp.Fetched || resp.Reason != reasonNoJobData {
+		t.Fatalf("expected fetched=true reason=%s, got fetched=%v reason=%q", reasonNoJobData, resp.Fetched, resp.Reason)
+	}
+
+	// An unreachable host is distinguishable too.
+	code, resp = doScrape(t, "http://127.0.0.1:1/gone")
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if resp.Fetched || resp.Reason != reasonUnreachable {
+		t.Fatalf("expected fetched=false reason=%s, got fetched=%v reason=%q", reasonUnreachable, resp.Fetched, resp.Reason)
+	}
+}
+
+// A successful scrape must not carry a reason, or the client will treat it as a failure.
+func TestScrapeSuccessHasNoReason(t *testing.T) {
+	const page = `<html><head><title>Backend Engineer at Acme</title></head>
+		<body><h1>Backend Engineer</h1><p>Responsibilities: build APIs. Requirements: Go experience. Remote.</p></body></html>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(page))
+	}))
+	defer server.Close()
+
+	code, resp := doScrape(t, server.URL)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if !resp.Fetched || resp.Reason != "" {
+		t.Fatalf("expected fetched=true with no reason, got fetched=%v reason=%q", resp.Fetched, resp.Reason)
 	}
 }

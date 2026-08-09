@@ -138,11 +138,8 @@ export default function ResumesPage() {
 
   return (
     <div className="min-w-0 p-6">
-      <div className="relative mb-6 flex items-center justify-center">
+      <div className="mb-6 flex items-center justify-center">
         <h1 className="text-2xl font-semibold">Resumes</h1>
-        <Link to="/" className="absolute left-0 text-sm text-blue-600 hover:underline dark:text-blue-400">
-          ← Back
-        </Link>
       </div>
 
       {onboarding && (

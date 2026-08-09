@@ -126,15 +126,18 @@ class ResumeServiceTests {
     }
 
     @Test
-    void listResumesToleratesMalformedCachedAnalysisJson() {
+    void listResumesReportsAnUnreadableStoredAnalysisAsUnavailableRatherThanOk() {
         Resume resume = new Resume(1L, "resume.pdf", "application/pdf", new byte[0]);
         resume.applyAnalysis("not valid json", Resume.AnalysisStatus.OK, Resume.AnalysisSource.AI);
         when(resumeRepository.findByOwnerId(1L)).thenReturn(List.of(resume));
 
         List<ResumeSummaryResponse> list = resumeService.listResumes(1L);
 
+        // One corrupt blob must not fail the whole list...
         assertThat(list).hasSize(1);
         assertThat(list.get(0).summary()).isNull();
+        // ...but reporting "ok" told the UI it was analyzed and made the recommender drop it silently.
+        assertThat(list.get(0).analysisStatus()).isEqualTo(Resume.AnalysisStatus.UNAVAILABLE);
     }
 
     @Test

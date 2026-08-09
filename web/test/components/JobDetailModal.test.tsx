@@ -22,16 +22,14 @@ const baseJob: JobSummary = {
   location: null,
   compMin: null,
   compMax: null,
-  rejectedReason: null,
-  notes: "great team",
   createdAt: "2026-01-01T00:00:00Z",
   latestInterview: null,
 };
 
 describe("JobDetailModal", () => {
-  it("loads the JD text and interview notes, and shows notes straight from the job prop", async () => {
+  it("loads the JD text, interview notes, and notes from the detail document", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "asked leetcode" }),
+      fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "asked leetcode", notes: "great team" }),
     );
 
     render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -79,9 +77,9 @@ describe("JobDetailModal", () => {
   });
 
   it("shows an editable Rejected reason when the outcome is Rejected", async () => {
-    const rejectedJob = { ...baseJob, outcome: "REJECTED" as const, rejectedReason: "low experience" };
+    const rejectedJob = { ...baseJob, outcome: "REJECTED" as const };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "" }),
+      fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "", rejectedReason: "low experience" }),
     );
 
     render(<JobDetailModal job={rejectedJob} onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -91,7 +89,7 @@ describe("JobDetailModal", () => {
     expect(screen.getByLabelText("Rejected reason")).toHaveValue("low experience");
   });
 
-  it("saves both the job fields and the detail document, then calls onSaved and onClose", async () => {
+  it("saves everything the modal edits in one call, then calls onSaved and onClose", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "" }),
     );
@@ -103,32 +101,24 @@ describe("JobDetailModal", () => {
     fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "updated notes" } });
     fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "updated jd" } });
 
-    // Save re-fetches the live job so PATCH is built from fresh state, not the stale prop.
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, baseJob));
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 5, company: "Acme" }));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      fakeResponse(200, { jobId: 5, jdText: "updated jd", interviewNotes: "" }),
+      fakeResponse(200, { jobId: 5, jdText: "updated jd", interviewNotes: "", notes: "updated notes" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    // Notes and the JD now live on the same document, so this is one PUT, not a two-store write.
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/jobs/5",
+        "/jobs/5/detail",
         expect.objectContaining({
-          method: "PATCH",
-          body: expect.stringContaining("\"notes\":\"updated notes\""),
+          method: "PUT",
+          body: expect.stringContaining('"notes":"updated notes"'),
         }),
       ),
     );
-    expect(fetch).toHaveBeenCalledWith(
-      "/jobs/5/detail",
-      expect.objectContaining({
-        method: "PUT",
-        body: expect.stringContaining("\"jdText\":\"updated jd\""),
-      }),
-    );
+    expect(fetch).not.toHaveBeenCalledWith("/jobs/5", expect.objectContaining({ method: "PATCH" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose).toHaveBeenCalled();
   });
 
   it("shows the completed interview rounds for this job as a history", async () => {
@@ -139,13 +129,13 @@ describe("JobDetailModal", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       fakeResponse(200, [
         {
-          stageEventId: 11, jobId: 5, company: "Acme", role: "Backend",
+          roundId: "round-11", jobId: 5, company: "Acme", role: "Backend",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-01T18:00:00.000Z",
           interviewType: "SYSTEM_DESIGN", meetingLink: null, location: null,
-          interviewers: [{ id: 1, name: "Jane Doe", linkedInUrl: null }],
+          interviewers: [{ name: "Jane Doe", linkedInUrl: null }],
         },
         {
-          stageEventId: 22, jobId: 99, company: "Other", role: "X",
+          roundId: "round-22", jobId: 99, company: "Other", role: "X",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-02T18:00:00.000Z",
           interviewType: "BEHAVIOR", meetingLink: null, location: null, interviewers: [],
         },
@@ -231,9 +221,16 @@ describe("JobDetailModal", () => {
 
   it("does not request a resume recommendation from the job detail view", async () => {
     // The detail view is post-apply, so it must never fire the AI recommendation call.
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }),
-    );
+    // Answer per URL: one body for every call masked a real crash in the stage-history load.
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === "/jobs/5/detail") {
+        return Promise.resolve(fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }));
+      }
+      if (url === "/jobs/5") {
+        return Promise.resolve(fakeResponse(200, { id: 5, stageEvents: [] }));
+      }
+      return Promise.resolve(fakeResponse(200, []));
+    });
 
     render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
 

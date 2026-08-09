@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { describe, it, expect, vi } from "vitest";
 import { AuthProvider } from "../../src/context/AuthContext";
@@ -37,5 +37,30 @@ describe("ProtectedRoute", () => {
     renderApp();
 
     expect(await screen.findByText("Protected Content")).toBeInTheDocument();
+  });
+
+  it("wraps protected pages in the nav so every page can reach every other", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ username: "alice" }) }),
+    );
+
+    renderApp();
+
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    for (const label of ["Jobs", "Calendar", "Metrics", "Resumes"]) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    expect(within(nav).getByRole("link", { name: "Jobs" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("button", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("does not render the nav when unauthenticated", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: () => Promise.resolve({}) }));
+
+    renderApp();
+
+    await screen.findByText("Login Page");
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
   });
 });

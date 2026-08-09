@@ -45,7 +45,7 @@ describe("interview types", () => {
 
 describe("createInterview", () => {
   it("sends a POST with the input and returns the created interview on success", async () => {
-    const interview = { stageEventId: 5, jobId: 1 };
+    const interview = { roundId: "round-5", jobId: 1 };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(interview) });
 
     const result = await createInterview(createInput);
@@ -69,13 +69,13 @@ describe("createInterview", () => {
 
 describe("updateInterview", () => {
   it("sends a PATCH with the input and returns the updated interview on success", async () => {
-    const interview = { stageEventId: 5, interviewType: "BEHAVIOR" };
+    const interview = { roundId: "round-5", interviewType: "BEHAVIOR" };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(interview) });
 
-    const result = await updateInterview(5, updateInput);
+    const result = await updateInterview("round-5", updateInput);
 
     expect(fetch).toHaveBeenCalledWith(
-      "/interviews/5",
+      "/interviews/round-5",
       expect.objectContaining({ method: "PATCH", body: JSON.stringify(updateInput) }),
     );
     expect(result).toEqual(interview);
@@ -87,13 +87,13 @@ describe("updateInterview", () => {
       json: () => Promise.resolve({ error: "job not found" }),
     });
 
-    await expect(updateInterview(5, updateInput)).rejects.toThrow("job not found");
+    await expect(updateInterview("round-5", updateInput)).rejects.toThrow("job not found");
   });
 });
 
 describe("listInterviews", () => {
   it("returns the list on success", async () => {
-    const interviews = [{ stageEventId: 5, jobId: 1, company: "Acme" }];
+    const interviews = [{ roundId: "round-5", jobId: 1, company: "Acme" }];
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(interviews) });
 
     const result = await listInterviews();

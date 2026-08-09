@@ -29,7 +29,20 @@ type scrapeResponse struct {
 	CompMin  *int   `json:"compMin"`
 	CompMax  *int   `json:"compMax"`
 	Raw      string `json:"raw"`
+	// Lets the caller tell a blocked host from a dead link from a page with no job data.
+	Fetched bool   `json:"fetched"`
+	Reason  string `json:"reason,omitempty"`
 }
+
+// Reasons a scrape produced nothing; the client maps these to a specific message.
+const (
+	reasonBlockedHost   = "blocked_host"
+	reasonRequestFailed = "request_failed"
+	reasonUnreachable   = "unreachable"
+	reasonHTTPError     = "http_error"
+	reasonUnreadable    = "unreadable"
+	reasonNoJobData     = "no_job_data"
+)
 
 var httpClient = &http.Client{Timeout: 8 * time.Second}
 
@@ -212,25 +225,37 @@ func scrapeHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// SSRF guard: skip the fetch for a non-public host (a no-op when blocking is off), treating it like an unreachable one.
-	if isSafeScrapeURL(ctx, req.URL) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, req.URL, nil)
-		if err == nil {
-			httpReq.Header.Set("User-Agent",
-				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-			resp, fetchErr := userFetchClient().Do(httpReq)
-			if fetchErr == nil {
-				defer resp.Body.Close()
-				// Go's client doesn't error on non-2xx, so without this a 404 error page gets scraped as if real.
-				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					limited := io.LimitReader(resp.Body, maxBodyBytes)
-					if doc, parseErr := goquery.NewDocumentFromReader(limited); parseErr == nil {
-						extract(ctx, doc, &result, req.URL)
-					}
+	if !isSafeScrapeURL(ctx, req.URL) {
+		result.Reason = reasonBlockedHost
+	} else if httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, req.URL, nil); err != nil {
+		result.Reason = reasonRequestFailed
+	} else {
+		httpReq.Header.Set("User-Agent",
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+		resp, fetchErr := userFetchClient().Do(httpReq)
+		switch {
+		case fetchErr != nil:
+			result.Reason = reasonUnreachable
+		// Go's client doesn't error on non-2xx, so without this a 404 error page gets scraped as if real.
+		case resp.StatusCode < 200 || resp.StatusCode >= 300:
+			resp.Body.Close()
+			result.Reason = reasonHTTPError
+		default:
+			defer resp.Body.Close()
+			limited := io.LimitReader(resp.Body, maxBodyBytes)
+			doc, parseErr := goquery.NewDocumentFromReader(limited)
+			if parseErr != nil {
+				result.Reason = reasonUnreadable
+			} else {
+				result.Fetched = true
+				extract(ctx, doc, &result, req.URL)
+				if result.Raw == "" {
+					result.Reason = reasonNoJobData
 				}
 			}
 		}
 	}
-	// Best-effort: a fetch/parse failure leaves result blank and still returns 200.
+	// Still best-effort: partial data is useful, so the status stays 200 and Reason carries the why.
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -482,8 +507,8 @@ func extractFromGreenhouseEmbed(ctx context.Context, doc *goquery.Document, requ
 		lower := strings.ToLower(contentText)
 		if strings.Contains(lower, "hybrid") || strings.Contains(lower, "remote") ||
 			strings.Contains(lower, "onsite") || strings.Contains(lower, "on-site") {
-			// JD text is a more reliable location signal than the bare office name.
-			result.Location = contentText
+			// Classify here rather than park a whole document in a location-typed field.
+			result.Location = classifyLocation(contentText)
 		} else {
 			result.Location = job.Location.Name
 		}
@@ -541,6 +566,11 @@ func splitTitleHeuristic(title string) (role string, company string) {
 }
 
 func classifyLocation(text string) string {
+	// extract re-classifies its own output, and NYC_IN_PERSON misses the "in-person" check below.
+	switch text {
+	case "REMOTE", "NYC_HYBRID", "NYC_IN_PERSON":
+		return text
+	}
 	lower := strings.ToLower(text)
 	hybrid := strings.Contains(lower, "hybrid")
 	if strings.Contains(lower, "remote") && !hybrid {

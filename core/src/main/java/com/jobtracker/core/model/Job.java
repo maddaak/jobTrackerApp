@@ -4,7 +4,8 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "jobs")
+// Every query is owner-scoped, so owner_id carries all the selectivity.
+@Table(name = "jobs", indexes = @Index(name = "idx_jobs_owner_id", columnList = "owner_id"))
 public class Job {
 
     @Id
@@ -20,8 +21,9 @@ public class Job {
     @ManyToOne(optional = false)
     private User owner;
 
-    @ManyToOne(optional = false)
-    private Source source;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private SourceCategory sourceCategory;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -31,6 +33,8 @@ public class Job {
     @Column(nullable = false)
     private Outcome outcome;
 
+    // Free text and URLs have no natural bound; Hibernate's default varchar(255) rejected real notes.
+    @Column(columnDefinition = "text")
     private String url;
 
     @Enumerated(EnumType.STRING)
@@ -40,27 +44,22 @@ public class Job {
 
     private Integer compMax;
 
-    private String rejectedReason;
-
-    private String notes;
-
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
     protected Job() {
     }
 
-    public Job(String company, String role, User owner, Source source, String url, Location location,
-            Integer compMin, Integer compMax, String notes) {
+    public Job(String company, String role, User owner, SourceCategory sourceCategory, String url, Location location,
+            Integer compMin, Integer compMax) {
         this.company = company;
         this.role = role;
         this.owner = owner;
-        this.source = source;
+        this.sourceCategory = sourceCategory;
         this.url = url;
         this.location = location;
         this.compMin = compMin;
         this.compMax = compMax;
-        this.notes = notes;
         this.currentStage = Stage.RESUME_CHECK;
         this.outcome = Outcome.ACTIVE;
     }
@@ -81,8 +80,8 @@ public class Job {
         return owner;
     }
 
-    public Source getSource() {
-        return source;
+    public SourceCategory getSourceCategory() {
+        return sourceCategory;
     }
 
     public Stage getCurrentStage() {
@@ -109,43 +108,27 @@ public class Job {
         return compMax;
     }
 
-    public String getRejectedReason() {
-        return rejectedReason;
-    }
-
-    public String getNotes() {
-        return notes;
-    }
-
     public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void applyUpdate(String company, String role, String url, Location location,
-            Integer compMin, Integer compMax, String notes, String rejectedReason,
-            Stage currentStage, Outcome outcome) {
+    public void applyUpdate(String company, String role, SourceCategory sourceCategory, String url, Location location,
+            Integer compMin, Integer compMax, Stage currentStage, Outcome outcome) {
         this.company = company;
         this.role = role;
+        this.sourceCategory = sourceCategory;
         this.url = url;
         this.location = location;
         this.compMin = compMin;
         this.compMax = compMax;
-        this.notes = notes;
-        this.rejectedReason = rejectedReason;
-        this.currentStage = currentStage;
         this.outcome = outcome;
+        // Enforced here, not in the UI, so a direct PATCH can't park a closed job mid-pipeline.
+        this.currentStage = outcome.closesPipeline() ? Stage.FINALIZED : currentStage;
     }
 
     public void advanceStageIfFurther(Stage newStage) {
         if (newStage.ordinal() > this.currentStage.ordinal()) {
             this.currentStage = newStage;
-        }
-    }
-
-    // Only ever lowers the stage, so a deliberate manual downgrade is left untouched.
-    public void lowerStageTo(Stage furthestRemaining) {
-        if (furthestRemaining.ordinal() < this.currentStage.ordinal()) {
-            this.currentStage = furthestRemaining;
         }
     }
 }

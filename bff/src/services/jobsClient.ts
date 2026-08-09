@@ -32,7 +32,7 @@ export interface StageEventData {
 }
 
 export interface LatestInterviewSummaryData {
-  stageEventId: number;
+  roundId: string;
   interviewDateTime: string;
   interviewType: InterviewType | null;
   roundCount: number;
@@ -52,8 +52,6 @@ export interface JobSummaryData {
   location: Location | null;
   compMin: number | null;
   compMax: number | null;
-  rejectedReason: string | null;
-  notes: string | null;
   createdAt: string;
   latestInterview: LatestInterviewSummaryData | null;
 }
@@ -93,10 +91,8 @@ export interface UpdateJobData {
   location: Location | null;
   compMin: number | null;
   compMax: number | null;
-  notes: string | null;
   currentStage: Stage;
   outcome: Outcome;
-  rejectedReason: string | null;
 }
 
 export function updateJob(userId: string, jobId: string, patch: UpdateJobData) {
@@ -116,12 +112,16 @@ export interface JobDetailDocumentData {
   jdText: string;
   interviewNotes: string;
   recommendedResume: string | null;
+  notes: string | null;
+  rejectedReason: string | null;
 }
 
 export interface UpdateJobDetailData {
   jdText: string;
   interviewNotes: string;
   recommendedResume?: string;
+  notes?: string | null;
+  rejectedReason?: string | null;
 }
 
 export function getJobDetail(userId: string, jobId: string) {

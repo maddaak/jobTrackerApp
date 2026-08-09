@@ -60,9 +60,10 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
           if (ignore) return;
           setJobs(loaded);
         })
-        .catch(() => {
+        .catch(err => {
           if (ignore) return;
           setJobs([]);
+          setError(err instanceof Error ? err.message : "failed to load jobs");
         });
       setJobId("");
       setInterviewDateTime(toDatetimeLocalValue(mode.date));
@@ -76,7 +77,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
       setMeetingLink(mode.interview.meetingLink ?? "");
       setLocation(mode.interview.location ?? "");
       setInterviewers(
-        mode.interview.interviewers.map(i => ({ key: `existing-${i.id}`, name: i.name, linkedInUrl: i.linkedInUrl ?? "" })),
+        mode.interview.interviewers.map((i, index) => ({ key: `existing-${index}`, name: i.name, linkedInUrl: i.linkedInUrl ?? "" })),
       );
     }
     return () => {
@@ -95,19 +96,25 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         if (!jobId) {
           throw new Error("select a job");
         }
+        if (!interviewType) {
+          throw new Error("select an interview type");
+        }
         await createInterview({
           jobId,
           stage: "INTERVIEW_STAGE",
           interviewDateTime: new Date(interviewDateTime).toISOString(),
-          interviewType: interviewType || undefined,
+          interviewType,
           meetingLink: meetingLink || undefined,
           location: location || undefined,
           interviewers: toInterviewerInputs(),
         });
       } else {
-        await updateInterview(mode.interview.stageEventId, {
+        if (!interviewType) {
+          throw new Error("select an interview type");
+        }
+        await updateInterview(mode.interview.roundId, {
           interviewDateTime: new Date(interviewDateTime).toISOString(),
-          interviewType: interviewType || null,
+          interviewType,
           meetingLink: meetingLink || null,
           location: location || null,
           interviewers: toInterviewerInputs(),
@@ -127,7 +134,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
     setSaving(true);
     setError(null);
     try {
-      await deleteInterview(mode.interview.stageEventId);
+      await deleteInterview(mode.interview.roundId);
       onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to delete interview");
@@ -184,6 +191,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
             className={inputClass}
             value={interviewType}
             onChange={e => setInterviewType(e.target.value as InterviewType | "")}
+            required
           >
             <option value="">Select type</option>
             {INTERVIEW_TYPES.map(type => (

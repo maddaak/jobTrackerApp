@@ -8,7 +8,7 @@ import {
   type SourceCategory,
   type Location,
 } from "../api/jobsApi";
-import { scrapeJob } from "../api/scrapeApi";
+import { scrapeJob, SCRAPE_FAILURE_MESSAGE, type ScrapeFailureReason } from "../api/scrapeApi";
 import { matchResumeToJob, type MatchResult } from "../api/resumesApi";
 import { useAuth } from "../context/AuthContext";
 
@@ -18,7 +18,16 @@ const labelClass = "mb-1 block text-sm font-medium";
 
 type Step = "url" | "form";
 
-export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
+export interface AddJobFormProps {
+  onCreated: () => void;
+  // The attach outlives the form, so its failure needs somewhere to surface that also outlives it.
+  onWarning: (message: string) => void;
+}
+
+const ATTACH_FAILED =
+  "Job created, but its description could not be attached. Open Job Details to paste it.";
+
+export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
   const { aiConfigured } = useAuth();
   const [step, setStep] = useState<Step>("url");
   const [scraping, setScraping] = useState(false);
@@ -35,12 +44,15 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
   const [compMax, setCompMax] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const [pastedJdText, setPastedJdText] = useState("");
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   // "skipped" (expected) vs "fetch_failed" (a problem) sets the manual-paste box's tone.
   const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | "insufficient_jd" | null>(null);
+  // Why the scrape came back empty, so the paste box can say it instead of a second banner repeating it.
+  const [scrapeReason, setScrapeReason] = useState<ScrapeFailureReason | null>(null);
 
   async function runMatch(jobDescriptionText: string) {
     setMatching(true);
@@ -64,8 +76,10 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
     if (!url) return;
     setScraping(true);
     setScrapeError(null);
+    setScrapeReason(null);
     setMatchResult(null);
     let raw = "";
+    let reason: ScrapeFailureReason | undefined;
     try {
       const result = await scrapeJob(url);
       setCompany(result.company);
@@ -75,6 +89,10 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
       if (result.compMax != null) setCompMax(String(result.compMax));
       setScrapedRaw(result.raw);
       raw = result.raw;
+      // The scraper says why, so a dead link no longer reads like a page with no description.
+      // Held as the reason rather than an error banner: the paste box below states it once.
+      reason = result.reason;
+      setScrapeReason(result.reason ?? null);
     } catch (err) {
       setScrapeError(err instanceof Error ? err.message : "couldn't fetch details — fill in manually below");
       setManualEntryReason("fetch_failed");
@@ -86,25 +104,35 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
       setManualEntryReason(null);
       if (aiConfigured && useAi) runMatch(raw);
     } else {
-      // Scrape returned no usable content; route to manual entry instead of leaving the form blank.
-      setManualEntryReason("fetch_failed");
+      // Manual entry either way, but a page with no description isn't one we couldn't fetch.
+      setManualEntryReason(reason === "no_job_data" ? "insufficient_jd" : "fetch_failed");
     }
   }
 
   function handleSkip() {
     setScrapeError(null);
+    setScrapeReason(null);
     setMatchResult(null);
     setManualEntryReason("skipped");
     setStep("form");
   }
 
+  // One message, in the paste box that acts on it, rather than a banner and a box saying the same thing.
+  const manualJdHeading = scrapeReason
+    ? `${SCRAPE_FAILURE_MESSAGE[scrapeReason]} Paste it below for a recommendation.`
+    : manualEntryReason === "insufficient_jd"
+      ? "This posting didn't include a readable job description. Paste it below for a recommendation."
+      : "Couldn't fetch the job description automatically — paste it below for a recommendation.";
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     if (compMin && compMax && Number(compMin) > Number(compMax)) {
       setError("Comp min can't be greater than comp max.");
       return;
     }
+    setSubmitting(true);
     try {
       const job = await createJob({
         company,
@@ -120,25 +148,24 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
       const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
       if (scrapedRaw) {
         // Seed the Job Detail JD text so nothing needs re-pasting later.
-        updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "", recommendedResume }).catch(() => {});
+        updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "", recommendedResume })
+          .catch(() => onWarning(ATTACH_FAILED));
       } else if (url) {
         // URL entered without a Fetch: background scrape to populate the JD text.
         scrapeJob(url)
           .then(result => {
             if (result.raw || recommendedResume) {
-              updateJobDetail(job.id, { jdText: result.raw ?? "", interviewNotes: "", recommendedResume }).catch(() => {});
+              return updateJobDetail(job.id, { jdText: result.raw ?? "", interviewNotes: "", recommendedResume });
             }
           })
-          .catch(() => {
-            if (recommendedResume) {
-              updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume }).catch(() => {});
-            }
-          });
+          .catch(() => onWarning(ATTACH_FAILED));
       } else if (recommendedResume) {
-        updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume }).catch(() => {});
+        updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume })
+          .catch(() => onWarning(ATTACH_FAILED));
       }
       setStep("url");
       setScrapeError(null);
+      setScrapeReason(null);
       setScrapedRaw("");
       setCompany("");
       setRole("");
@@ -153,6 +180,8 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to create job");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -208,11 +237,18 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       {scrapeError && <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">{scrapeError}</p>}
+      {/* With AI on, the paste box states the reason; with it off there is no box, so say it here. */}
+      {!aiConfigured && scrapeReason && (
+        <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">
+          {SCRAPE_FAILURE_MESSAGE[scrapeReason]}
+        </p>
+      )}
 
       {aiConfigured && (
         <RecommendationPanel
           useAi={useAi}
           manualEntryReason={manualEntryReason}
+          manualJdHeading={manualJdHeading}
           hasScrapedRaw={!!scrapedRaw}
           matching={matching}
           matchResult={matchResult}
@@ -272,8 +308,12 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
         </div>
       </div>
       <div className="flex justify-end">
-        <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-          Add job
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {submitting ? "Adding…" : "Add job"}
         </button>
       </div>
     </form>
@@ -283,6 +323,7 @@ export default function AddJobForm({ onCreated }: { onCreated: () => void }) {
 interface RecommendationPanelProps {
   useAi: boolean;
   manualEntryReason: "skipped" | "fetch_failed" | "insufficient_jd" | null;
+  manualJdHeading: string;
   hasScrapedRaw: boolean;
   matching: boolean;
   matchResult: MatchResult | null;
@@ -293,26 +334,15 @@ interface RecommendationPanelProps {
 }
 
 function RecommendationPanel({
-  useAi, manualEntryReason, hasScrapedRaw, matching, matchResult,
+  useAi, manualEntryReason, manualJdHeading, hasScrapedRaw, matching, matchResult,
   pastedJdText, onPastedJdTextChange, onGetRecommendation, onGetRecommendationFromScrape,
 }: RecommendationPanelProps) {
   return (
     <div className="space-y-2">
-      {manualEntryReason === "fetch_failed" && (
+      {(manualEntryReason === "fetch_failed" || manualEntryReason === "insufficient_jd") && (
         <ManualJdBox
           tone="warning"
-          heading="Couldn't fetch the job description automatically — paste it below for a recommendation."
-          pastedJdText={pastedJdText}
-          onPastedJdTextChange={onPastedJdTextChange}
-          onGetRecommendation={onGetRecommendation}
-          matching={matching}
-        />
-      )}
-
-      {manualEntryReason === "insufficient_jd" && (
-        <ManualJdBox
-          tone="warning"
-          heading="This posting didn't include a readable job description. Paste it below for a recommendation."
+          heading={manualJdHeading}
           pastedJdText={pastedJdText}
           onPastedJdTextChange={onPastedJdTextChange}
           onGetRecommendation={onGetRecommendation}

@@ -82,7 +82,7 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
 };
 
 export interface LatestInterviewSummary {
-  stageEventId: number;
+  roundId: string;
   interviewDateTime: string;
   interviewType: InterviewType | null;
   roundCount: number;
@@ -102,8 +102,6 @@ export interface JobSummary {
   location: Location | null;
   compMin: number | null;
   compMax: number | null;
-  rejectedReason: string | null;
-  notes: string | null;
   createdAt: string;
   latestInterview: LatestInterviewSummary | null;
 }
@@ -139,10 +137,8 @@ export interface UpdateJobInput {
   location: Location | null;
   compMin: number | null;
   compMax: number | null;
-  notes: string | null;
   currentStage: Stage;
   outcome: Outcome;
-  rejectedReason: string | null;
 }
 
 export function toUpdateJobInput(job: JobSummary): UpdateJobInput {
@@ -154,10 +150,8 @@ export function toUpdateJobInput(job: JobSummary): UpdateJobInput {
     location: job.location,
     compMin: job.compMin,
     compMax: job.compMax,
-    notes: job.notes,
     currentStage: job.currentStage,
     outcome: job.outcome,
-    rejectedReason: job.rejectedReason,
   };
 }
 
@@ -186,7 +180,11 @@ export interface StageHistoryEntry {
 
 export async function getJobStages(id: number): Promise<StageHistoryEntry[]> {
   const data = await request<{ stageEvents?: StageHistoryEntry[] }>(`/jobs/${id}`, "failed to load job history");
-  return data.stageEvents ?? [];
+  // request casts without validating; undefined here crashes the modal on .filter a render later.
+  if (!Array.isArray(data.stageEvents)) {
+    throw new Error("failed to load job history");
+  }
+  return data.stageEvents;
 }
 
 export interface JobDetail {
@@ -194,6 +192,8 @@ export interface JobDetail {
   jdText: string;
   interviewNotes: string;
   recommendedResume: string | null;
+  notes: string | null;
+  rejectedReason: string | null;
 }
 
 export interface UpdateJobDetailInput {
@@ -201,6 +201,8 @@ export interface UpdateJobDetailInput {
   interviewNotes: string;
   // Set once from the Add Job recommendation; omitted on later edits to preserve it.
   recommendedResume?: string;
+  notes?: string | null;
+  rejectedReason?: string | null;
 }
 
 export async function getJobDetail(id: number): Promise<JobDetail> {

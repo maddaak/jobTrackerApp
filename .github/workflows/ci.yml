@@ -19,6 +19,11 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
+      # vitest does not typecheck, so tsc has to run separately or type errors first fail at Docker build.
+      - run: npm run build
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
       - run: npm test
         working-directory: web
 
@@ -32,6 +37,8 @@ jobs:
           cache: npm
           cache-dependency-path: bff/package-lock.json
       - run: npm ci
+        working-directory: bff
+      - run: npm run build
         working-directory: bff
       - run: npm test
         working-directory: bff

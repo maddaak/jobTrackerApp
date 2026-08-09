@@ -22,14 +22,14 @@ beforeEach(() => {
 describe("AddJobForm", () => {
   it("hides the AI option and shows a disclaimer when no Anthropic key is configured", () => {
     vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     expect(screen.queryByText("Use AI and get a recommendation")).not.toBeInTheDocument();
     expect(screen.getByText(/AI features are disabled/)).toBeInTheDocument();
   });
 
   it("opens on the url-only step with both Fetch and Skip visible, and no other fields", () => {
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     expect(screen.getByLabelText("Job Posting Link")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Fetch details" })).toBeInTheDocument();
@@ -38,13 +38,13 @@ describe("AddJobForm", () => {
   });
 
   it("the Use AI checkbox defaults to checked", () => {
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     expect(screen.getByLabelText("Use AI and get a recommendation")).toBeChecked();
   });
 
   it("clicking Skip reveals a blank form without calling the scrape API", () => {
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
 
@@ -57,7 +57,7 @@ describe("AddJobForm", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { status: "no_resumes" }));
 
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
     fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -70,7 +70,7 @@ describe("AddJobForm", () => {
   it("a failed fetch still reveals a blank, editable form instead of getting stuck", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(500, {}));
 
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
     fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -80,7 +80,7 @@ describe("AddJobForm", () => {
 
   it("submits the (possibly edited) values via createJob regardless of path taken", async () => {
     const onCreated = vi.fn();
-    render(<AddJobForm onCreated={onCreated} />);
+    render(<AddJobForm onCreated={onCreated} onWarning={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
     fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
@@ -102,7 +102,7 @@ describe("AddJobForm", () => {
   });
 
   it("scrapes in the background to seed the JD text when a URL was typed into the manual form (Skip path)", async () => {
-    render(<AddJobForm onCreated={vi.fn()} />);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
     fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
@@ -135,7 +135,7 @@ describe("AddJobForm", () => {
     it("unchecking Use AI still scrapes and fills the form but never calls the match API or shows a panel", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.click(screen.getByLabelText("Use AI and get a recommendation"));
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
@@ -152,7 +152,7 @@ describe("AddJobForm", () => {
         fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Strong match." }),
       );
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -167,7 +167,7 @@ describe("AddJobForm", () => {
         fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "DO_NOT_APPLY", reasoning: "Skills mismatch." }),
       );
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -183,7 +183,7 @@ describe("AddJobForm", () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { status }));
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -193,7 +193,7 @@ describe("AddJobForm", () => {
     it("unchecking Use AI still offers a manual 'Get AI recommendation' button after a successful scrape", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.click(screen.getByLabelText("Use AI and get a recommendation"));
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
@@ -215,7 +215,7 @@ describe("AddJobForm", () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { status: "insufficient_jd" }));
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -226,20 +226,84 @@ describe("AddJobForm", () => {
 
     it("shows a manual paste box when the scrape succeeds but comes back empty (e.g. a 404 page)", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        fakeResponse(200, { company: "", role: "", location: "", compMin: null, compMax: null, raw: "" }),
+        fakeResponse(200, { company: "", role: "", location: "", compMin: null, compMax: null, raw: "", fetched: false, reason: "http_error" }),
       );
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
-      expect(await screen.findByText(/Couldn't fetch the job description automatically/)).toBeInTheDocument();
+      // The paste box states the reason itself, so a 404 doesn't read as a generic fetch failure.
+      expect(await screen.findByText(/That page returned an error/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Paste the job description")).toBeInTheDocument();
+    });
+
+    it("reports an unreachable link specifically, not as a generic fetch failure", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        fakeResponse(200, { company: "", role: "", location: "", compMin: null, compMax: null, raw: "", fetched: false, reason: "unreachable" }),
+      );
+
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+      expect(await screen.findByText(/Couldn't reach that page/)).toBeInTheDocument();
+    });
+
+    it("reports a page that loaded with no job description differently from a dead link", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        fakeResponse(200, { company: "", role: "", location: "", compMin: null, compMax: null, raw: "", fetched: true, reason: "no_job_data" }),
+      );
+
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+      expect(await screen.findByText(/didn't contain a readable job description/)).toBeInTheDocument();
+      // Said once, in the box that acts on it. A banner and a panel previously explained the same
+      // thing in different words ("didn't contain" / "didn't include"), which read as two problems.
+      expect(screen.getAllByText(/readable job description/)).toHaveLength(1);
+    });
+
+    it("warns when the job saved but its description could not be attached", async () => {
+      const onWarning = vi.fn();
+      render(<AddJobForm onCreated={vi.fn()} onWarning={onWarning} />);
+      fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+      fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+      fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Engineer" } });
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 7, company: "Acme" }));
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(500, { error: "scraper down" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add job" }));
+
+      // The job itself was created, so this is a warning the user can act on, not a failed save.
+      await waitFor(() => expect(onWarning).toHaveBeenCalledWith(expect.stringContaining("could not be attached")));
+    });
+
+    it("disables the submit button while a create is in flight so a double-click can't make two jobs", async () => {
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+      fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+      fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Engineer" } });
+
+      let release: (value: unknown) => void = () => {};
+      (fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(r => { release = r; }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Add job" }));
+
+      const button = await screen.findByRole("button", { name: "Adding…" });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      release(fakeResponse(200, { id: 1, company: "Acme" }));
     });
 
     it("shows a manual paste box when the scrape fails, and getting a recommendation works from it", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(500, {}));
 
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
@@ -256,7 +320,7 @@ describe("AddJobForm", () => {
     });
 
     it("shows the manual paste box on Skip with neutral suggestion copy, not a failure warning", () => {
-      render(<AddJobForm onCreated={vi.fn()} />);
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
       fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
 

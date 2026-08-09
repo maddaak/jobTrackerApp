@@ -6,12 +6,13 @@ import com.jobtracker.core.dto.InterviewerRequest;
 import com.jobtracker.core.dto.UpdateInterviewRequest;
 import com.jobtracker.core.exception.JobNotFoundException;
 import com.jobtracker.core.model.*;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
-import com.jobtracker.core.repository.StageEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,28 +29,42 @@ class InterviewServiceTests {
     private JobRepository jobs;
 
     @Mock
-    private StageEventRepository stageEvents;
+    private JobDetailRepository jobDetails;
 
     private InterviewService interviewService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        interviewService = new InterviewService(jobs, stageEvents);
+        interviewService = new InterviewService(jobs, jobDetails);
     }
 
-    private Job newJob(User owner, Source source) {
-        return new Job("Acme", "Engineer", owner, source, null, null, null, null, null);
+    // findJourneysByOwnerId returns the projection, not the whole document.
+    private JobJourney journey(JobDetail detail) {
+        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews());
+    }
+
+    private Job newJob(User owner) {
+        Job job = new Job("Acme", "Engineer", owner, SourceCategory.SELF_APPLIED, null, null, null, null);
+        ReflectionTestUtils.setField(job, "id", 10L);
+        return job;
+    }
+
+    private JobDetail newDetail() {
+        return new JobDetail(10L, 1L, new byte[0], "");
+    }
+
+    private InterviewRound round(Instant when, InterviewType type) {
+        return new InterviewRound(when, type, null, null, List.of());
     }
 
     @Test
-    void createInterviewSavesStageEventAndAdvancesStageWhenFurther() {
+    void createInterviewEmbedsTheRoundAndAdvancesStageWhenFurther() {
         User owner = new User("alice", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
-        when(stageEvents.save(any(StageEvent.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
         Instant when = Instant.parse("2026-08-01T18:00:00Z");
         var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, when,
@@ -58,9 +73,9 @@ class InterviewServiceTests {
 
         InterviewResponse response = interviewService.createInterview(1L, request);
 
-        assertThat(response.jobId()).isEqualTo(job.getId());
+        assertThat(response.jobId()).isEqualTo(10L);
         assertThat(response.company()).isEqualTo("Acme");
-        assertThat(response.stage()).isEqualTo(Stage.INTERVIEW_STAGE);
+        assertThat(response.roundId()).isNotBlank();
         assertThat(response.interviewDateTime()).isEqualTo(when);
         assertThat(response.interviewType()).isEqualTo(InterviewType.SYSTEM_DESIGN);
         assertThat(response.meetingLink()).isEqualTo("https://meet.example/abc");
@@ -68,26 +83,28 @@ class InterviewServiceTests {
         assertThat(response.interviewers()).hasSize(1);
         assertThat(response.interviewers().get(0).name()).isEqualTo("Jordan Lee");
         assertThat(response.interviewers().get(0).linkedInUrl()).isEqualTo("https://linkedin.com/in/jordanlee");
+
+        assertThat(detail.getInterviews()).hasSize(1);
         assertThat(job.getCurrentStage()).isEqualTo(Stage.INTERVIEW_STAGE);
         verify(jobs).save(job);
     }
 
     @Test
-    void createInterviewDoesNotRegressStageWhenJobAlreadyFurtherAlong() {
+    void createInterviewRecordsAStageEntryOnlyWhenTheStageActuallyMoves() {
         User owner = new User("bob", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
+        Job job = newJob(owner);
         job.advanceStageIfFurther(Stage.OFFER_STAGE);
+        JobDetail detail = newDetail();
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
-        when(stageEvents.save(any(StageEvent.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
         var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_REQUEST, Instant.now(),
-                null, null, null, null);
+                InterviewType.BEHAVIOR, null, null, null);
 
         interviewService.createInterview(1L, request);
 
         assertThat(job.getCurrentStage()).isEqualTo(Stage.OFFER_STAGE);
+        assertThat(detail.getStageHistory()).isEmpty();
     }
 
     @Test
@@ -95,7 +112,7 @@ class InterviewServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 999L)).thenReturn(Optional.empty());
 
         var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, Instant.now(),
-                null, null, null, null);
+                InterviewType.BEHAVIOR, null, null, null);
 
         assertThatThrownBy(() -> interviewService.createInterview(999L, request))
                 .isInstanceOf(JobNotFoundException.class);
@@ -104,17 +121,19 @@ class InterviewServiceTests {
     @Test
     void updateInterviewChangesFieldsWithoutTouchingJobStage() {
         User owner = new User("carol", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
+        Job job = newJob(owner);
         job.advanceStageIfFurther(Stage.INTERVIEW_STAGE);
-        StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
-        when(stageEvents.findByIdAndJob_Owner_Id(7L, 1L)).thenReturn(Optional.of(event));
+        JobDetail detail = newDetail();
+        InterviewRound existing = round(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.VALUES);
+        detail.addInterview(existing);
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(1L, existing.getRoundId())).thenReturn(Optional.of(detail));
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         Instant newTime = Instant.parse("2026-08-05T15:30:00Z");
         var request = new UpdateInterviewRequest(newTime, InterviewType.BEHAVIOR,
                 "https://meet.example/xyz", null, List.of(new InterviewerRequest("Priya Shah", null)));
 
-        InterviewResponse response = interviewService.updateInterview(1L, 7L, request);
+        InterviewResponse response = interviewService.updateInterview(1L, existing.getRoundId(), request);
 
         assertThat(response.interviewDateTime()).isEqualTo(newTime);
         assertThat(response.interviewType()).isEqualTo(InterviewType.BEHAVIOR);
@@ -125,73 +144,126 @@ class InterviewServiceTests {
     }
 
     @Test
-    void updateInterviewThrowsJobNotFoundExceptionForAnotherUsersStageEvent() {
-        when(stageEvents.findByIdAndJob_Owner_Id(7L, 999L)).thenReturn(Optional.empty());
+    void updateInterviewThrowsJobNotFoundExceptionForAnotherUsersRound() {
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(999L, "missing-round")).thenReturn(Optional.empty());
 
-        var request = new UpdateInterviewRequest(Instant.now(), null, null, null, null);
+        var request = new UpdateInterviewRequest(Instant.now(), InterviewType.BEHAVIOR, null, null, null);
 
-        assertThatThrownBy(() -> interviewService.updateInterview(999L, 7L, request))
+        assertThatThrownBy(() -> interviewService.updateInterview(999L, "missing-round", request))
                 .isInstanceOf(JobNotFoundException.class);
     }
 
     @Test
     void listInterviewsReturnsOnlyCallersInterviews() {
         User owner = new User("dave", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
-        StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
-        event.applyInterviewDetails(Instant.now(), InterviewType.VALUES, null, null, List.of());
-        when(stageEvents.findAllWithJobAndInterviewersByJobOwnerId(1L)).thenReturn(List.of(event));
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
+        detail.addInterview(round(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.VALUES));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(journey(detail)));
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
 
         List<InterviewResponse> result = interviewService.listInterviews(1L);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).interviewType()).isEqualTo(InterviewType.VALUES);
+        assertThat(result.get(0).company()).isEqualTo("Acme");
     }
 
     @Test
-    void deleteInterviewRemovesTheStageEvent() {
+    void deleteInterviewRemovesTheRoundButKeepsTheStageHistory() {
         User owner = new User("erin", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
-        StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
-        when(stageEvents.findByIdAndJob_Owner_Id(7L, 1L)).thenReturn(Optional.of(event));
+        Job job = newJob(owner);
+        job.advanceStageIfFurther(Stage.INTERVIEW_STAGE);
+        JobDetail detail = newDetail();
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-07-01T00:00:00Z"), null);
+        detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-07-02T00:00:00Z"), null);
+        InterviewRound existing = round(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.BEHAVIOR);
+        detail.addInterview(existing);
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(1L, existing.getRoundId())).thenReturn(Optional.of(detail));
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
-        interviewService.deleteInterview(1L, 7L);
+        interviewService.deleteInterview(1L, existing.getRoundId());
 
-        verify(stageEvents).delete(event);
+        assertThat(detail.getInterviews()).isEmpty();
+        // Removing a calendar entry must not erase a pipeline transition.
+        assertThat(detail.getStageHistory()).hasSize(2);
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.INTERVIEW_STAGE);
+        verify(jobDetails).save(detail);
     }
 
     @Test
-    void deleteInterviewThrowsJobNotFoundExceptionForAnotherUsersStageEvent() {
-        when(stageEvents.findByIdAndJob_Owner_Id(7L, 999L)).thenReturn(Optional.empty());
+    void deleteInterviewLeavesTheJobStageAlone() {
+        User owner = new User("heidi", "hash");
+        Job job = newJob(owner);
+        job.advanceStageIfFurther(Stage.INTERVIEW_STAGE);
+        JobDetail detail = newDetail();
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-07-01T00:00:00Z"), null);
+        InterviewRound existing = round(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.BEHAVIOR);
+        detail.addInterview(existing);
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(1L, existing.getRoundId())).thenReturn(Optional.of(detail));
 
-        assertThatThrownBy(() -> interviewService.deleteInterview(999L, 7L))
+        interviewService.deleteInterview(1L, existing.getRoundId());
+
+        // The transition happened and its history entry survives, so removing the round doesn't undo it.
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.INTERVIEW_STAGE);
+        verify(jobs, never()).save(any());
+    }
+
+    @Test
+    void deleteInterviewLeavesAClosedJobFinalized() {
+        User owner = new User("nina", "hash");
+        Job job = newJob(owner);
+        // Closed via the domain rule: REJECTED forces FINALIZED.
+        job.applyUpdate("Acme", "Engineer", SourceCategory.SELF_APPLIED, null, null, null, null,
+                Stage.INTERVIEW_STAGE, Outcome.REJECTED);
+        JobDetail detail = newDetail();
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-07-01T00:00:00Z"), null);
+        detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-07-02T00:00:00Z"), null);
+        detail.recordStage(Stage.FINALIZED, Instant.parse("2026-07-03T00:00:00Z"), null);
+        InterviewRound existing = round(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.BEHAVIOR);
+        detail.addInterview(existing);
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(1L, existing.getRoundId())).thenReturn(Optional.of(detail));
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+
+        interviewService.deleteInterview(1L, existing.getRoundId());
+
+        // Dropping out of FINALIZED while the outcome stays REJECTED is the inconsistent state F52 forbids.
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.FINALIZED);
+        assertThat(job.getOutcome()).isEqualTo(Outcome.REJECTED);
+    }
+
+    @Test
+    void deleteInterviewThrowsJobNotFoundExceptionForAnotherUsersRound() {
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(999L, "missing-round")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> interviewService.deleteInterview(999L, "missing-round"))
                 .isInstanceOf(JobNotFoundException.class);
 
-        verify(stageEvents, never()).delete(any(StageEvent.class));
+        verify(jobDetails, never()).save(any(JobDetail.class));
     }
 
     @Test
-    void listUpcomingInterviewsQueriesTheWindowWithoutWritingToMongo() {
+    void listUpcomingInterviewsKeepsOnlyRoundsInsideTheWindow() {
         User owner = new User("frank", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
-        StageEvent event = new StageEvent(job, Stage.INTERVIEW_STAGE, Instant.now(), null);
-        event.applyInterviewDetails(Instant.parse("2026-08-01T12:00:00Z"), InterviewType.BEHAVIOR, null, null, List.of());
-        when(stageEvents.findUpcomingWithInterviewersByJobOwnerId(eq(1L), any(Instant.class), any(Instant.class)))
-                .thenReturn(List.of(event));
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
+        Instant soon = Instant.now().plusSeconds(3600);
+        detail.addInterview(round(soon, InterviewType.BEHAVIOR));
+        detail.addInterview(round(Instant.now().minusSeconds(3600), InterviewType.VALUES));
+        detail.addInterview(round(Instant.now().plusSeconds(60L * 60 * 24 * 30), InterviewType.CULTURE_FIT));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(journey(detail)));
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
 
         List<InterviewResponse> result = interviewService.listUpcomingInterviews(1L);
 
+        // Past rounds and anything beyond 72 hours are excluded.
         assertThat(result).hasSize(1);
         assertThat(result.get(0).interviewType()).isEqualTo(InterviewType.BEHAVIOR);
     }
 
     @Test
     void listUpcomingInterviewsReturnsEmptyListWhenNoneInWindow() {
-        when(stageEvents.findUpcomingWithInterviewersByJobOwnerId(eq(1L), any(Instant.class), any(Instant.class)))
-                .thenReturn(List.of());
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of());
 
         List<InterviewResponse> result = interviewService.listUpcomingInterviews(1L);
 
@@ -199,12 +271,12 @@ class InterviewServiceTests {
     }
 
     @Test
-    void createInterviewSavesTheStageEventExactlyOnce() {
+    void createInterviewSavesTheDocumentExactlyOnce() {
         User owner = new User("grace", "hash");
-        Source source = new Source(SourceCategory.SELF_APPLIED);
-        Job job = newJob(owner, source);
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
-        when(stageEvents.save(any(StageEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
         var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, Instant.now(),
                 InterviewType.BEHAVIOR, null, null,
@@ -212,7 +284,7 @@ class InterviewServiceTests {
 
         interviewService.createInterview(1L, request);
 
-        // Details are set before the single save, so the stage event is persisted exactly once.
-        verify(stageEvents, times(1)).save(any(StageEvent.class));
+        // The round and its stage entry are both applied before the single save.
+        verify(jobDetails, times(1)).save(any(JobDetail.class));
     }
 }

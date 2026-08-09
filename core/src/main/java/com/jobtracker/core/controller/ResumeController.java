@@ -5,6 +5,7 @@ import com.jobtracker.core.dto.CreateResumeResponse;
 import com.jobtracker.core.dto.ResumeSummaryResponse;
 import com.jobtracker.core.dto.ResumeTextResponse;
 import com.jobtracker.core.service.ResumeService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,7 +36,7 @@ public class ResumeController {
     @PatchMapping("/{id}/analysis")
     public ResumeSummaryResponse applyAnalysis(
             @RequestHeader("X-User-Id") Long ownerId, @PathVariable String id,
-            @RequestBody ApplyResumeAnalysisRequest request) {
+            @Valid @RequestBody ApplyResumeAnalysisRequest request) {
         return resumeService.applyAnalysis(ownerId, id, request);
     }
 

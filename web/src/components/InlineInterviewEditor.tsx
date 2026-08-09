@@ -9,7 +9,6 @@ import {
   type InterviewerInput,
 } from "../api/interviewsApi";
 
-// Empty `interviewDateTime` means a blank save, which the caller treats as cancel (see JobsTable.saveInterview).
 export interface InlineInterviewDraft {
   interviewDateTime: string;
   interviewType: InterviewType | "";
@@ -32,8 +31,13 @@ export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: 
   const [meetingLink, setMeetingLink] = useState("");
   const [location, setLocation] = useState("");
   const { interviewers, addInterviewer, removeInterviewer, updateInterviewer, toInterviewerInputs } = useInterviewerDraft();
+  const [attemptedSave, setAttemptedSave] = useState(false);
+
+  const missingRequired = !interviewDateTime || !interviewType;
 
   function handleSave() {
+    setAttemptedSave(true);
+    if (missingRequired) return;
     onSave({
       interviewDateTime,
       interviewType,
@@ -59,7 +63,7 @@ export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: 
         value={interviewType}
         onChange={e => setInterviewType(e.target.value as InterviewType | "")}
       >
-        <option value="">Select type</option>
+        <option value="">Select type (required)</option>
         {INTERVIEW_TYPES.map(type => (
           <option key={type} value={type}>{INTERVIEW_TYPE_LABELS[type]}</option>
         ))}
@@ -131,6 +135,11 @@ export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: 
       >
         + Add interviewer
       </button>
+      {attemptedSave && missingRequired && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          Date, time, and type are required.
+        </p>
+      )}
       <div className="flex gap-2 text-xs">
         <button
           type="button"

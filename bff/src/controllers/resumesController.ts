@@ -95,12 +95,22 @@ export async function match(req: AuthedRequest, res: Response) {
   const documents = await Promise.all(
     analyzed.map(async r => {
       const textResult = await getResumeText(req.userId!, r.id);
-      const fullText = textResult.ok && textResult.data ? textResult.data.extractedText : "";
-      return { id: r.id, fileName: r.fileName, fullText };
+      if (!textResult.ok || !textResult.data) {
+        return null;
+      }
+      return { id: r.id, fileName: r.fileName, fullText: textResult.data.extractedText };
     }),
   );
 
-  const result = await matchResume(jobDescriptionText, documents);
+  // Sending a blank candidate would return a verdict computed partly over a resume nobody read.
+  const readable = documents.filter(d => d !== null);
+  if (readable.length === 0) {
+    res.status(502).json({ error: "could not read any of your resumes" });
+    return;
+  }
+  const unreadable = documents.length - readable.length;
+
+  const result = await matchResume(jobDescriptionText, readable);
   if (result.status !== "ok") {
     res.json({ status: result.status });
     return;
@@ -112,11 +122,18 @@ export async function match(req: AuthedRequest, res: Response) {
     return;
   }
 
+  // The scraper coerces a phantom id to "", so no match here means the model picked nothing.
   const best = analyzed.find(r => r.id === result.data.bestResumeId);
+  if (!best) {
+    res.status(502).json({ error: "the model did not pick one of your resumes" });
+    return;
+  }
   res.json({
     status: "ok",
-    fileName: best?.fileName ?? "unknown resume",
+    fileName: best.fileName,
     recommendation: result.data.recommendation,
     reasoning: result.data.reasoning,
+    // Tell the caller the verdict was reached over a subset, rather than staying silent about it.
+    ...(unreadable > 0 ? { skippedResumes: unreadable } : {}),
   });
 }

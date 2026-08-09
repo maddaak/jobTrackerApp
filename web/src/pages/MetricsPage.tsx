@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { getMetrics, type Metrics } from "../api/metricsApi";
 import PipelineSankey from "../components/PipelineSankey";
 import { STAGE_LABELS, OUTCOME_LABELS, type Stage, type Outcome } from "../api/jobsApi";
@@ -131,11 +130,8 @@ export default function MetricsPage() {
 
   return (
     <div className="min-w-0 p-6">
-      <div className="relative mb-6 flex items-center justify-center">
+      <div className="mb-6 flex items-center justify-center">
         <h1 className="text-2xl font-semibold">Metrics</h1>
-        <Link to="/" className="absolute left-0 text-sm text-blue-600 hover:underline dark:text-blue-400">
-          ← Back
-        </Link>
       </div>
 
       {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}

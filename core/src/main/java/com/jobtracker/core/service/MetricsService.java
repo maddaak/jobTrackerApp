@@ -5,15 +5,18 @@ import com.jobtracker.core.dto.InterviewRoundCount;
 import com.jobtracker.core.dto.MetricsResponse;
 import com.jobtracker.core.dto.OutcomeCount;
 import com.jobtracker.core.dto.SankeyLink;
+import com.jobtracker.core.model.InterviewRound;
 import com.jobtracker.core.model.InterviewType;
 import com.jobtracker.core.model.Job;
+import com.jobtracker.core.model.JobJourney;
 import com.jobtracker.core.model.Outcome;
 import com.jobtracker.core.model.Stage;
-import com.jobtracker.core.model.StageEvent;
+import com.jobtracker.core.model.StageHistoryEntry;
+import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
-import com.jobtracker.core.repository.StageEventRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -21,6 +24,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class MetricsService {
@@ -31,22 +36,26 @@ public class MetricsService {
             .toList();
 
     private final JobRepository jobs;
-    private final StageEventRepository stageEvents;
+    private final JobDetailRepository jobDetails;
 
-    public MetricsService(JobRepository jobs, StageEventRepository stageEvents) {
+    public MetricsService(JobRepository jobs, JobDetailRepository jobDetails) {
         this.jobs = jobs;
-        this.stageEvents = stageEvents;
+        this.jobDetails = jobDetails;
     }
 
     public MetricsResponse getMetrics(Long ownerId) {
         List<Job> ownerJobs = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId);
-        // Both views derive from this one query; no second query for the interview-dated subset.
-        List<StageEvent> ownerStageEvents = stageEvents.findAllByJobOwnerId(ownerId);
-        Map<Long, Stage> furthestByJobId = furthestStagesByJobId(ownerStageEvents);
-        List<StageEvent> interviewRounds = ownerStageEvents.stream()
-                .filter(event -> event.getInterviewDateTime() != null)
+        // One document per job carries both the stage history and the rounds; the JD blobs are projected away.
+        Map<Long, JobJourney> detailsByJobId = jobDetails.findJourneysByOwnerId(ownerId).stream()
+                .collect(Collectors.toMap(JobJourney::jobId, Function.identity(), (a, b) -> a));
+        Map<Long, Stage> furthestByJobId = furthestStagesByJobId(ownerJobs, detailsByJobId);
+        Map<Long, List<InterviewRound>> roundsByJobId = detailsByJobId.values().stream()
+                .collect(Collectors.toMap(JobJourney::jobId, JobJourney::interviews));
+        List<InterviewRound> interviewRounds = roundsByJobId.values().stream()
+                .flatMap(List::stream)
+                .filter(round -> round.getInterviewDateTime() != null)
                 .toList();
-        SankeyData sankey = sankeyData(ownerJobs, furthestByJobId, interviewRounds);
+        SankeyData sankey = sankeyData(ownerJobs, furthestByJobId, roundsByJobId);
         return new MetricsResponse(
                 funnel(ownerJobs, furthestByJobId), outcomeCounts(ownerJobs),
                 interviewRoundCounts(interviewRounds), sankey.links(), sankey.companiesByNode());
@@ -56,19 +65,45 @@ public class MetricsService {
     }
 
     // Excludes FINALIZED so a rejected job isn't counted as having reached later pipeline stages.
-    private Map<Long, Stage> furthestStagesByJobId(List<StageEvent> ownerStageEvents) {
+    private Map<Long, Stage> furthestStagesByJobId(List<Job> ownerJobs, Map<Long, JobJourney> detailsByJobId) {
         Map<Long, Stage> furthestByJobId = new HashMap<>();
-        for (StageEvent event : ownerStageEvents) {
-            if (event.getStage() == Stage.FINALIZED) {
+        for (Job job : ownerJobs) {
+            JobJourney detail = detailsByJobId.get(job.getId());
+            Stage furthest = null;
+            for (StageHistoryEntry event : liveAttempt(detail == null ? List.of() : detail.stageHistory())) {
+                if (event.getStage() == Stage.FINALIZED) {
+                    continue;
+                }
+                if (furthest == null || event.getStage().ordinal() > furthest.ordinal()) {
+                    furthest = event.getStage();
+                }
+            }
+            if (furthest == null) {
                 continue;
             }
-            Long jobId = event.getJob().getId();
-            Stage current = furthestByJobId.get(jobId);
-            if (current == null || event.getStage().ordinal() > current.ordinal()) {
-                furthestByJobId.put(jobId, event.getStage());
+            // A deliberate move back down is where the job actually stands; don't strand a high-water mark above it.
+            if (job.getCurrentStage() != Stage.FINALIZED && job.getCurrentStage().ordinal() < furthest.ordinal()) {
+                furthest = job.getCurrentStage();
             }
+            furthestByJobId.put(job.getId(), furthest);
         }
         return furthestByJobId;
+    }
+
+    // Reopening retracts the close, so only events after the last FINALIZED say where the job stands.
+    private List<StageHistoryEntry> liveAttempt(List<StageHistoryEntry> jobEvents) {
+        Instant lastFinalizedAt = jobEvents.stream()
+                .filter(event -> event.getStage() == Stage.FINALIZED)
+                .map(StageHistoryEntry::getEnteredAt)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        if (lastFinalizedAt == null) {
+            return jobEvents;
+        }
+        List<StageHistoryEntry> reopened = jobEvents.stream()
+                .filter(event -> event.getEnteredAt().isAfter(lastFinalizedAt))
+                .toList();
+        return reopened.isEmpty() ? jobEvents : reopened;
     }
 
     private List<FunnelStageCount> funnel(List<Job> ownerJobs, Map<Long, Stage> furthestByJobId) {
@@ -92,7 +127,7 @@ public class MetricsService {
     }
 
     // Per-type breakdown; the Sankey collapses all panel types into one node, so it can't supply this.
-    private List<InterviewRoundCount> interviewRoundCounts(List<StageEvent> rounds) {
+    private List<InterviewRoundCount> interviewRoundCounts(List<InterviewRound> rounds) {
         return Arrays.stream(InterviewType.values())
                 .map(type -> new InterviewRoundCount(type,
                         rounds.stream().filter(round -> round.getInterviewType() == type).count()))
@@ -106,19 +141,21 @@ public class MetricsService {
 
     // Strict node ordering (RESUME_CHECK < INTERVIEW_REQUEST < rounds < OFFER < terminals) keeps the graph acyclic.
     private SankeyData sankeyData(List<Job> ownerJobs, Map<Long, Stage> furthestByJobId,
-            List<StageEvent> interviewRounds) {
+            Map<Long, List<InterviewRound>> allRoundsByJobId) {
         // Rounds with no chosen type can't be placed on a type node, so skip them here.
         Map<Long, List<String>> nodeSequencesByJobId = new HashMap<>();
-        Map<Long, List<StageEvent>> roundsByJobId = new HashMap<>();
-        for (StageEvent round : interviewRounds) {
-            if (round.getInterviewType() == null || round.getInterviewDateTime() == null) {
-                continue;
+        Map<Long, List<InterviewRound>> roundsByJobId = new HashMap<>();
+        allRoundsByJobId.forEach((jobId, rounds) -> {
+            for (InterviewRound round : rounds) {
+                if (round.getInterviewType() == null || round.getInterviewDateTime() == null) {
+                    continue;
+                }
+                roundsByJobId.computeIfAbsent(jobId, key -> new ArrayList<>()).add(round);
             }
-            roundsByJobId.computeIfAbsent(round.getJob().getId(), key -> new ArrayList<>()).add(round);
-        }
-        for (Map.Entry<Long, List<StageEvent>> entry : roundsByJobId.entrySet()) {
+        });
+        for (Map.Entry<Long, List<InterviewRound>> entry : roundsByJobId.entrySet()) {
             List<String> sequence = entry.getValue().stream()
-                    .sorted(Comparator.comparing(StageEvent::getInterviewDateTime))
+                    .sorted(Comparator.comparing(InterviewRound::getInterviewDateTime))
                     .map(event -> roundNode(event.getInterviewType()))
                     .toList();
             nodeSequencesByJobId.put(entry.getKey(), sequence);

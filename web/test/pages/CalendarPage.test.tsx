@@ -29,7 +29,7 @@ describe("CalendarPage", () => {
           return Promise.resolve(
             fakeResponse(200, [
               {
-                stageEventId: 1,
+                roundId: "round-1",
                 jobId: 1,
                 company: "Acme",
                 role: "Engineer",
@@ -72,7 +72,7 @@ describe("CalendarPage", () => {
           return Promise.resolve(
             fakeResponse(200, [
               {
-                stageEventId: 1,
+                roundId: "round-1",
                 jobId: 1,
                 company: "Acme",
                 role: "Engineer",
@@ -81,7 +81,7 @@ describe("CalendarPage", () => {
                 interviewType: "SYSTEM_DESIGN",
                 meetingLink: null,
                 location: null,
-                interviewers: [{ id: 1, name: "Jordan Lee", linkedInUrl: null }],
+                interviewers: [{ name: "Jordan Lee", linkedInUrl: null }],
               },
             ]),
           );

@@ -12,6 +12,7 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -154,6 +155,33 @@ class MetricsServiceTests {
                 .noneMatch(link -> link.source().equals("PANEL_BEHAVIOR") || link.target().equals("PANEL_BEHAVIOR"));
         assertThat(response.sankeyLinks())
                 .noneMatch(link -> link.source().equals("FINALIZED") || link.target().equals("FINALIZED"));
+    }
+
+    @Test
+    // Driven off the enum so a panel type added later is covered without touching this test.
+    void sankeyCollapsesEveryPanelTypeIntoTheSinglePanelNode() {
+        User owner = new User("dave", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job accepted = newJob(owner, source, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED);
+        List<InterviewType> panelTypes = Arrays.stream(InterviewType.values())
+                .filter(type -> type.name().startsWith("PANEL"))
+                .toList();
+        InterviewRound[] rounds = new InterviewRound[panelTypes.size()];
+        for (int i = 0; i < panelTypes.size(); i++) {
+            rounds[i] = round(panelTypes.get(i), T0.plusSeconds(3600L * i));
+        }
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(accepted));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(accepted, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED, rounds)));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        assertThat(linkValue(response, "INTERVIEW_REQUEST", "PANEL")).isEqualTo(1);
+        assertThat(linkValue(response, "PANEL", "OFFER")).isEqualTo(1);
+        // Every panel round collapses onto one node, so the whole journey is these four links and nothing else.
+        assertThat(response.sankeyLinks()).hasSize(4);
+        assertThat(response.sankeyLinks())
+                .noneMatch(link -> link.source().startsWith("PANEL_") || link.target().startsWith("PANEL_"));
     }
 
     @Test

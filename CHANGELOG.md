@@ -4,6 +4,13 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V3.0.1
+
+Four interview types added to the round dropdown: Panel - Hiring Manager Chat,
+Panel - Product / XFN, Panel - Technical Demo, and Panel - Technical Deep Dive. Like every
+other panel type they collapse into the single Panel node on the metrics Sankey, and each
+gets its own row in the round counts. No data change; existing rounds keep their type.
+
 ## V3
 
 A storage release. Postgres now holds only what the jobs table renders; every per-job

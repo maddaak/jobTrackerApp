@@ -1,5 +1,6 @@
 package com.jobtracker.core.controller;
 
+import com.jobtracker.core.model.InterviewType;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.UserRepository;
@@ -77,7 +78,7 @@ class MetricsControllerTests {
             .andExpect(jsonPath("$.funnel[0].stage").value("RESUME_CHECK"))
             .andExpect(jsonPath("$.funnel[0].count").value(1))
             .andExpect(jsonPath("$.outcomeCounts", hasSize(5)))
-            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(15)))
+            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(InterviewType.values().length)))
             // A fresh active job at Resume Check terminates at IN_PROGRESS.
             .andExpect(jsonPath("$.sankeyLinks", hasSize(1)))
             .andExpect(jsonPath("$.sankeyLinks[0].source").value("RESUME_CHECK"))

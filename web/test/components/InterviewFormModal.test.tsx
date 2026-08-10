@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import InterviewFormModal from "../../src/components/InterviewFormModal";
-import type { Interview } from "../../src/api/interviewsApi";
+import { INTERVIEW_TYPES, INTERVIEW_TYPE_LABELS, type Interview } from "../../src/api/interviewsApi";
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -27,7 +27,8 @@ const interviewWithLinkedIn: Interview = {
 };
 
 describe("InterviewFormModal", () => {
-  it("offers the take-home and technical code review interview types in the dropdown", () => {
+  // Driven off the type list so a type added later is covered without touching this test.
+  it("offers every interview type in the dropdown, including the panel ones", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(fakeResponse(200, []));
 
     render(
@@ -41,8 +42,9 @@ describe("InterviewFormModal", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("option", { name: "Take Home Assignment" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Technical Code Review" })).toBeInTheDocument();
+    for (const type of INTERVIEW_TYPES) {
+      expect(screen.getByRole("option", { name: INTERVIEW_TYPE_LABELS[type] })).toBeInTheDocument();
+    }
   });
 
   it("create mode fetches jobs for the picker and does not submit without one selected", async () => {

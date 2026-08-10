@@ -28,11 +28,22 @@ const updateInput: UpdateInterviewInput = {
 };
 
 describe("interview types", () => {
-  it("includes take-home assignment and technical code review with their labels", () => {
-    expect(INTERVIEW_TYPES).toContain("TAKE_HOME_ASSIGNMENT");
-    expect(INTERVIEW_TYPES).toContain("TECHNICAL_CODE_REVIEW");
-    expect(INTERVIEW_TYPE_LABELS.TAKE_HOME_ASSIGNMENT).toBe("Take Home Assignment");
-    expect(INTERVIEW_TYPE_LABELS.TECHNICAL_CODE_REVIEW).toBe("Technical Code Review");
+  // Reversing the label back to its key checks the text itself, which reading the map cannot.
+  it("labels every type with readable text that matches its key", () => {
+    for (const type of INTERVIEW_TYPES) {
+      const label = INTERVIEW_TYPE_LABELS[type];
+      expect(label).not.toContain("_");
+      expect(label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")).toBe(type);
+    }
+  });
+
+  it("labels every panel type with the shared Panel prefix", () => {
+    const panelTypes = INTERVIEW_TYPES.filter(type => type.startsWith("PANEL_"));
+
+    expect(panelTypes.length).toBeGreaterThan(0);
+    for (const type of panelTypes) {
+      expect(INTERVIEW_TYPE_LABELS[type]).toMatch(/^Panel - /);
+    }
   });
 
   it("has exactly one label per type (labels map is 1:1 with the type list)", () => {

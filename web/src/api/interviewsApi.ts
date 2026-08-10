@@ -16,6 +16,10 @@ export type InterviewType =
   | "PANEL_BEHAVIOR"
   | "PANEL_CULTURE_FIT"
   | "PANEL_VALUES"
+  | "PANEL_HIRING_MANAGER_CHAT"
+  | "PANEL_PRODUCT_XFN"
+  | "PANEL_TECHNICAL_DEMO"
+  | "PANEL_TECHNICAL_DEEP_DIVE"
   | "RECRUITER_DEBRIEF";
 
 export const INTERVIEW_TYPES: InterviewType[] = [
@@ -33,6 +37,10 @@ export const INTERVIEW_TYPES: InterviewType[] = [
   "PANEL_BEHAVIOR",
   "PANEL_CULTURE_FIT",
   "PANEL_VALUES",
+  "PANEL_HIRING_MANAGER_CHAT",
+  "PANEL_PRODUCT_XFN",
+  "PANEL_TECHNICAL_DEMO",
+  "PANEL_TECHNICAL_DEEP_DIVE",
   "RECRUITER_DEBRIEF",
 ];
 
@@ -51,6 +59,10 @@ export const INTERVIEW_TYPE_LABELS: Record<InterviewType, string> = {
   PANEL_BEHAVIOR: "Panel - Behavior",
   PANEL_CULTURE_FIT: "Panel - Culture Fit",
   PANEL_VALUES: "Panel - Values",
+  PANEL_HIRING_MANAGER_CHAT: "Panel - Hiring Manager Chat",
+  PANEL_PRODUCT_XFN: "Panel - Product / XFN",
+  PANEL_TECHNICAL_DEMO: "Panel - Technical Demo",
+  PANEL_TECHNICAL_DEEP_DIVE: "Panel - Technical Deep Dive",
   RECRUITER_DEBRIEF: "Recruiter Debrief",
 };
 

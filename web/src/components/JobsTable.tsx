@@ -31,6 +31,7 @@ import {
   type Location,
   type Stage,
   type Outcome,
+  type RowColor,
 } from "../api/jobsApi";
 import {
   createInterview,
@@ -48,17 +49,19 @@ import { safeHref } from "../safeHref";
 const cellInputClass =
   "w-full rounded border border-neutral-300 bg-white px-1.5 py-1 text-sm text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:disabled:border-neutral-700 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500";
 
-const ROW_BG_CLASS: Record<"red" | "green" | "yellow", string> = {
+const ROW_BG_CLASS: Record<RowColor, string> = {
   red: "bg-red-50 dark:bg-red-950/20",
   green: "bg-green-50 dark:bg-green-950/20",
   yellow: "bg-yellow-50 dark:bg-yellow-950/20",
+  indigo: "bg-indigo-50 dark:bg-indigo-950/30",
 };
 
 // Accent on the first cell, not the row: row borders don't render in the border-separate model the sticky header needs.
-const ROW_ACCENT_CLASS: Record<"red" | "green" | "yellow", string> = {
+const ROW_ACCENT_CLASS: Record<RowColor, string> = {
   red: "border-l-4 border-l-red-400 dark:border-l-red-500",
   green: "border-l-4 border-l-green-400 dark:border-l-green-500",
   yellow: "border-l-4 border-l-yellow-400 dark:border-l-yellow-500",
+  indigo: "border-l-4 border-l-indigo-400 dark:border-l-indigo-500",
 };
 
 const LOCATION_LABELS: Record<string, string> = Object.fromEntries(LOCATIONS.map(l => [l.value, l.label]));

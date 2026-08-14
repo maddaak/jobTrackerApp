@@ -335,6 +335,15 @@ describe("JobsTable", () => {
     expect(rows[2].className).toContain("bg-green-50");
   });
 
+  it("gives a job waiting on interview results its own row color", () => {
+    const waitingJob = { ...jobs[0], currentStage: "WAITING_INTERVIEW_RESULTS" as const };
+    render(<JobsTable jobs={[waitingJob]} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    const row = screen.getAllByRole("row")[1];
+    expect(row.className).toContain("bg-indigo-50");
+    expect(row.className).not.toContain("bg-green-50");
+  });
+
   it("shows the delete control as an X icon, not the word Delete", () => {
     render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
 

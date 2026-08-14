@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { updateJob, deleteJob, rowColor, type JobSummary, type UpdateJobInput } from "../../src/api/jobsApi";
+import { updateJob, deleteJob, rowColor, type JobSummary, type UpdateJobInput, type RowColor } from "../../src/api/jobsApi";
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
@@ -64,14 +64,16 @@ describe("deleteJob", () => {
 });
 
 describe("rowColor", () => {
-  const cases: [Pick<JobSummary, "outcome" | "currentStage">, "red" | "green" | "yellow"][] = [
+  const cases: [Pick<JobSummary, "outcome" | "currentStage">, RowColor][] = [
     [{ outcome: "REJECTED", currentStage: "RESUME_CHECK" }, "red"],
     [{ outcome: "GHOSTED", currentStage: "INTERVIEW_STAGE" }, "red"],
     [{ outcome: "WITHDRAWN", currentStage: "OFFER_STAGE" }, "red"],
+    [{ outcome: "REJECTED", currentStage: "WAITING_INTERVIEW_RESULTS" }, "red"],
     [{ outcome: "OFFER_ACCEPTED", currentStage: "RESUME_CHECK" }, "green"],
     [{ outcome: "OFFER_DECLINED", currentStage: "RESUME_CHECK" }, "green"],
     [{ outcome: "ACTIVE", currentStage: "INTERVIEW_STAGE" }, "green"],
-    [{ outcome: "ACTIVE", currentStage: "WAITING_INTERVIEW_RESULTS" }, "green"],
+    [{ outcome: "ACTIVE", currentStage: "OFFER_STAGE" }, "green"],
+    [{ outcome: "ACTIVE", currentStage: "WAITING_INTERVIEW_RESULTS" }, "indigo"],
     [{ outcome: "ACTIVE", currentStage: "RESUME_CHECK" }, "yellow"],
     [{ outcome: "ACTIVE", currentStage: "INTERVIEW_REQUEST" }, "yellow"],
   ];

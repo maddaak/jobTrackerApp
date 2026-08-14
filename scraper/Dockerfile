@@ -3,7 +3,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o scraper-bin .
+RUN go build -o scraper-bin ./cmd/scraper
 
 FROM alpine:3.20
 RUN adduser -D -u 10001 app

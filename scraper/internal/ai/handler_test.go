@@ -1,8 +1,7 @@
-package main
+package ai
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,167 +9,6 @@ import (
 	"strings"
 	"testing"
 )
-
-// zeroClaudeBackoff removes the retry backoff sleep so the retry path runs without waiting.
-func zeroClaudeBackoff(t *testing.T) {
-	t.Helper()
-	original := claudeRetryBackoffBase
-	claudeRetryBackoffBase = 0
-	t.Cleanup(func() { claudeRetryBackoffBase = original })
-}
-
-// fakeAnthropicServer mimics the Anthropic Messages API, returning responseText as a single content block.
-func fakeAnthropicServer(t *testing.T, responseText string) *httptest.Server {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(anthropicResponse{
-			Content: []anthropicContentBlock{{Type: "text", Text: responseText}},
-		})
-	}))
-	t.Cleanup(server.Close)
-	return server
-}
-
-func withAnthropicBaseURL(t *testing.T, url string) {
-	t.Helper()
-	original := anthropicBaseURL
-	anthropicBaseURL = url
-	t.Cleanup(func() { anthropicBaseURL = original })
-}
-
-func TestCallClaudeReturnsErrNotConfiguredWithNoApiKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	_, err := callClaude(context.Background(), "system", "user", 1024)
-
-	if err != errNotConfigured {
-		t.Fatalf("expected errNotConfigured, got %v", err)
-	}
-}
-
-func TestCallClaudeReturnsResponseText(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"hello":"world"}`)
-	withAnthropicBaseURL(t, server.URL)
-
-	text, err := callClaude(context.Background(), "system", "user", 1024)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if text != `{"hello":"world"}` {
-		t.Fatalf("unexpected text: %q", text)
-	}
-}
-
-func TestCallClaudeMarksSystemPromptCacheable(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	var captured anthropicRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			t.Fatalf("failed to decode captured request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(anthropicResponse{Content: []anthropicContentBlock{{Type: "text", Text: "ok"}}})
-	}))
-	defer server.Close()
-	withAnthropicBaseURL(t, server.URL)
-
-	if _, err := callClaude(context.Background(), "system prompt", "user", 1024); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(captured.System) != 1 {
-		t.Fatalf("expected exactly one system block, got %d", len(captured.System))
-	}
-	block := captured.System[0]
-	if block.Text != "system prompt" {
-		t.Fatalf("unexpected system text: %q", block.Text)
-	}
-	if block.CacheControl == nil || block.CacheControl.Type != "ephemeral" {
-		t.Fatalf("expected an ephemeral cache_control block, got %+v", block.CacheControl)
-	}
-}
-
-// Returns the raw request body as a map so tests can assert which JSON keys are present or absent.
-func captureRawAnthropicRequest(t *testing.T) map[string]interface{} {
-	t.Helper()
-	var body map[string]interface{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("failed to decode captured request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(anthropicResponse{Content: []anthropicContentBlock{{Type: "text", Text: "ok"}}})
-	}))
-	defer server.Close()
-	withAnthropicBaseURL(t, server.URL)
-
-	if _, err := callClaude(context.Background(), "system prompt", "user", 1024); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	return body
-}
-
-func TestCallClaudeSendsThinkingDisabledForDefaultModel(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("ANTHROPIC_MODEL", "")
-
-	body := captureRawAnthropicRequest(t)
-
-	thinking, ok := body["thinking"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected a thinking object for the default model, got %v", body["thinking"])
-	}
-	if thinking["type"] != "disabled" {
-		t.Fatalf("expected thinking type disabled, got %v", thinking["type"])
-	}
-}
-
-func TestCallClaudeOmitsThinkingForFableFamily(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("ANTHROPIC_MODEL", "claude-fable-5")
-
-	body := captureRawAnthropicRequest(t)
-
-	if _, present := body["thinking"]; present {
-		t.Fatalf("expected the thinking field to be omitted for the fable family, got %v", body["thinking"])
-	}
-}
-
-func TestCallClaudeReturnsErrorOnNonOKStatus(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	zeroClaudeBackoff(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server.Close()
-	withAnthropicBaseURL(t, server.URL)
-
-	// 429 is transient, so callClaude retries and then returns the final error.
-	_, err := callClaude(context.Background(), "system", "user", 1024)
-
-	if err == nil {
-		t.Fatal("expected an error for a non-200 anthropic response")
-	}
-}
-
-func TestExtractJSON(t *testing.T) {
-	cases := map[string]string{
-		`{"a":1}`:                        `{"a":1}`,
-		"```json\n{\"a\":1}\n```":        `{"a":1}`,
-		"```\n{\"a\":1}\n```":            `{"a":1}`,
-		"  {\"a\":1}  ":                  `{"a":1}`,
-		"Here is the JSON:\n{\"a\":1}":   `{"a":1}`,
-		"{\"a\":1}\nHope that helps!":    `{"a":1}`,
-	}
-	for input, want := range cases {
-		if got := extractJSON(input); got != want {
-			t.Errorf("extractJSON(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
 
 func doPost(t *testing.T, handler http.HandlerFunc, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -185,7 +23,7 @@ func TestAIStatusHandlerReportsNotConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/ai-status", nil)
 	w := httptest.NewRecorder()
-	aiStatusHandler(w, req)
+	StatusHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -200,7 +38,7 @@ func TestAIStatusHandlerReportsConfigured(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/ai-status", nil)
 	w := httptest.NewRecorder()
-	aiStatusHandler(w, req)
+	StatusHandler(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -211,7 +49,7 @@ func TestAIStatusHandlerReportsConfigured(t *testing.T) {
 }
 
 func TestAnalyzeResumeHandlerRequiresText(t *testing.T) {
-	w := doPost(t, analyzeResumeHandler, `{}`)
+	w := doPost(t, AnalyzeResumeHandler, `{}`)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
@@ -221,7 +59,7 @@ func TestAnalyzeResumeHandlerRequiresText(t *testing.T) {
 func TestAnalyzeResumeHandlerReturns503WhenNotConfigured(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	w := doPost(t, analyzeResumeHandler, `{"text":"some resume text"}`)
+	w := doPost(t, AnalyzeResumeHandler, `{"text":"some resume text"}`)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", w.Code)
@@ -240,7 +78,7 @@ func TestAnalyzeResumeHandlerReturns502WhenAnthropicErrors(t *testing.T) {
 	defer server.Close()
 	withAnthropicBaseURL(t, server.URL)
 
-	w := doPost(t, analyzeResumeHandler, `{"text":"some resume text"}`)
+	w := doPost(t, AnalyzeResumeHandler, `{"text":"some resume text"}`)
 
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
@@ -256,7 +94,7 @@ func TestAnalyzeResumeHandlerParsesFencedJSON(t *testing.T) {
 	server := fakeAnthropicServer(t, "```json\n"+analysisJSON+"\n```")
 	withAnthropicBaseURL(t, server.URL)
 
-	w := doPost(t, analyzeResumeHandler, `{"text":"some resume text"}`)
+	w := doPost(t, AnalyzeResumeHandler, `{"text":"some resume text"}`)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -271,12 +109,12 @@ func TestAnalyzeResumeHandlerParsesFencedJSON(t *testing.T) {
 }
 
 func TestMatchResumeHandlerRequiresJobTextAndResumes(t *testing.T) {
-	w := doPost(t, matchResumeHandler, `{"jobDescriptionText":"a job", "resumes":[]}`)
+	w := doPost(t, MatchResumeHandler, `{"jobDescriptionText":"a job", "resumes":[]}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty resumes, got %d", w.Code)
 	}
 
-	w2 := doPost(t, matchResumeHandler, `{"jobDescriptionText":"", "resumes":[{"id":"1","fileName":"a.pdf","fullText":"..."}]}`)
+	w2 := doPost(t, MatchResumeHandler, `{"jobDescriptionText":"", "resumes":[{"id":"1","fileName":"a.pdf","fullText":"..."}]}`)
 	if w2.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty job text, got %d", w2.Code)
 	}
@@ -293,7 +131,7 @@ func TestMatchResumeHandlerRejectsTooManyResumes(t *testing.T) {
 	}
 	resumes.WriteString(`]}`)
 
-	w := doPost(t, matchResumeHandler, resumes.String())
+	w := doPost(t, MatchResumeHandler, resumes.String())
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for more than maxResumes resumes, got %d", w.Code)
 	}
@@ -310,7 +148,7 @@ func TestRecommendResumeVariantHandlerRejectsTooManyVariants(t *testing.T) {
 	}
 	variants.WriteString(`]}`)
 
-	w := doPost(t, recommendResumeVariantHandler, variants.String())
+	w := doPost(t, RecommendResumeVariantHandler, variants.String())
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for more than maxResumeVariants variants, got %d", w.Code)
 	}
@@ -319,7 +157,7 @@ func TestRecommendResumeVariantHandlerRejectsTooManyVariants(t *testing.T) {
 func TestMatchResumeHandlerReturns503WhenNotConfigured(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	body := `{"jobDescriptionText":"a real job description","resumes":[{"id":"1","fileName":"a.pdf","fullText":"resume text"}]}`
-	w := doPost(t, matchResumeHandler, body)
+	w := doPost(t, MatchResumeHandler, body)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when no anthropic key, got %d", w.Code)
 	}
@@ -335,7 +173,7 @@ func TestMatchResumeHandlerReturnsVerdict(t *testing.T) {
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
 		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
-	w := doPost(t, matchResumeHandler, body)
+	w := doPost(t, MatchResumeHandler, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -356,7 +194,7 @@ func TestMatchResumeHandlerPassesThroughInsufficientJD(t *testing.T) {
 
 	body := `{"jobDescriptionText":"Home About Careers Contact Accept cookies",` +
 		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
-	w := doPost(t, matchResumeHandler, body)
+	w := doPost(t, MatchResumeHandler, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -378,7 +216,7 @@ func TestMatchResumeHandlerCoercesUnknownBestResumeID(t *testing.T) {
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
 		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
-	w := doPost(t, matchResumeHandler, body)
+	w := doPost(t, MatchResumeHandler, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -400,7 +238,7 @@ func TestRecommendResumeVariantHandlerCoercesUnknownVariantID(t *testing.T) {
 
 	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.",` +
 		`"variants":[{"id":"base","displayName":"Base","blurb":"General backend."}]}`
-	w := doPost(t, recommendResumeVariantHandler, body)
+	w := doPost(t, RecommendResumeVariantHandler, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -415,12 +253,12 @@ func TestRecommendResumeVariantHandlerCoercesUnknownVariantID(t *testing.T) {
 }
 
 func TestRecommendResumeVariantHandlerRequiresJobTextAndVariants(t *testing.T) {
-	w := doPost(t, recommendResumeVariantHandler, `{"jobDescriptionText":"a job", "variants":[]}`)
+	w := doPost(t, RecommendResumeVariantHandler, `{"jobDescriptionText":"a job", "variants":[]}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty variants, got %d", w.Code)
 	}
 
-	w2 := doPost(t, recommendResumeVariantHandler, `{"jobDescriptionText":"", "variants":[{"id":"base"}]}`)
+	w2 := doPost(t, RecommendResumeVariantHandler, `{"jobDescriptionText":"", "variants":[{"id":"base"}]}`)
 	if w2.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty job text, got %d", w2.Code)
 	}
@@ -430,7 +268,7 @@ func TestRecommendResumeVariantHandlerReturns503WhenNotConfigured(t *testing.T) 
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.","variants":[{"id":"base","displayName":"Base","blurb":"General backend."}]}`
-	w := doPost(t, recommendResumeVariantHandler, body)
+	w := doPost(t, RecommendResumeVariantHandler, body)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", w.Code)
@@ -445,7 +283,7 @@ func TestRecommendResumeVariantHandlerReturnsVerdict(t *testing.T) {
 	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.",` +
 		`"variants":[{"id":"base","displayName":"Base","blurb":"General backend."},` +
 		`{"id":"adobe","displayName":"Adobe Developer Productivity","blurb":"CI/CD and platform tooling."}]}`
-	w := doPost(t, recommendResumeVariantHandler, body)
+	w := doPost(t, RecommendResumeVariantHandler, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -467,7 +305,7 @@ func TestAnalyzeResumeHandlerRejectsEmptySummary(t *testing.T) {
 	server := fakeAnthropicServer(t, `{}`)
 	withAnthropicBaseURL(t, server.URL)
 
-	w := doPost(t, analyzeResumeHandler, `{"text":"Backend engineer with Go experience."}`)
+	w := doPost(t, AnalyzeResumeHandler, `{"text":"Backend engineer with Go experience."}`)
 
 	// Previously this returned 200 with summary:"", stored upstream as analysisStatus "ok".
 	if w.Code != http.StatusBadGateway {
@@ -482,7 +320,7 @@ func TestMatchResumeHandlerRejectsUnknownRecommendation(t *testing.T) {
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
 		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
-	w := doPost(t, matchResumeHandler, body)
+	w := doPost(t, MatchResumeHandler, body)
 
 	// An empty recommendation rendered as "You should not apply" in the UI.
 	if w.Code != http.StatusBadGateway {
@@ -497,7 +335,7 @@ func TestRecommendResumeVariantHandlerRejectsEmptyReason(t *testing.T) {
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
 		`"variants":[{"id":"backend","displayName":"Backend","blurb":"Go and Java"}]}`
-	w := doPost(t, recommendResumeVariantHandler, body)
+	w := doPost(t, RecommendResumeVariantHandler, body)
 
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502 for an empty reason, got %d: %s", w.Code, w.Body.String())

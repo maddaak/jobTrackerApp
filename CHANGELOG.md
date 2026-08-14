@@ -4,6 +4,28 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V3.1.0
+
+A jobs-table color and a scraper restructure. No API, schema, or data change: an upgrade is a
+pull and a restart.
+
+### Jobs table
+- A job at Waiting Interview Results gets its own row color instead of the green it shared with
+  every later stage. A closed outcome still wins: rejected, ghosted, or withdrawn stays red.
+- The browser tab reads "Job Tracker" rather than "web".
+
+### Scraper
+- Split from three files in one `package main` into `cmd/scraper` plus `internal/httpx`,
+  `internal/scrape`, `internal/ai`, and `internal/textutil`. Handlers are thin: they decode,
+  validate, call a service function, and map its error. Prompt building, response parsing, and
+  id coercion moved out of the HTTP layer.
+- The extraction strategies (JSON-LD, Greenhouse embed, Open Graph meta) and the SSRF guard each
+  live in their own file, so a filename now says what is inside it.
+- Package boundaries are compiler-enforced. Only the handlers and the shared HTTP and text
+  helpers are exported; the rest is package-private and unreachable from outside.
+- Behavior is unchanged. Every route, status code, and response body is identical, and all 49
+  existing tests moved beside the code they cover and still pass.
+
 ## V3.0.1
 
 Four interview types added to the round dropdown: Panel - Hiring Manager Chat,

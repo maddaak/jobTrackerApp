@@ -238,12 +238,17 @@ export async function getResumeRecommendation(id: number): Promise<ResumeRecomme
   return request<ResumeRecommendation>(`/jobs/${id}/resume-recommendation`, "failed to load resume recommendation");
 }
 
-export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): "red" | "green" | "yellow" {
+export type RowColor = "red" | "green" | "yellow" | "indigo";
+
+export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): RowColor {
   if (job.outcome === "REJECTED" || job.outcome === "GHOSTED" || job.outcome === "WITHDRAWN") {
     return "red";
   }
   if (job.outcome === "OFFER_ACCEPTED" || job.outcome === "OFFER_DECLINED") {
     return "green";
+  }
+  if (job.currentStage === "WAITING_INTERVIEW_RESULTS") {
+    return "indigo";
   }
   if (STAGE_ORDER.indexOf(job.currentStage) >= STAGE_ORDER.indexOf("INTERVIEW_STAGE")) {
     return "green";

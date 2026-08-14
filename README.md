@@ -213,11 +213,11 @@ Gemini, etc.) would need actual code changes, not just config.
 (default `latest`), both overridable in `.env` to pin a version or run your own fork's images:
 
 ```bash
-IMAGE_TAG=v3
+IMAGE_TAG=v3.1.0
 ```
 
-To publish images from your own fork, push a version tag (`git tag v3 && git push origin v3`); the
-`publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
+To publish images from your own fork, push a version tag (`git tag v3.1.0 && git push origin
+v3.1.0`); the `publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
 Container Registry. The first time, make the resulting packages public in your GitHub Packages
 settings so others can pull them without authenticating.
 
@@ -308,7 +308,20 @@ Open `https://your.domain` and register the first account.
   `jobapp_pgdata` / `jobapp_mongodata`). They survive restarts and rebuilds, but
   `docker compose down -v` deletes them. Back them up, for example:
   `docker run --rm -v jobapp_pgdata:/data -v "$PWD":/backup alpine tar czf /backup/pg.tgz /data`.
-- To update: `git pull && docker compose up -d --build`.
+- To update, use the one that matches how you started it. `up -d` on its own will not fetch a
+  newer image, so on the images path the `pull` is what actually updates you:
+
+  ```bash
+  # Pre-built images (the recommended install)
+  docker compose -f docker-compose.images.yml pull
+  docker compose -f docker-compose.images.yml up -d
+
+  # Built from source
+  git pull && docker compose up -d --build
+  ```
+
+  Pinning `IMAGE_TAG` to a version keeps you there until you change it; the default `latest`
+  follows each release.
 - **Upgrading to v3 from any earlier version converts your data automatically.** v3 moved the
   interview and stage data out of Postgres; core detects a pre-v3 database on startup and converts
   it, so `docker compose up -d` is the whole upgrade. It decides by looking at the schema, not a

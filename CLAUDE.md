@@ -49,6 +49,20 @@ Things that trip people up, in the order they hit them:
   services `Up`, and the four app services report a health status.
 - **Data survives restarts and updates.** It lives in Docker volumes and is only destroyed by
   `docker compose down -v`. `.env` and `certs/` never leave the machine.
+- **`up -d` alone does not pull a newer image.** Compose reuses whatever it already has locally, so
+  someone on the images path who says "I updated and nothing changed" almost certainly skipped the
+  pull. Updating is:
+
+  ```bash
+  docker compose -f docker-compose.images.yml pull
+  docker compose -f docker-compose.images.yml up -d
+  ```
+
+  Each release publishes both a `<version>` and a `latest` tag. `IMAGE_TAG` is not in
+  `.env.example` and defaults to `latest`; adding `IMAGE_TAG=v3.1.0` to `.env` pins the version,
+  after which `pull` fetches nothing new until that pin moves. `IMAGE_PREFIX` points at a different
+  registry or fork. Someone running from source instead uses
+  `git pull && docker compose up -d --build`, which builds locally and never touches the registry.
 
 ## What runs where
 
@@ -132,7 +146,7 @@ nothing (Spring Data defaults `autoIndexCreation` to false).
 
 ## Where things stand
 
-v3 is the current release. Known gaps, so they are not rediscovered as if they were new:
+v3.1.0 is the current release. Known gaps, so they are not rediscovered as if they were new:
 
 - **Schema management is still `ddl-auto=update` plus hand-written SQL, with no Flyway.** The v3
   hop is handled by `V3Migration`, but the underlying gap remains, and it bites in a specific way:

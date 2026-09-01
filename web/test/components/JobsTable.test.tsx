@@ -1,4 +1,4 @@
-import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactElement } from "react";
@@ -24,6 +24,7 @@ const jobs: JobSummary[] = [
     compMax: 120000,
     createdAt: "2026-01-01T00:00:00Z",
     latestInterview: null,
+    links: [],
   },
   {
     id: 2,
@@ -46,6 +47,7 @@ const jobs: JobSummary[] = [
       location: null,
       interviewers: [],
     },
+    links: [],
   },
 ];
 
@@ -606,5 +608,66 @@ describe("JobsTable", () => {
     fireEvent.click(screen.getByLabelText("Delete interview"));
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobsTable linked jobs", () => {
+  // A closed req and the role it redirected to.
+  const linkedJobs: JobSummary[] = [
+    { ...jobs[0], links: [{ jobId: 2, company: "Acme Co", role: "Frontend Engineer", relation: "REPLACED_BY" }] },
+    { ...jobs[1], links: [{ jobId: 1, company: "Zeta Co", role: "Backend Engineer", relation: "REPLACES" }] },
+  ];
+
+  it("shows no badge on a job with no links", () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    expect(screen.queryByLabelText(/linked job/)).not.toBeInTheDocument();
+  });
+
+  it("opens the linked job from the badge and scrolls to that row", () => {
+    const scrollIntoView = vi.fn();
+    // jsdom has no layout, so there is no real method to spy on.
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<JobsTable jobs={linkedJobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getAllByLabelText("1 linked job")[0]);
+
+    expect(screen.getByText("replaced by")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Acme Co — Frontend Engineer/ }));
+
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("restarts the flash when the same linked job is opened twice", () => {
+    vi.useFakeTimers();
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<JobsTable jobs={linkedJobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    function jumpToAcme() {
+      fireEvent.click(screen.getAllByLabelText("1 linked job")[0]);
+      fireEvent.click(screen.getByRole("button", { name: /Acme Co — Frontend Engineer/ }));
+    }
+    const flashedCell = () => screen.getAllByTitle("Acme Co")[0].closest("td");
+
+    jumpToAcme();
+    expect(flashedCell()).toHaveClass("bg-blue-200");
+    act(() => { vi.advanceTimersByTime(1000); });
+    jumpToAcme();
+
+    // Past the first jump's 1.6s window: only a restarted timer keeps the row lit here.
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(flashedCell()).toHaveClass("bg-blue-200");
+
+    act(() => { vi.advanceTimersByTime(700); });
+    expect(flashedCell()).not.toHaveClass("bg-blue-200");
+    vi.useRealTimers();
+  });
+
+  it("labels each end of the same link from its own row's point of view", () => {
+    render(<JobsTable jobs={linkedJobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getAllByLabelText("1 linked job")[1]);
+
+    expect(screen.getByText("replaces")).toBeInTheDocument();
   });
 });

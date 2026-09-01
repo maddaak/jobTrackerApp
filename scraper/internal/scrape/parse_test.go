@@ -17,6 +17,9 @@ func TestExtractCompRange(t *testing.T) {
 		{"phone number is not a salary", "Call us at 212-555-0182", 0, 0, false},
 		{"year range is not a salary", "Founded in 2020-2024", 0, 0, false},
 		{"small bare range is not a salary", "1-2 years of experience required", 0, 0, false},
+		// The k applies to both sides, so a side that is already a full number must not be multiplied again.
+		{"k shorthand mixed with a full number", "$120k - $150,000", 120000, 150000, true},
+		{"full number first, k shorthand second", "$120,000 - $150k", 120000, 150000, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,8 +37,7 @@ func TestExtractCompRange(t *testing.T) {
 	}
 }
 
-// F65: the Greenhouse path used to park the whole JD in a location-typed field and rely on a later
-// pass to normalize it. It classifies in place now, so classifyLocation must accept its own output.
+// F65: the Greenhouse path classifies in place now, so classifyLocation must accept its own output.
 func TestClassifyLocationIsIdempotent(t *testing.T) {
 	for _, value := range []string{"REMOTE", "NYC_HYBRID", "NYC_IN_PERSON"} {
 		if got := classifyLocation(value); got != value {

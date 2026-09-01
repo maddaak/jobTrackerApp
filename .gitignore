@@ -11,6 +11,9 @@ SESSION_SUMMARY.md
 REVIEW_LEDGER.md
 FEATURE_resume_recommender.md
 
+# local-only compose overlay that publishes the databases to the host
+docker-compose.local.yml
+
 # secrets & deps
 .env
 certs/

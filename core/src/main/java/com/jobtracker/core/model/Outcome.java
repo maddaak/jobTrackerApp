@@ -6,10 +6,12 @@ public enum Outcome {
     OFFER_DECLINED,
     REJECTED,
     GHOSTED,
-    WITHDRAWN;
+    WITHDRAWN,
+    // The employer closed the req: not a rejection, not the candidate walking away.
+    POSITION_CLOSED;
 
     // Offer outcomes excluded: they stay at OFFER_STAGE, which the Sankey reads to route them.
     public boolean closesPipeline() {
-        return this == REJECTED || this == GHOSTED || this == WITHDRAWN;
+        return this == REJECTED || this == GHOSTED || this == WITHDRAWN || this == POSITION_CLOSED;
     }
 }

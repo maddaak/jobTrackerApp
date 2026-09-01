@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   createColumnHelper,
@@ -26,6 +26,7 @@ import {
   STAGE_LABELS,
   OUTCOMES,
   OUTCOME_LABELS,
+  CLOSED_OUTCOMES,
   type JobSummary,
   type SourceCategory,
   type Location,
@@ -43,6 +44,7 @@ import InterviewFormModal, { type InterviewFormMode } from "./InterviewFormModal
 import InlineInterviewEditor, { type InlineInterviewDraft } from "./InlineInterviewEditor";
 import { ColumnFilterPopover } from "./JobsTableFilters";
 import JobDetailModal from "./JobDetailModal";
+import JobLinksBadge from "./JobLinksBadge";
 import { safeHref } from "../safeHref";
 
 // Always-visible border so every field in a multi-input editor looks editable, not just the autoFocused one.
@@ -53,6 +55,7 @@ const ROW_BG_CLASS: Record<RowColor, string> = {
   red: "bg-red-50 dark:bg-red-950/20",
   green: "bg-green-50 dark:bg-green-950/20",
   yellow: "bg-yellow-50 dark:bg-yellow-950/20",
+  sky: "bg-sky-50 dark:bg-sky-950/30",
   indigo: "bg-indigo-50 dark:bg-indigo-950/30",
 };
 
@@ -61,6 +64,7 @@ const ROW_ACCENT_CLASS: Record<RowColor, string> = {
   red: "border-l-4 border-l-red-400 dark:border-l-red-500",
   green: "border-l-4 border-l-green-400 dark:border-l-green-500",
   yellow: "border-l-4 border-l-yellow-400 dark:border-l-yellow-500",
+  sky: "border-l-4 border-l-sky-400 dark:border-l-sky-500",
   indigo: "border-l-4 border-l-indigo-400 dark:border-l-indigo-500",
 };
 
@@ -165,6 +169,9 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
   const [editingCell, setEditingCell] = useState<{ jobId: number; field: EditableField } | null>(null);
   const [interviewModalMode, setInterviewModalMode] = useState<InterviewFormMode | null>(null);
   const [detailModalJob, setDetailModalJob] = useState<JobSummary | null>(null);
+  // Carries the click that set it, so jumping to the same row again restarts the flash.
+  const [flash, setFlash] = useState<{ jobId: number; jump: number } | null>(null);
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
 
   // Memoized cells read latest values through these refs instead of closing over state, so typing doesn't remount every input.
   const pendingEditsRef = useRef(pendingEdits);
@@ -185,6 +192,24 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
     () => [...jobs].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [jobs],
   );
+
+  useEffect(() => {
+    if (flash === null) return;
+    const timer = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
+  function jumpToJob(jobId: number) {
+    const row = rowRefs.current.get(jobId);
+    // A filter can hide the target; scrolling to nothing looks broken.
+    if (!row) {
+      setError("that linked job is hidden by the current filters");
+      return;
+    }
+    setError(null);
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    setFlash(prev => ({ jobId, jump: (prev?.jump ?? 0) + 1 }));
+  }
 
   function setField<K extends keyof JobSummary>(jobId: number, field: K, value: JobSummary[K]) {
     setPendingEdits(prev => ({ ...prev, [jobId]: { ...prev[jobId], [field]: value } }));
@@ -351,7 +376,13 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
             onStartEdit={() => setEditingCell({ jobId: job.id, field: "company" })}
             onDone={() => handleDoneEditing(job.id)}
             editLabel={`Edit company for ${job.company}`}
-            display={<span className="block truncate" title={value}>{value}</span>}
+            display={
+              <span className="flex items-center gap-1.5">
+                <span className="truncate" title={value}>{value}</span>
+                {/* A core predating linking omits the field. */}
+                <JobLinksBadge links={job.links ?? []} onJump={jumpToJob} />
+              </span>
+            }
             editor={
               <input
                 aria-label="Company"
@@ -621,7 +652,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
               const value = e.target.value as Outcome;
               const overrides: Partial<JobSummary> = { outcome: value };
               // Closed outcomes end the pipeline, so move the job to the terminal stage.
-              if (value === "REJECTED" || value === "GHOSTED" || value === "WITHDRAWN") {
+              if (CLOSED_OUTCOMES.includes(value)) {
                 overrides.currentStage = "FINALIZED";
                 setField(job.id, "currentStage", "FINALIZED");
               }
@@ -759,12 +790,22 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
               const merged = { ...job, ...pendingEdits[job.id] };
               const color = rowColor(merged);
               return (
-                <tr key={row.id} className={ROW_BG_CLASS[color]}>
+                <tr
+                  key={row.id}
+                  ref={el => {
+                    if (el) rowRefs.current.set(job.id, el);
+                    else rowRefs.current.delete(job.id);
+                  }}
+                  className={ROW_BG_CLASS[color]}
+                >
                   {row.getVisibleCells().map((cell, cellIndex) => (
                     <td
                       key={cell.id}
                       style={{ width: cell.column.getSize() }}
-                      className={`border-b border-neutral-200 px-2 py-1 align-top dark:border-neutral-800 ${cellIndex === 0 ? ROW_ACCENT_CLASS[color] : ""}`}
+                      // Flash on the cells, not the row: border-separate drops row-level styling.
+                      className={`border-b border-neutral-200 px-2 py-1 align-top dark:border-neutral-800 ${cellIndex === 0 ? ROW_ACCENT_CLASS[color] : ""} ${
+                        flash?.jobId === job.id ? "bg-blue-200 dark:bg-blue-800/60" : ""
+                      }`}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
@@ -795,6 +836,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
 
       <JobDetailModal
         job={detailModalJob}
+        allJobs={jobs}
         onClose={() => setDetailModalJob(null)}
         onSaved={() => onSavedRef.current()}
       />

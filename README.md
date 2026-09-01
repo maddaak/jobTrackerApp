@@ -4,20 +4,17 @@ A personal job-application tracker that follows every application from **apply �
 screen → interview rounds → offer/reject**, with an interview calendar and a funnel/metrics
 view of your whole pipeline.
 
-> 🤖 **This app has an AI feature.** Upload a resume and it gets analyzed automatically;
-> from then on, adding a job produces an explicit **apply / don't-apply** recommendation
-> with reasoning, picking whichever of your resumes fits best. It's powered by
-> **Anthropic's Claude** - that's the only AI provider this app supports right now (see
-> [Using a different Claude model](#using-a-different-claude-model) below to change which
-> Claude model it calls).
+> 🤖 **This app has an AI feature.** Upload a resume and it gets analyzed automatically; from then
+> on, adding a job produces an explicit **apply / don't-apply** recommendation with reasoning,
+> picking whichever of your resumes fits best. It runs on **Anthropic's Claude**, the only provider
+> supported (see [Using a different Claude model](#using-a-different-claude-model)).
 
-> ⚠️ **This app does not apply to jobs for you.** It is a personal tracker for applications
-> you submit yourself. It never sends applications, contacts employers, or takes any action on
-> a posting on your behalf. Its only outside calls are reading a posting URL you paste (to
-> pre-fill fields), optionally asking Claude to summarize a resume or suggest which of your
-> resumes best fits a posting, and a once-a-day check of this repo's public tag list to tell you
-> when a new version is out (`UPDATE_CHECK=false` turns that off; it sends nothing about you).
-> The apply / don't-apply output is a suggestion for you to read, nothing more.
+> ⚠️ **This app does not apply to jobs for you.** It tracks applications you submit yourself, and
+> never sends one, contacts an employer, or acts on a posting on your behalf. Its only outside
+> calls are reading a posting URL you paste, optionally asking Claude about a resume, and a
+> once-a-day check of this repo's public tag list for a new version (`UPDATE_CHECK=false` turns
+> that off; it sends nothing about you). The apply / don't-apply output is a suggestion to read,
+> nothing more.
 
 Built as a **polyglot, fully containerized** system - one `docker compose up` runs the
 whole thing (frontend, two backend services, a scraper, Postgres, and MongoDB) on any
@@ -58,7 +55,12 @@ machine with Docker. No local Node/Java/Go/database install required.
   features are hidden across the UI, with a short disclaimer that no Anthropic key is
   configured; everything else still works.
 - **Job Details** - a per-job modal holding the full job description text, your own notes,
-  rejection reason, interview notes, the job's stage history, and its interview rounds.
+  rejection reason, interview notes, the job's stage history (any entry of which you can delete),
+  and its interview rounds. It also takes image attachments, for things like a screenshot of a
+  system-design diagram.
+- **Linked jobs** - link two rows when one application becomes another, e.g. a company closes the
+  req and redirects you to a different posting. Each row states the link in its own voice
+  (*replaced by* / *replaces*), and a 🔗 badge jumps you to the other row.
 
 ## Quick start
 
@@ -213,11 +215,11 @@ Gemini, etc.) would need actual code changes, not just config.
 (default `latest`), both overridable in `.env` to pin a version or run your own fork's images:
 
 ```bash
-IMAGE_TAG=v3.1.0
+IMAGE_TAG=v3.2.0
 ```
 
-To publish images from your own fork, push a version tag (`git tag v3.1.0 && git push origin
-v3.1.0`); the `publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
+To publish images from your own fork, push a version tag (`git tag v3.2.0 && git push origin
+v3.2.0`); the `publish-images` workflow builds each service for amd64 and arm64 and pushes them to GitHub
 Container Registry. The first time, make the resulting packages public in your GitHub Packages
 settings so others can pull them without authenticating.
 
@@ -251,20 +253,12 @@ single-node setup, not a horizontally-scaled one.
 ### 1. Get the code and configure secrets
 
 ```bash
-git clone https://github.com/maddaak/jobTrackerApp.git
-cd jobTrackerApp
+git clone https://github.com/maddaak/jobTrackerApp.git && cd jobTrackerApp
 ```
 
-Copy `.env.example` to a new file named `.env`, then fill it with strong, unique values (do
-not ship the `change_me` placeholders):
-
-```bash
-docker run --rm alpine/openssl rand -base64 32   # use for INTERNAL_TOKEN
-docker run --rm alpine/openssl rand -base64 48   # use for JWT_SECRET
-```
-
-Set `POSTGRES_PASSWORD` to a strong password, and `ANTHROPIC_API_KEY` if you want the AI
-features (leave it blank to run without them). `.env` is gitignored and never committed.
+Copy `.env.example` to `.env` and fill it using the same commands as
+[Quick start step 2](#quick-start), and do not ship the `change_me` placeholders. Set
+`ANTHROPIC_API_KEY` too if you want the AI features. `.env` is gitignored and never committed.
 
 ### 2. TLS certificate
 
@@ -325,7 +319,7 @@ Open `https://your.domain` and register the first account.
 - **Upgrading to v3 from any earlier version converts your data automatically.** v3 moved the
   interview and stage data out of Postgres; core detects a pre-v3 database on startup and converts
   it, so `docker compose up -d` is the whole upgrade. It decides by looking at the schema, not a
-  version number, and a fresh install is left alone. Back up first anyway (see above) — the
+  version number, and a fresh install is left alone. Back up first anyway (see above); the
   conversion drops nothing, so Postgres keeps every old column and table as the rollback, and if it
   cannot finish it refuses to start rather than half-running.
 - Once v3 is confirmed working you can reclaim the old tables with

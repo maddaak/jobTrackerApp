@@ -5,8 +5,21 @@ server {
     ssl_certificate     /etc/nginx/certs/localhost.pem;
     ssl_certificate_key /etc/nginx/certs/localhost-key.pem;
 
-    # Default 1MB limit would reject resume uploads; matches the 10MB limit on core/BFF.
-    client_max_body_size 10M;
+    # Default 1MB limit would reject resume uploads. Above the 10MB file limit on core/BFF, so a
+    # 10MB file plus its multipart framing is refused there with a real message, not by nginx.
+    client_max_body_size 11M;
+
+    # Opening an attachment is a browser navigation, so it sends Accept: text/html and the SPA
+    # rewrite below would answer with the app shell instead of the file. No client route lives
+    # under /jobs, so there is nothing here for that rewrite to serve. Must stay above it: nginx
+    # takes the first matching regex location.
+    location ~ ^/jobs/[0-9]+/images {
+        proxy_pass http://bff:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|ai-status|update-status) {
         # Client routes (/metrics, /resumes) collide with API paths; a browser refresh sends Accept: text/html, so serve the SPA for those.

@@ -25,16 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// v3 moved the details modal's data into Mongo and folded the sources table into a jobs column.
-// An install on any earlier version has to be converted before the new code can read it, so the
-// conversion runs here rather than asking the operator to run scripts by hand.
-//
-// Two things this deliberately does not do:
-//   - It drops nothing. Every pre-v3 column and table survives, so Postgres stays the rollback and
-//     a bad run is recoverable by starting the old image. 008_drop_relational_leftovers.sql is the
-//     separate, manual, destructive step, to be run once the upgrade is confirmed good.
-//   - It never runs on a first install. A new database is created in the v3 shape, and the marker
-//     for "needs converting" is jobs rows that predate the source_category column, not a version.
+// Converts a pre-v3 database at startup. Drops nothing, so the old image still runs; 008 is the destructive step.
 @Component
 public class V3Migration {
 
@@ -48,8 +39,7 @@ public class V3Migration {
         this.mongo = mongo;
     }
 
-    // Fatal on failure: a half-converted database that serves requests is worse than one that
-    // refuses to start while every original row is still in place.
+    // Fatal on failure: a half-converted database that serves requests is worse than one that won't start.
     @EventListener(ApplicationReadyEvent.class)
     public void migrateIfNeeded() throws SQLException {
         try (Connection connection = dataSource.getConnection()) {
@@ -72,13 +62,11 @@ public class V3Migration {
         if (!tableExists(metaData, "jobs") || columnExists(metaData, "jobs", "source_category")) {
             return false;
         }
-        // The column is missing, so only existing rows make this a conversion rather than an empty
-        // schema Hibernate is still filling in.
+        // Rows without the column mean a conversion, not a schema Hibernate is still filling in.
         return countRows(connection, "jobs") > 0;
     }
 
-    // Mirrors 005_export_details.sql + 006_load_details_into_mongo.js: additive $set of the moved
-    // fields only, so a document's existing jdText, interviewNotes and recommendedResume survive.
+    // Additive $set of the moved fields only, so a document's own jdText and notes survive.
     private int copyDetailsIntoMongo(Connection connection) throws SQLException {
         Map<Long, List<Map<String, Object>>> historyByJob = readStageHistory(connection);
         Map<Long, List<Map<String, Object>>> roundsByJob = readRounds(connection);
@@ -157,8 +145,7 @@ public class V3Migration {
         return byEvent;
     }
 
-    // 003: a real posting URL outgrows Hibernate's default varchar(255). Postgres-only syntax, and
-    // Postgres is the only database this runs against outside tests.
+    // 003: a real posting URL outgrows Hibernate's default varchar(255). Postgres-only syntax.
     private void widenUrlColumn(Connection connection) throws SQLException {
         if (!"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())) {
             return;
@@ -166,8 +153,7 @@ public class V3Migration {
         execute(connection, "alter table jobs alter column url type text");
     }
 
-    // 007: add nullable, backfill from sources, and only then constrain, because the column cannot
-    // be added NOT NULL to a table that already has rows.
+    // 007: add nullable, backfill, then constrain, since the column can't be added NOT NULL to a populated table.
     private void backfillSourceCategory(Connection connection) throws SQLException {
         execute(connection, "alter table jobs add column if not exists source_category varchar(255)");
         execute(connection, "update jobs set source_category = "
@@ -209,8 +195,7 @@ public class V3Migration {
         }
     }
 
-    // Identifiers case-fold differently per database (Postgres lowercases, H2 uppercases), so match
-    // on both spellings rather than assuming one.
+    // Identifiers case-fold per database (Postgres lowercases, H2 uppercases), so match both spellings.
     private boolean tableExists(DatabaseMetaData metaData, String table) throws SQLException {
         for (String name : new String[] {table, table.toUpperCase()}) {
             try (ResultSet tables = metaData.getTables(null, null, name, null)) {

@@ -24,6 +24,7 @@ const baseJob: JobSummary = {
   compMax: null,
   createdAt: "2026-01-01T00:00:00Z",
   latestInterview: null,
+  links: [],
 };
 
 describe("JobDetailModal", () => {
@@ -32,7 +33,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "asked leetcode", notes: "great team" }),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByLabelText("Job description")).toHaveValue("we are hiring");
     expect(screen.getByLabelText("Interview notes")).toHaveValue("asked leetcode");
@@ -46,7 +47,7 @@ describe("JobDetailModal", () => {
     );
     const jobWithUrl = { ...baseJob, url: "https://acme.com/jobs/1" };
 
-    render(<JobDetailModal job={jobWithUrl} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={jobWithUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("Job Description Details Unavailable")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Open original posting/ });
@@ -59,7 +60,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await screen.findByLabelText("Job description");
     expect(screen.queryByText("Job Description Details Unavailable")).not.toBeInTheDocument();
@@ -70,7 +71,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "" }),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await screen.findByLabelText("Job description");
     expect(screen.getByLabelText("Rejected reason")).toBeDisabled();
@@ -82,7 +83,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "", rejectedReason: "low experience" }),
     );
 
-    render(<JobDetailModal job={rejectedJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={rejectedJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await screen.findByLabelText("Job description");
     expect(screen.getByLabelText("Rejected reason")).toBeEnabled();
@@ -95,7 +96,7 @@ describe("JobDetailModal", () => {
     );
     const onClose = vi.fn();
     const onSaved = vi.fn();
-    render(<JobDetailModal job={baseJob} onClose={onClose} onSaved={onSaved} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={onClose} onSaved={onSaved} />);
 
     await screen.findByLabelText("Job description");
     fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "updated notes" } });
@@ -142,7 +143,7 @@ describe("JobDetailModal", () => {
       ]),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText(/Round 1:/)).toBeInTheDocument();
     expect(screen.getByText(/System Design/)).toBeInTheDocument();
@@ -158,7 +159,7 @@ describe("JobDetailModal", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEvents: [] }));
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("Recommended resume:")).toBeInTheDocument();
     expect(screen.getByText("Akhilesh_Backend.pdf")).toBeInTheDocument();
@@ -179,7 +180,7 @@ describe("JobDetailModal", () => {
       }),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("Stage history")).toBeInTheDocument();
     expect(screen.getByText("Resume Check")).toBeInTheDocument();
@@ -201,7 +202,7 @@ describe("JobDetailModal", () => {
       }),
     );
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("Stage history")).toBeInTheDocument();
     // The two back-to-back Interview Stage entries collapse into one.
@@ -214,14 +215,13 @@ describe("JobDetailModal", () => {
     );
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(await screen.findByText("No interview rounds yet.")).toBeInTheDocument();
   });
 
   it("does not request a resume recommendation from the job detail view", async () => {
-    // The detail view is post-apply, so it must never fire the AI recommendation call.
-    // Answer per URL: one body for every call masked a real crash in the stage-history load.
+    // Answered per URL: one body for every call masked a real crash in the stage-history load.
     (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
       if (url === "/jobs/5/detail") {
         return Promise.resolve(fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }));
@@ -232,7 +232,7 @@ describe("JobDetailModal", () => {
       return Promise.resolve(fakeResponse(200, []));
     });
 
-    render(<JobDetailModal job={baseJob} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await screen.findByLabelText("Job description");
     expect(screen.queryByText(/Rule-based:/)).not.toBeInTheDocument();
@@ -253,9 +253,9 @@ describe("JobDetailModal", () => {
     const jobA = baseJob; // id 5
     const jobB = { ...baseJob, id: 7, company: "Beta", role: "Frontend Engineer", notes: "B notes" };
 
-    const { rerender } = render(<JobDetailModal job={jobA} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const { rerender } = render(<JobDetailModal job={jobA} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
     // Switch to B before A's slow load comes back.
-    rerender(<JobDetailModal job={jobB} onClose={vi.fn()} onSaved={vi.fn()} />);
+    rerender(<JobDetailModal job={jobB} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await act(async () => {
       resolvers["/jobs/7/detail"](fakeResponse(200, { jobId: 7, jdText: "B jd", interviewNotes: "B interview" }));
@@ -276,14 +276,197 @@ describe("JobDetailModal", () => {
     );
     const jobWithJsUrl = { ...baseJob, url: "javascript:alert(1)" };
 
-    render(<JobDetailModal job={jobWithJsUrl} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={jobWithJsUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await screen.findByText("Job Description Details Unavailable");
     expect(screen.queryByRole("link", { name: /Open original posting/ })).not.toBeInTheDocument();
   });
 
   it("does not render form fields when no job is selected", () => {
-    render(<JobDetailModal job={null} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={null} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(screen.queryByLabelText("Job description")).not.toBeInTheDocument();
+  });
+});
+
+describe("JobDetailModal linked jobs", () => {
+  const otherJob: JobSummary = { ...baseJob, id: 9, company: "Globex", role: "Security Engineer II" };
+
+  // Fetch order for every mount: job detail, interviews, stage history.
+  function stubLoad(links: unknown[]) {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "", links }),
+    );
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEvents: [] }));
+  }
+
+  it("lists an existing link with the relation read from this job's side", async () => {
+    stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    // Re-query: the stage-history fetch re-renders the list under us.
+    await screen.findByText("Linked jobs");
+    expect(screen.getByText("replaced by")).toBeInTheDocument();
+    expect(screen.getByText(/Globex — Security Engineer II/)).toBeInTheDocument();
+  });
+
+  it("posts the picked job and relation, then refreshes the table", async () => {
+    stubLoad([]);
+    const onSaved = vi.fn();
+
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={onSaved} />);
+
+    await screen.findByText("No linked jobs yet.");
+    fireEvent.change(screen.getByLabelText("Relation"), { target: { value: "REPLACED_BY" } });
+    fireEvent.change(screen.getByLabelText("Job to link"), { target: { value: "9" } });
+
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, [{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/jobs/5/links",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ targetJobId: 9, relation: "REPLACED_BY" }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(await screen.findByText("replaced by")).toBeInTheDocument();
+  });
+
+  it("keeps the picked job selected when the link fails", async () => {
+    stubLoad([]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("No linked jobs yet.");
+    fireEvent.change(screen.getByLabelText("Job to link"), { target: { value: "9" } });
+
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(409, { error: "already linked" }));
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+
+    expect(await screen.findByText("already linked")).toBeInTheDocument();
+    // Clearing it would force the user to re-pick before retrying.
+    expect(screen.getByLabelText("Job to link")).toHaveValue("9");
+  });
+
+  it("does not offer a job that is already linked", async () => {
+    stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "RELATED" }]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("related to");
+    expect(screen.queryByLabelText("Job to link")).not.toBeInTheDocument();
+  });
+
+  it("unlinks a job and drops it from the list", async () => {
+    stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("replaced by");
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
+    fireEvent.click(screen.getByRole("button", { name: "Unlink" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/jobs/5/links/9", expect.objectContaining({ method: "DELETE" })),
+    );
+    expect(await screen.findByText("No linked jobs yet.")).toBeInTheDocument();
+  });
+});
+
+describe("JobDetailModal stage history deletion", () => {
+  // Forward to Interview Stage, then straight back.
+  const misclickedHistory = [
+    { stage: "RESUME_CHECK", enteredAt: "2026-08-25T23:00:00.000Z", note: null },
+    { stage: "INTERVIEW_REQUEST", enteredAt: "2026-08-26T20:24:00.000Z", note: null },
+    { stage: "INTERVIEW_STAGE", enteredAt: "2026-08-26T20:24:30.000Z", note: null },
+    { stage: "INTERVIEW_REQUEST", enteredAt: "2026-08-26T20:25:00.000Z", note: null },
+  ];
+
+  function stubLoad(stageEvents: unknown[]) {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "", links: [] }),
+    );
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEvents }));
+  }
+
+  it("deletes the mis-clicked entry by its timestamp and refreshes the table", async () => {
+    stubLoad(misclickedHistory);
+    const onSaved = vi.fn();
+
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />);
+
+    await screen.findByText("Interview Stage");
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, misclickedHistory.filter(e => e.stage !== "INTERVIEW_STAGE")),
+    );
+    fireEvent.click(screen.getByLabelText("Delete Interview Stage history entry"));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/jobs/5/stages?enteredAt=2026-08-26T20%3A24%3A30.000Z&stage=INTERVIEW_STAGE",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(screen.queryByText("Interview Stage")).not.toBeInTheDocument();
+  });
+
+  it("deletes every entry a collapsed row stands for, not just the first", async () => {
+    // Two entries render as one row, so deleting one would look unchanged; the row deletes its run.
+    const withARepeat = [
+      misclickedHistory[0],
+      { stage: "INTERVIEW_REQUEST", enteredAt: "2026-08-26T20:25:00.000Z", note: null },
+      { stage: "INTERVIEW_REQUEST", enteredAt: "2026-08-26T20:26:00.000Z", note: null },
+    ];
+    stubLoad(withARepeat);
+
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("Interview Request");
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeResponse(200, withARepeat.slice(0, 2)))
+      .mockResolvedValueOnce(fakeResponse(200, [withARepeat[0]]));
+    fireEvent.click(screen.getByLabelText("Delete Interview Request history entry"));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/jobs/5/stages?enteredAt=2026-08-26T20%3A26%3A00.000Z&stage=INTERVIEW_REQUEST",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/jobs/5/stages?enteredAt=2026-08-26T20%3A25%3A00.000Z&stage=INTERVIEW_REQUEST",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(screen.queryByText("Interview Request")).not.toBeInTheDocument();
+  });
+
+  it("offers no delete control when the whole history is one collapsed row", async () => {
+    stubLoad([
+      misclickedHistory[0],
+      { stage: "RESUME_CHECK", enteredAt: "2026-08-25T23:05:00.000Z", note: null },
+    ]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("Resume Check");
+    expect(screen.queryByLabelText(/history entry/)).not.toBeInTheDocument();
+  });
+
+  it("offers no delete control when the history has a single entry to lose", async () => {
+    stubLoad([misclickedHistory[0]]);
+
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await screen.findByText("Resume Check");
+    expect(screen.queryByLabelText(/history entry/)).not.toBeInTheDocument();
   });
 });

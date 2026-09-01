@@ -32,7 +32,7 @@ class JobDetailServiceTests {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobDetailService = new JobDetailService(jobs, jobDetails);
+        jobDetailService = new JobDetailService(jobs, jobDetails, new JobLinkService(jobs, jobDetails));
     }
 
     private Job newJob(User owner, SourceCategory source) {
@@ -66,8 +66,7 @@ class JobDetailServiceTests {
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(stored));
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(i -> i.getArgument(0));
 
-        // AddJobForm attaches the scraped JD right after creation and sends no notes; that must not
-        // wipe the note just typed into the form.
+        // AddJobForm's follow-up save sends no notes, which must not wipe the one just typed.
         var omitted = new UpdateJobDetailRequest("jd", "notes", null, null, null);
         assertThat(jobDetailService.updateDetail(1L, 10L, omitted).notes()).isEqualTo("spoke to Kim");
 

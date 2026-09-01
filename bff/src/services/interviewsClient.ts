@@ -8,6 +8,7 @@ export type InterviewType =
   | "TECHNICAL_CODE_REVIEW"
   | "HIRING_MANAGER_SCREEN"
   | "SYSTEM_DESIGN"
+  | "DATA_MODELING"
   | "BEHAVIOR"
   | "CULTURE_FIT"
   | "VALUES"

@@ -39,7 +39,7 @@ func extractCompRange(text string) (int, int, bool) {
 		if !hasDollar && !hasK {
 			continue
 		}
-		// A k on either side applies to both: "$100-150k" is $100k-$150k.
+		// A k on either side applies to both, since "$100-150k" means $100k-$150k.
 		min, ok1 := parseCompNumber(match[2], hasK)
 		max, ok2 := parseCompNumber(match[5], hasK)
 		if !ok1 || !ok2 || min == 0 || max == 0 || min > max {
@@ -60,7 +60,8 @@ func parseCompNumber(digits string, applyKMultiplier bool) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	if applyKMultiplier {
+	// Only shorthand is multiplied, or a mixed range like "$120k - $150,000" reads as $150M.
+	if applyKMultiplier && n < 1000 {
 		n *= 1000
 	}
 	return n, true

@@ -5,6 +5,7 @@ import com.jobtracker.core.model.Outcome;
 import com.jobtracker.core.model.SourceCategory;
 import com.jobtracker.core.model.Stage;
 import java.time.Instant;
+import java.util.List;
 
 // Exactly what the table page renders; notes/rejectedReason live on the Mongo detail document.
 public record JobSummaryResponse(
@@ -19,5 +20,6 @@ public record JobSummaryResponse(
         Integer compMin,
         Integer compMax,
         Instant createdAt,
-        LatestInterviewSummary latestInterview) {
+        LatestInterviewSummary latestInterview,
+        List<JobLinkResponse> links) {
 }

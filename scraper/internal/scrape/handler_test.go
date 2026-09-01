@@ -242,8 +242,7 @@ func TestScrapeIgnoresNon2xxResponseBody(t *testing.T) {
 	}
 }
 
-// F57: every failure mode used to be one blank 200, so the client inferred "fetch failed" purely
-// from an empty Raw and couldn't tell a dead link from a page with no job data.
+// F57: every failure mode used to be one blank 200, so a dead link read the same as a page with no job data.
 func TestScrapeReportsWhyItFoundNothing(t *testing.T) {
 	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "nope", http.StatusNotFound)

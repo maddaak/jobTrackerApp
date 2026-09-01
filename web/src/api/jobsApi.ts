@@ -21,7 +21,10 @@ export type Outcome =
   | "OFFER_DECLINED"
   | "REJECTED"
   | "GHOSTED"
-  | "WITHDRAWN";
+  | "WITHDRAWN"
+  | "POSITION_CLOSED";
+
+export type JobRelation = "REPLACED_BY" | "REPLACES" | "RELATED";
 
 export type Location = "REMOTE" | "NYC_IN_PERSON" | "NYC_HYBRID";
 
@@ -61,7 +64,20 @@ export const OUTCOMES: Outcome[] = [
   "REJECTED",
   "GHOSTED",
   "WITHDRAWN",
+  "POSITION_CLOSED",
 ];
+
+// Mirrors Outcome.closesPipeline(); core is what enforces it.
+export const CLOSED_OUTCOMES: Outcome[] = ["REJECTED", "GHOSTED", "WITHDRAWN", "POSITION_CLOSED"];
+
+// Phrased from the row you're on, so each end of a link reads correctly.
+export const JOB_RELATION_LABELS: Record<JobRelation, string> = {
+  REPLACED_BY: "replaced by",
+  REPLACES: "replaces",
+  RELATED: "related to",
+};
+
+export const JOB_RELATIONS: JobRelation[] = ["REPLACED_BY", "REPLACES", "RELATED"];
 
 export const STAGE_LABELS: Record<Stage, string> = {
   RESUME_CHECK: "Resume Check",
@@ -79,6 +95,7 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
   REJECTED: "Rejected",
   GHOSTED: "Ghosted",
   WITHDRAWN: "Withdrawn",
+  POSITION_CLOSED: "Position Closed",
 };
 
 export interface LatestInterviewSummary {
@@ -89,6 +106,13 @@ export interface LatestInterviewSummary {
   meetingLink: string | null;
   location: string | null;
   interviewers: Interviewer[];
+}
+
+export interface JobLink {
+  jobId: number;
+  company: string;
+  role: string;
+  relation: JobRelation;
 }
 
 export interface JobSummary {
@@ -104,6 +128,7 @@ export interface JobSummary {
   compMax: number | null;
   createdAt: string;
   latestInterview: LatestInterviewSummary | null;
+  links: JobLink[];
 }
 
 export interface CreateJobInput {
@@ -187,6 +212,20 @@ export async function getJobStages(id: number): Promise<StageHistoryEntry[]> {
   return data.stageEvents;
 }
 
+// Also rewinds the job's stage, so the table's dropdown follows.
+export async function deleteJobStage(id: number, enteredAt: string, stage: Stage): Promise<StageHistoryEntry[]> {
+  const data = await request<StageHistoryEntry[]>(
+    `/jobs/${id}/stages?enteredAt=${encodeURIComponent(enteredAt)}&stage=${stage}`,
+    "failed to delete stage entry",
+    { method: "DELETE" },
+  );
+  // request returns undefined for a DELETE whose body didn't parse; the modal crashes on .filter.
+  if (!Array.isArray(data)) {
+    throw new Error("failed to delete stage entry");
+  }
+  return data;
+}
+
 export interface JobDetail {
   jobId: number;
   jdText: string;
@@ -194,6 +233,7 @@ export interface JobDetail {
   recommendedResume: string | null;
   notes: string | null;
   rejectedReason: string | null;
+  links: JobLink[];
 }
 
 export interface UpdateJobDetailInput {
@@ -217,6 +257,23 @@ export async function updateJobDetail(id: number, input: UpdateJobDetailInput): 
   });
 }
 
+export async function linkJob(id: number, targetJobId: number, relation: JobRelation): Promise<JobLink[]> {
+  return request<JobLink[]>(`/jobs/${id}/links`, "failed to link job", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetJobId, relation }),
+  });
+}
+
+export async function unlinkJob(id: number, targetJobId: number): Promise<JobLink[]> {
+  const data = await request<JobLink[]>(`/jobs/${id}/links/${targetJobId}`, "failed to unlink job", { method: "DELETE" });
+  // Same DELETE-without-a-body case as deleteJobStage; undefined crashes the modal on .some.
+  if (!Array.isArray(data)) {
+    throw new Error("failed to unlink job");
+  }
+  return data;
+}
+
 export interface RulesResumeRecommendation {
   recommendedVariantId: string;
   recommendedDisplayName: string;
@@ -238,10 +295,10 @@ export async function getResumeRecommendation(id: number): Promise<ResumeRecomme
   return request<ResumeRecommendation>(`/jobs/${id}/resume-recommendation`, "failed to load resume recommendation");
 }
 
-export type RowColor = "red" | "green" | "yellow" | "indigo";
+export type RowColor = "red" | "green" | "yellow" | "sky" | "indigo";
 
 export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): RowColor {
-  if (job.outcome === "REJECTED" || job.outcome === "GHOSTED" || job.outcome === "WITHDRAWN") {
+  if (CLOSED_OUTCOMES.includes(job.outcome)) {
     return "red";
   }
   if (job.outcome === "OFFER_ACCEPTED" || job.outcome === "OFFER_DECLINED") {
@@ -249,6 +306,9 @@ export function rowColor(job: Pick<JobSummary, "outcome" | "currentStage">): Row
   }
   if (job.currentStage === "WAITING_INTERVIEW_RESULTS") {
     return "indigo";
+  }
+  if (job.currentStage === "INTERVIEW_REQUEST") {
+    return "sky";
   }
   if (STAGE_ORDER.indexOf(job.currentStage) >= STAGE_ORDER.indexOf("INTERVIEW_STAGE")) {
     return "green";

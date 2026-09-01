@@ -51,11 +51,9 @@ class MetricsServiceTests {
         return job;
     }
 
-    // Walks the pipeline up to `furthest`, then adds a terminal FINALIZED on closed jobs so tests
-    // prove it's excluded from "furthest reached".
-    // findJourneysByOwnerId returns the projection, not the whole document.
+    // Adds a terminal FINALIZED on closed jobs, so tests prove it stays out of "furthest reached".
     private JobJourney journey(JobDetail detail) {
-        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews());
+        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews(), detail.getRelatedJobs());
     }
 
     // Mirrors what findJourneysByOwnerId returns: the projection, not the whole document.
@@ -78,7 +76,7 @@ class MetricsServiceTests {
         for (InterviewRound round : rounds) {
             detail.addInterview(round);
         }
-        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews());
+        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews(), detail.getRelatedJobs());
     }
 
     private InterviewRound round(InterviewType type) {
@@ -220,6 +218,148 @@ class MetricsServiceTests {
     }
 
     @Test
+    // Regression (F83): a node seen alone elsewhere used to average ahead of the round a job really ran first.
+    void sankeyRoundOrderFollowsRealPrecedenceOverNodesThatOnlyAppearAloneElsewhere() {
+        User owner = new User("henry", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job soloDesign = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Acme");
+        Job soloCodeReview = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Acme");
+        Job codeReviewThenDesign = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.ACTIVE, "Astronomer");
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L))
+                .thenReturn(List.of(soloDesign, soloCodeReview, codeReviewThenDesign));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(soloDesign, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0)),
+                detail(soloCodeReview, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.HIRING_MANAGER_SCREEN, T0),
+                        round(InterviewType.BEHAVIOR, T0.plusSeconds(3600)),
+                        round(InterviewType.TECHNICAL_CODE_REVIEW, T0.plusSeconds(7200))),
+                detail(codeReviewThenDesign, Stage.INTERVIEW_STAGE, Outcome.ACTIVE,
+                        round(InterviewType.TECHNICAL_CODE_REVIEW, T0),
+                        round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600)))));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        assertThat(linkValue(response, "INTERVIEW_REQUEST", "TECHNICAL_CODE_REVIEW")).isEqualTo(1);
+        assertThat(linkValue(response, "TECHNICAL_CODE_REVIEW", "SYSTEM_DESIGN")).isEqualTo(1);
+        assertThat(linkValue(response, "SYSTEM_DESIGN", "TECHNICAL_CODE_REVIEW")).isEqualTo(0);
+    }
+
+    @Test
+    // Regression (F84): a per-job override emitted both directions for one pair, which d3-sankey can't render.
+    void sankeyNeverEmitsBothDirectionsForAConflictingRoundPair() {
+        User owner = new User("iris", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job jobA = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Exacare AI");
+        Job jobB = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.ACTIVE, "Globex");
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(jobA, jobB));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(jobA, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.RECRUITER_PHONE_SCREEN, T0),
+                        round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600)),
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(7200))),
+                detail(jobB, Stage.INTERVIEW_STAGE, Outcome.ACTIVE,
+                        round(InterviewType.RECRUITER_PHONE_SCREEN, T0),
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600)),
+                        round(InterviewType.BEHAVIOR, T0.plusSeconds(7200)),
+                        round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(10800)))));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        boolean designToPhone = linkValue(response, "SYSTEM_DESIGN", "TECHNICAL_PHONE_SCREEN") > 0;
+        boolean phoneToDesign = linkValue(response, "TECHNICAL_PHONE_SCREEN", "SYSTEM_DESIGN") > 0;
+        assertThat(designToPhone && phoneToDesign).as("both link directions present at once").isFalse();
+    }
+
+    @Test
+    // A conflict resolves to the direction most jobs experienced, not an accident of hash order.
+    void sankeyConflictingRoundOrderResolvesByWhichDirectionMostJobsActuallyExperienced() {
+        User owner = new User("jack", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job majorityOne = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Acme");
+        Job majorityTwo = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Globex");
+        Job majorityThree = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Initech");
+        Job minority = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Umbrella");
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L))
+                .thenReturn(List.of(majorityOne, majorityTwo, majorityThree, minority));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(majorityOne, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600))),
+                detail(majorityTwo, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600))),
+                detail(majorityThree, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600))),
+                detail(minority, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0), round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600)))));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        assertThat(linkValue(response, "SYSTEM_DESIGN", "TECHNICAL_PHONE_SCREEN")).isEqualTo(4);
+        assertThat(linkValue(response, "TECHNICAL_PHONE_SCREEN", "SYSTEM_DESIGN")).isEqualTo(0);
+    }
+
+    @Test
+    void sankeyResolvesAConflictWithoutReorderingAJobThatContradictsNothing() {
+        // The third job is part of no disagreement, so resolving the other two must not reorder it.
+        User owner = new User("kate", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job forward = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Acme");
+        Job backward = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Globex");
+        Job uninvolved = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Initech");
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L))
+                .thenReturn(List.of(forward, backward, uninvolved));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(forward, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600))),
+                detail(backward, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0), round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600))),
+                detail(uninvolved, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.BEHAVIOR, T0.plusSeconds(3600)))));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        assertThat(linkValue(response, "SYSTEM_DESIGN", "BEHAVIOR")).isEqualTo(1);
+        assertThat(linkValue(response, "BEHAVIOR", "SYSTEM_DESIGN")).isEqualTo(0);
+    }
+
+    @Test
+    void sankeyKeepsAJobsLastTwoRoundsInOrderWhenAnEarlierRoundIsContested() {
+        // The contested pair must not cost the six-round job the order of its own last two rounds.
+        User owner = new User("liam", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        Job full = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.ACTIVE, "Acme");
+        Job forwardOne = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Globex");
+        Job forwardTwo = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Initech");
+        Job backward = newJob(owner, source, Stage.INTERVIEW_STAGE, Outcome.REJECTED, "Umbrella");
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L))
+                .thenReturn(List.of(full, forwardOne, forwardTwo, backward));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(
+                detail(full, Stage.INTERVIEW_STAGE, Outcome.ACTIVE,
+                        round(InterviewType.RECRUITER_PHONE_SCREEN, T0),
+                        round(InterviewType.HIRING_MANAGER_SCREEN, T0.plusSeconds(3600)),
+                        round(InterviewType.TAKE_HOME_ASSIGNMENT, T0.plusSeconds(7200)),
+                        round(InterviewType.TECHNICAL_CODE_REVIEW, T0.plusSeconds(10800)),
+                        round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(14400)),
+                        round(InterviewType.CULTURE_FIT, T0.plusSeconds(18000))),
+                detail(forwardOne, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0), round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600))),
+                detail(forwardTwo, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.TECHNICAL_PHONE_SCREEN, T0), round(InterviewType.SYSTEM_DESIGN, T0.plusSeconds(3600))),
+                detail(backward, Stage.INTERVIEW_STAGE, Outcome.REJECTED,
+                        round(InterviewType.SYSTEM_DESIGN, T0), round(InterviewType.TECHNICAL_PHONE_SCREEN, T0.plusSeconds(3600)))));
+
+        MetricsResponse response = metricsService.getMetrics(1L);
+
+        // Every hop the job really ran, in the order it ran them.
+        assertThat(linkValue(response, "RECRUITER_PHONE_SCREEN", "HIRING_MANAGER_SCREEN")).isEqualTo(1);
+        assertThat(linkValue(response, "HIRING_MANAGER_SCREEN", "TAKE_HOME_ASSIGNMENT")).isEqualTo(1);
+        assertThat(linkValue(response, "TAKE_HOME_ASSIGNMENT", "TECHNICAL_CODE_REVIEW")).isEqualTo(1);
+        assertThat(linkValue(response, "TECHNICAL_CODE_REVIEW", "SYSTEM_DESIGN")).isEqualTo(1);
+        assertThat(linkValue(response, "SYSTEM_DESIGN", "CULTURE_FIT")).isEqualTo(1);
+        assertThat(linkValue(response, "CULTURE_FIT", "SYSTEM_DESIGN")).isEqualTo(0);
+    }
+
+    @Test
     void sankeySkipsInterviewRoundsWithNoType() {
         User owner = new User("frank", "hash");
         SourceCategory source = SourceCategory.SELF_APPLIED;
@@ -277,6 +417,23 @@ class MetricsServiceTests {
         // Active companies are listed under the IN_PROGRESS node, each with one job.
         assertThat(response.companiesByNode().get("IN_PROGRESS"))
                 .containsOnly(entry("Acme", 1), entry("Globex", 1));
+    }
+
+    @Test
+    void everyPipelineClosingOutcomeGetsItsOwnSankeyTerminal() {
+        User owner = new User("nadia", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        for (Outcome outcome : Arrays.stream(Outcome.values()).filter(Outcome::closesPipeline).toList()) {
+            Job job = newJob(owner, source, Stage.RESUME_CHECK, outcome, "Acme");
+            when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
+            when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(detail(job, Stage.RESUME_CHECK, outcome)));
+
+            MetricsResponse response = metricsService.getMetrics(1L);
+
+            assertThat(linkValue(response, "RESUME_CHECK", outcome.name()))
+                    .as("%s terminates its own path", outcome)
+                    .isEqualTo(1);
+        }
     }
 
     @Test

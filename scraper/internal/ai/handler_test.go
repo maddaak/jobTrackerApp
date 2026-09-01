@@ -297,8 +297,7 @@ func TestRecommendResumeVariantHandlerReturnsVerdict(t *testing.T) {
 	}
 }
 
-// F49: a syntactically valid but semantically empty parse used to be returned as a real result.
-// "{}" unmarshals cleanly into every one of these structs, so each handler must reject it.
+// F49: "{}" unmarshals cleanly into every one of these structs, so each handler must reject it.
 
 func TestAnalyzeResumeHandlerRejectsEmptySummary(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")

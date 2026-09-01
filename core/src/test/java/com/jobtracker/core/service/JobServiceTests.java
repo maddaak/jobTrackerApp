@@ -4,7 +4,9 @@ import com.jobtracker.core.dto.CreateJobRequest;
 import com.jobtracker.core.dto.JobDetailResponse;
 import com.jobtracker.core.dto.JobSummaryResponse;
 import com.jobtracker.core.dto.UpdateJobRequest;
+import com.jobtracker.core.exception.InvalidStageHistoryException;
 import com.jobtracker.core.exception.JobNotFoundException;
+import com.jobtracker.core.exception.StageEntryNotFoundException;
 import com.jobtracker.core.model.*;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
@@ -40,12 +42,15 @@ class JobServiceTests {
     @Mock
     private JobDetailService jobDetailService;
 
+    @Mock
+    private JobImageService jobImageService;
+
     private JobService jobService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService);
+        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService, new JobLinkService(jobs, jobDetailRepo), jobImageService);
         // updateJob creates the document when one is missing, so a stage change never drops its entry.
         when(jobDetailService.createDetail(anyLong(), anyLong(), any()))
                 .thenAnswer(i -> new JobDetail(i.getArgument(0), i.getArgument(1), new byte[0], ""));
@@ -53,13 +58,124 @@ class JobServiceTests {
 
     // findJourneysByOwnerId returns the projection, not the whole document.
     private JobJourney journey(JobDetail detail) {
-        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews());
+        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews(), detail.getRelatedJobs());
     }
 
     private Job job(User owner, SourceCategory source, String company, String role, Long id) {
         Job job = new Job(company, role, owner, source, null, null, null, null);
         ReflectionTestUtils.setField(job, "id", id);
         return job;
+    }
+
+    // The mis-click this undoes: forward to Interview Stage, then back.
+    private JobDetail historyWithAMisclick(Job job) {
+        JobDetail detail = new JobDetail(job.getId(), 1L, new byte[0], "");
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-08-25T23:00:00Z"), null);
+        detail.recordStage(Stage.INTERVIEW_REQUEST, Instant.parse("2026-08-26T20:24:00Z"), null);
+        detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-08-26T20:24:30Z"), null);
+        detail.recordStage(Stage.INTERVIEW_REQUEST, Instant.parse("2026-08-26T20:25:00Z"), null);
+        return detail;
+    }
+
+    @Test
+    void deleteStageEventDropsTheNamedEntryAndRewindsToWhatTheHistoryNowEndsOn() {
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        ReflectionTestUtils.setField(job, "currentStage", Stage.INTERVIEW_STAGE);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(historyWithAMisclick(job)));
+
+        var remaining = jobService.deleteStageEvent(1L, 7L, Instant.parse("2026-08-26T20:24:30Z"), Stage.INTERVIEW_STAGE);
+
+        assertThat(remaining).extracting("stage")
+                .containsExactly(Stage.RESUME_CHECK, Stage.INTERVIEW_REQUEST, Stage.INTERVIEW_REQUEST);
+        // The dropdown reads this, so it has to follow the trail rather than keep the deleted stage.
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.INTERVIEW_REQUEST);
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void deleteStageEventKeepsAClosedJobFinalizedRatherThanRewindingIt() {
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        ReflectionTestUtils.setField(job, "outcome", Outcome.REJECTED);
+        ReflectionTestUtils.setField(job, "currentStage", Stage.FINALIZED);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(historyWithAMisclick(job)));
+
+        jobService.deleteStageEvent(1L, 7L, Instant.parse("2026-08-26T20:24:30Z"), Stage.INTERVIEW_STAGE);
+
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.FINALIZED);
+    }
+
+    @Test
+    void deleteStageEventReportsAnEntryThatIsNoLongerThere() {
+        // A stale modal must not be told the delete succeeded.
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(historyWithAMisclick(job)));
+
+        assertThatThrownBy(() -> jobService.deleteStageEvent(1L, 7L, Instant.parse("2020-01-01T00:00:00Z"), null))
+                .isInstanceOf(StageEntryNotFoundException.class);
+        verify(jobDetailRepo, never()).save(any(JobDetail.class));
+        verify(jobs, never()).save(any(Job.class));
+    }
+
+    @Test
+    void deleteStageEventRemovesOneEntryWhenTwoShareATimestamp() {
+        // Mongo stores milliseconds, so a migrated history can carry two entries at the same instant.
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        Instant shared = Instant.parse("2026-08-25T23:00:00Z");
+        JobDetail detail = new JobDetail(7L, 1L, new byte[0], "");
+        detail.recordStage(Stage.RESUME_CHECK, shared, null);
+        detail.recordStage(Stage.INTERVIEW_REQUEST, shared, null);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(detail));
+
+        var remaining = jobService.deleteStageEvent(1L, 7L, shared, Stage.RESUME_CHECK);
+
+        // The stage says which of the two entries the clicked row stood for.
+        assertThat(remaining).extracting("stage").containsExactly(Stage.INTERVIEW_REQUEST);
+        assertThat(job.getCurrentStage()).isEqualTo(Stage.INTERVIEW_REQUEST);
+    }
+
+    @Test
+    void deleteStageEventPicksTheOtherEntryWhenTheStageSaysSo() {
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        Instant shared = Instant.parse("2026-08-25T23:00:00Z");
+        JobDetail detail = new JobDetail(7L, 1L, new byte[0], "");
+        detail.recordStage(Stage.RESUME_CHECK, shared, null);
+        detail.recordStage(Stage.INTERVIEW_REQUEST, shared, null);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(detail));
+
+        var remaining = jobService.deleteStageEvent(1L, 7L, shared, Stage.INTERVIEW_REQUEST);
+
+        assertThat(remaining).extracting("stage").containsExactly(Stage.RESUME_CHECK);
+    }
+
+    @Test
+    void deleteStageEventRefusesToEmptyTheHistory() {
+        User owner = new User("alice", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Globex", "Detection Engineer", 7L);
+        JobDetail detail = new JobDetail(7L, 1L, new byte[0], "");
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-08-25T23:00:00Z"), null);
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(7L)).thenReturn(Optional.of(detail));
+
+        assertThatThrownBy(() -> jobService.deleteStageEvent(1L, 7L, Instant.parse("2026-08-25T23:00:00Z"), Stage.RESUME_CHECK))
+                .isInstanceOf(InvalidStageHistoryException.class);
+    }
+
+    @Test
+    void deleteStageEventRejectsAJobTheCallerDoesNotOwn() {
+        when(jobs.findByIdAndOwnerId(7L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobService.deleteStageEvent(1L, 7L, Instant.parse("2026-08-25T23:00:00Z"), Stage.RESUME_CHECK))
+                .isInstanceOf(JobNotFoundException.class);
     }
 
     @Test
@@ -179,8 +295,7 @@ class JobServiceTests {
         Job job = job(owner, SourceCategory.SELF_APPLIED, "Acme", "Engineer", 10L);
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
-        // A direct PATCH that closes the job but leaves it mid-pipeline; the funnel would otherwise
-        // keep counting it as live at Interview Stage.
+        // A direct PATCH closing the job mid-pipeline; the funnel would otherwise count it as live.
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
                 null, null, null, null, Stage.INTERVIEW_STAGE, Outcome.GHOSTED);
 
@@ -272,6 +387,18 @@ class JobServiceTests {
 
         verify(jobs).delete(job);
         verify(jobDetailService).deleteDetail(5L);
+    }
+
+    @Test
+    void aFailedCascadeLeavesTheDetailDocumentRatherThanStrippingASurvivingJob() {
+        Job job = job(new User("judy", "hash"), SourceCategory.SELF_APPLIED, "Acme", "Engineer", 5L);
+        when(jobs.findByIdAndOwnerId(5L, 3L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByOwnerIdAndRelatedJobsJobId(3L, 5L))
+                .thenThrow(new RuntimeException("mongo unreachable"));
+
+        // The transaction rolls the job back, so its history, notes and rounds have to still be there.
+        assertThatThrownBy(() -> jobService.deleteJob(3L, 5L)).isInstanceOf(RuntimeException.class);
+        verify(jobDetailService, never()).deleteDetail(anyLong());
     }
 
     @Test

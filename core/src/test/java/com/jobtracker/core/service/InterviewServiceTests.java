@@ -41,7 +41,7 @@ class InterviewServiceTests {
 
     // findJourneysByOwnerId returns the projection, not the whole document.
     private JobJourney journey(JobDetail detail) {
-        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews());
+        return new JobJourney(detail.getJobId(), detail.getStageHistory(), detail.getInterviews(), detail.getRelatedJobs());
     }
 
     private Job newJob(User owner) {

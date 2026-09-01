@@ -49,8 +49,7 @@ class JobControllerTests {
     @Autowired
     private JobDetailRepository jobDetails;
 
-    // The in-memory Mongo is shared across suites and outlives the Postgres rollback, so rolled-back
-    // job ids get reused and a stale document would collide with the new one.
+    // Mongo outlives the Postgres rollback, so a reused job id would collide with a stale document.
     @BeforeEach
     void clearDocuments() {
         jobDetails.deleteAll();

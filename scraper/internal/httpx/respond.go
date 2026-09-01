@@ -1,5 +1,4 @@
-// Package httpx holds the HTTP plumbing every route shares: body limits, JSON responses, and the
-// internal-token gate.
+// Package httpx holds the HTTP plumbing every route shares: body limits, JSON responses, the token gate.
 package httpx
 
 import (

@@ -4,6 +4,83 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V3.2.0
+
+Linked jobs, image attachments, deletable stage history, a Position Closed outcome, and a Sankey
+that follows each job's real round order. Upgrading is a pull and a restart.
+
+### Upgrading
+- On an existing database a newly added enum value was rejected by Postgres and surfaced as a
+  generic 409: Hibernate writes a `CHECK` constraint listing an enum's values when it creates the
+  column, and `ddl-auto=update` never widens it. `core` now rewrites those constraints from the
+  enums on every boot, which fixes the class rather than the one value. A fresh install is
+  unaffected.
+
+### Linked jobs
+- Two rows can be linked, for when one application becomes another: a company closes the req and
+  redirects you to a different posting. A typed relation, not text in the notes, so it reads from
+  either row and survives edits.
+- `replaced by` and `replaces` are the two ends of one link, written together so each row states it
+  in its own voice. `related to` is symmetric.
+- A 🔗 badge by the company name lists a row's links; clicking one scrolls to that row and
+  highlights it, or says so when a filter is hiding it.
+- The details modal adds and removes links. Re-linking replaces the relation rather than
+  duplicating it, and deleting a job drops only the edges pointing at it.
+
+### Attachments
+- A job's details modal takes image attachments, for things like a screenshot of a system-design
+  diagram. Paste one with Cmd+V, drop it on the modal, or pick a file. A paste into a text field
+  stays text, even when the clipboard carries an image alongside it.
+- They are listed as links, not rendered inline, so opening a job never downloads its screenshots.
+  Saving one keeps its filename.
+- The stored type is detected from the file's magic bytes, never the name or the browser's claim,
+  and SVG is refused: it can carry script, and these are served back inline from our own origin.
+  PNG, JPEG, and WebP only, 10MB and 20 images per job. Deleting a job deletes its attachments.
+
+### Stage history
+- An entry can be deleted from the details modal, undoing a mis-clicked stage change. The job's
+  stage rewinds to whatever the history then ends on, so the table's Stage dropdown follows rather
+  than keeping a stage the job's own history no longer records. A closed outcome still pins the job
+  to Finalized, and a job always keeps at least one entry.
+- Repeats of the same stage show as one row, and deleting that row deletes every entry behind it.
+
+### Metrics
+- The Sankey's round order now comes from the transitions jobs actually ran, resolved by a
+  topological sort, instead of an average position. A round seen only alone in other jobs no longer
+  jumps ahead of the round a job really sat first, and a genuine disagreement between two jobs is
+  settled by which direction more of them experienced.
+- Recolored: Resume Check and Interview Request no longer sit side by side in near-identical blues,
+  and Position Closed gets its own terminal.
+
+### Interview rounds
+- New `Data Modeling` round type in the interview-type dropdown. It gets its own node on the
+  metrics Sankey, its own color, and its own row in the round counts. No data change; existing
+  rounds keep their type.
+
+### Outcomes
+- New `Position Closed`, for a req the employer closed rather than a rejection, ghosting, or
+  withdrawal. Closes the pipeline like those three, with its own Sankey terminal and outcome-count
+  row. Rows previously marked withdrawn for a closed req need re-marking by hand.
+
+### Add job
+- While a pasted job description is being read, the fields below it are locked behind a "Reading the
+  job description…" overlay, so nothing is typed into fields that read is about to speak to.
+- A job description pasted by hand is now saved with the job. It was read for the recommendation and
+  then dropped, so the posting we could not fetch stayed unavailable in Job Details afterwards.
+
+### Fixes
+- A salary written as a mixed range, like `$120k - $150,000`, was read as $120,000 to $150,000,000.
+  Written the other way round it was dropped instead, leaving the job with no salary at all.
+- An upload that is too large now answers 413 wherever it is refused, rather than 400 from one
+  service and 413 from another.
+- Deleting a job no longer removes its details before the attachment and link cleanup that could
+  still fail, which on a failed delete left the job in place without its history or notes.
+
+### Table and calendar
+- A job at Interview Request gets its own row color instead of sharing yellow with Resume Check.
+- Calendar entries show their start time and sit in chronological order within a day.
+- Following a 🔗 badge to a row that is already highlighted re-runs the highlight.
+
 ## V3.1.0
 
 A jobs-table color and a scraper restructure. No API, schema, or data change: an upgrade is a
@@ -83,13 +160,9 @@ core are versioned and deployed as a unit, so a normal upgrade needs nothing her
   and the old image still runs against it. If it cannot finish, core refuses to start rather than
   serving half-converted data.
 - `008_drop_relational_leftovers.sql` reclaims the old tables afterwards. Destructive, so it stays
-  manual and optional. `run_migration.sh` remains for converting by hand.
-- `./core/migrations/run_migration.sh` backs up both stores, merges any duplicate documents,
-  exports from Postgres, loads into Mongo, and verifies. It stops there: Postgres keeps every
-  column and table so the old image still runs.
-- `007_backfill_source_category.sql` then `008_drop_relational_leftovers.sql` finish the move.
-  008 is destructive and deliberately separate: run it only after the rebuilt app is
-  confirmed working.
+  manual, optional, and to be run only once the rebuilt app is confirmed working.
+- `./core/migrations/run_migration.sh` remains for converting by hand: it backs up both stores,
+  merges duplicate documents, exports from Postgres, loads into Mongo, and verifies.
 - Nothing is deleted without being preserved first. Duplicate documents are merged with the
   loser archived; documents whose job no longer exists are archived rather than dropped.
 - `GET /metrics` returns a byte-identical payload before and after the move, which is the

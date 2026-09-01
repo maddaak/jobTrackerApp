@@ -26,10 +26,10 @@ export function nodeLabel(name: string): string {
     .join(" ");
 }
 
-// Stage nodes ramp blue->violet so progression reads left to right; outcomes use status colors.
+// Only RESUME_CHECK and INTERVIEW_REQUEST are ever drawn, and side by side, so they need distinct hues.
 const STAGE_COLORS: Record<Stage, string> = {
-  RESUME_CHECK: "#93c5fd",
-  INTERVIEW_REQUEST: "#60a5fa",
+  RESUME_CHECK: "#0891b2",
+  INTERVIEW_REQUEST: "#4f46e5",
   INTERVIEW_STAGE: "#3b82f6",
   WAITING_INTERVIEW_RESULTS: "#6366f1",
   OFFER_STAGE: "#8b5cf6",
@@ -43,6 +43,7 @@ const OUTCOME_COLORS: Record<Outcome, string> = {
   REJECTED: "#ef4444",
   GHOSTED: "#a8a29e",
   WITHDRAWN: "#78716c",
+  POSITION_CLOSED: "#b45309",
 };
 
 // Distinct color per round so a skipping flow doesn't blend into the round behind it; extras are fallbacks.
@@ -51,12 +52,14 @@ const INTERVIEW_ROUND_COLORS: Record<string, string> = {
   TECHNICAL_PHONE_SCREEN: "#56b4e9",
   HIRING_MANAGER_SCREEN: "#d55e00",
   SYSTEM_DESIGN: "#0072b2",
+  DATA_MODELING: "#44aa99",
   PANEL: "#cc79a7",
   TAKE_HOME_ASSIGNMENT: "#009e73",
   TECHNICAL_CODE_REVIEW: "#7f3c8d",
   BEHAVIOR: "#999933",
   CULTURE_FIT: "#6699cc",
   VALUES: "#661100",
+  RECRUITER_DEBRIEF: "#882255",
 };
 
 const SANKEY_NODE_COLORS: Record<string, string> = {

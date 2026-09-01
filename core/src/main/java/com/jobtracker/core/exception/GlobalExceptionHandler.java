@@ -13,6 +13,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import java.io.UncheckedIOException;
 import java.util.Map;
@@ -42,6 +43,37 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(JobNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleJobNotFound(JobNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(StageEntryNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleStageEntryNotFound(StageEntryNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidJobLinkException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidJobLink(InvalidJobLinkException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidStageHistoryException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidStageHistory(InvalidStageHistoryException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(UnsupportedImageTypeException.class)
+    public ResponseEntity<Map<String, String>> handleUnsupportedImageType(UnsupportedImageTypeException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    // 413 like the multipart cap below: one rejection reason must not have two statuses.
+    @ExceptionHandler(ImageTooLargeException.class)
+    public ResponseEntity<Map<String, String>> handleImageTooLarge(ImageTooLargeException ex) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ImageNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleImageNotFound(ImageNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
     }
 
@@ -95,6 +127,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<Map<String, String>> handleMissingPart(MissingServletRequestPartException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", "missing required file upload"));
+    }
+
+    // Same reason as the handlers above: without it the multipart cap reads as a server fault.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, String>> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Map.of("error", "the uploaded file is too large"));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)

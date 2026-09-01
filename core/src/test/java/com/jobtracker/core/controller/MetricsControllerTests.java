@@ -1,6 +1,7 @@
 package com.jobtracker.core.controller;
 
 import com.jobtracker.core.model.InterviewType;
+import com.jobtracker.core.model.Outcome;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.UserRepository;
@@ -43,8 +44,7 @@ class MetricsControllerTests {
     @Autowired
     private JobDetailRepository jobDetails;
 
-    // The in-memory Mongo is shared across suites and outlives the Postgres rollback, so rolled-back
-    // job ids get reused and a stale document would collide with the new one.
+    // Mongo outlives the Postgres rollback, so a reused job id would collide with a stale document.
     @BeforeEach
     void clearDocuments() {
         jobDetails.deleteAll();
@@ -77,7 +77,8 @@ class MetricsControllerTests {
             .andExpect(jsonPath("$.funnel", hasSize(5)))
             .andExpect(jsonPath("$.funnel[0].stage").value("RESUME_CHECK"))
             .andExpect(jsonPath("$.funnel[0].count").value(1))
-            .andExpect(jsonPath("$.outcomeCounts", hasSize(5)))
+            // Every outcome but ACTIVE.
+            .andExpect(jsonPath("$.outcomeCounts", hasSize(Outcome.values().length - 1)))
             .andExpect(jsonPath("$.interviewRoundCounts", hasSize(InterviewType.values().length)))
             // A fresh active job at Resume Check terminates at IN_PROGRESS.
             .andExpect(jsonPath("$.sankeyLinks", hasSize(1)))

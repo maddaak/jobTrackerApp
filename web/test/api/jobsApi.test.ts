@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { updateJob, deleteJob, rowColor, type JobSummary, type UpdateJobInput, type RowColor } from "../../src/api/jobsApi";
+import {
+  updateJob,
+  deleteJob,
+  deleteJobStage,
+  unlinkJob,
+  rowColor,
+  type JobSummary,
+  type UpdateJobInput,
+  type RowColor,
+} from "../../src/api/jobsApi";
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
@@ -63,6 +72,23 @@ describe("deleteJob", () => {
   });
 });
 
+// request() returns undefined for a DELETE whose body doesn't parse, which the modal then crashes on.
+describe("DELETE endpoints the modal renders from", () => {
+  const emptyBodyOk = { ok: true, status: 200, json: () => Promise.reject(new Error("not json")) };
+
+  it("rejects rather than returning undefined from deleteJobStage", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(emptyBodyOk);
+
+    await expect(deleteJobStage(1, "2026-08-26T20:24:30.000Z", "RESUME_CHECK")).rejects.toThrow("failed to delete stage entry");
+  });
+
+  it("rejects rather than returning undefined from unlinkJob", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(emptyBodyOk);
+
+    await expect(unlinkJob(1, 9)).rejects.toThrow("failed to unlink job");
+  });
+});
+
 describe("rowColor", () => {
   const cases: [Pick<JobSummary, "outcome" | "currentStage">, RowColor][] = [
     [{ outcome: "REJECTED", currentStage: "RESUME_CHECK" }, "red"],
@@ -75,7 +101,8 @@ describe("rowColor", () => {
     [{ outcome: "ACTIVE", currentStage: "OFFER_STAGE" }, "green"],
     [{ outcome: "ACTIVE", currentStage: "WAITING_INTERVIEW_RESULTS" }, "indigo"],
     [{ outcome: "ACTIVE", currentStage: "RESUME_CHECK" }, "yellow"],
-    [{ outcome: "ACTIVE", currentStage: "INTERVIEW_REQUEST" }, "yellow"],
+    [{ outcome: "ACTIVE", currentStage: "INTERVIEW_REQUEST" }, "sky"],
+    [{ outcome: "REJECTED", currentStage: "INTERVIEW_REQUEST" }, "red"],
   ];
 
   it.each(cases)("returns %o -> %s", (job, expected) => {

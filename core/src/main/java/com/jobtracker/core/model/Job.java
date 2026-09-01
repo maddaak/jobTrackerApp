@@ -126,6 +126,11 @@ public class Job {
         this.currentStage = outcome.closesPipeline() ? Stage.FINALIZED : currentStage;
     }
 
+    // Moves the job to wherever the trail now ends, unless a closed outcome pins it to FINALIZED.
+    public void rewindStageTo(Stage stage) {
+        this.currentStage = outcome.closesPipeline() ? Stage.FINALIZED : stage;
+    }
+
     public void advanceStageIfFurther(Stage newStage) {
         if (newStage.ordinal() > this.currentStage.ordinal()) {
             this.currentStage = newStage;

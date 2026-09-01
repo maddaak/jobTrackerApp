@@ -38,6 +38,8 @@ public class JobDetail {
 
     private List<InterviewRound> interviews = new ArrayList<>();
 
+    private List<JobLink> relatedJobs = new ArrayList<>();
+
     protected JobDetail() {
     }
 
@@ -88,6 +90,28 @@ public class JobDetail {
         return interviews;
     }
 
+    public List<JobLink> getRelatedJobs() {
+        return links();
+    }
+
+    // Replace, not append: changing a relation must not leave two edges.
+    public void linkTo(Long otherJobId, JobRelation relation) {
+        links().removeIf(link -> link.getJobId().equals(otherJobId));
+        links().add(new JobLink(otherJobId, relation));
+    }
+
+    public void unlinkFrom(Long otherJobId) {
+        links().removeIf(link -> link.getJobId().equals(otherJobId));
+    }
+
+    // Documents written before this field existed map it to null.
+    private List<JobLink> links() {
+        if (relatedJobs == null) {
+            relatedJobs = new ArrayList<>();
+        }
+        return relatedJobs;
+    }
+
     public void update(byte[] jdTextCompressed, String interviewNotes) {
         this.jdTextCompressed = jdTextCompressed;
         this.interviewNotes = interviewNotes;
@@ -103,6 +127,18 @@ public class JobDetail {
 
     public void recordStage(Stage stage, Instant enteredAt, String note) {
         this.stageHistory.add(new StageHistoryEntry(stage, enteredAt, note));
+    }
+
+    // Two entries can share a millisecond timestamp, so match the stage too and remove only one.
+    public boolean removeStageEntry(Instant enteredAt, Stage stage) {
+        for (int i = 0; i < this.stageHistory.size(); i++) {
+            StageHistoryEntry entry = this.stageHistory.get(i);
+            if (entry.getEnteredAt().equals(enteredAt) && (stage == null || entry.getStage() == stage)) {
+                this.stageHistory.remove(i);
+                return true;
+            }
+        }
+        return false;
     }
 
     public void addInterview(InterviewRound round) {

@@ -260,8 +260,7 @@ describe("AddJobForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
       expect(await screen.findByText(/didn't contain a readable job description/)).toBeInTheDocument();
-      // Said once, in the box that acts on it. A banner and a panel previously explained the same
-      // thing in different words ("didn't contain" / "didn't include"), which read as two problems.
+      // Said once, in the box that acts on it: two wordings of one problem read as two problems.
       expect(screen.getAllByText(/readable job description/)).toHaveLength(1);
     });
 
@@ -317,6 +316,66 @@ describe("AddJobForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
 
       expect(await screen.findByText(/You should apply/)).toBeInTheDocument();
+    });
+
+    it("saves the pasted job description with the job, not just the recommendation it fed", async () => {
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+      fireEvent.change(screen.getByLabelText("Paste the job description"), {
+        target: { value: "We need a backend engineer." },
+      });
+      fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+      fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Engineer" } });
+
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 7 }));
+      fireEvent.click(screen.getByRole("button", { name: "Add job" }));
+
+      // Without this the user pastes the whole description and the job is created with none of it.
+      await waitFor(() => {
+        const detailCall = (fetch as ReturnType<typeof vi.fn>).mock.calls
+          .find(([url]) => url === "/jobs/7/detail");
+        expect(detailCall).toBeDefined();
+        expect(JSON.parse(detailCall![1].body).jdText).toBe("We need a backend engineer.");
+      });
+    });
+
+    it("locks the fields while the pasted job description is being read, and frees them after", async () => {
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+      fireEvent.change(screen.getByLabelText("Paste the job description"), {
+        target: { value: "We need a backend engineer." },
+      });
+
+      let release!: (value: unknown) => void;
+      (fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+      fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
+
+      // The JD is what fills these, so typing into them mid-read would be typing over the answer.
+      expect(await screen.findByText("Reading the job description…")).toBeInTheDocument();
+      expect(screen.getByLabelText("Company")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Add job" })).toBeDisabled();
+
+      release(fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Good fit." }));
+
+      await waitFor(() => expect(screen.getByLabelText("Company")).toBeEnabled());
+      expect(screen.queryByText("Reading the job description…")).not.toBeInTheDocument();
+    });
+
+    it("leaves the fields editable while a recommendation runs on scraped text", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
+      let release!: (value: unknown) => void;
+      (fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+      // The scrape already filled them, so a running recommendation must not block a correction.
+      await waitFor(() => expect(screen.getByLabelText("Company")).toHaveValue("Acme"));
+      expect(screen.getByLabelText("Company")).toBeEnabled();
+
+      release(fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Good fit." }));
+      await screen.findByText(/You should apply/);
     });
 
     it("shows the manual paste box on Skip with neutral suggestion copy, not a failure warning", () => {

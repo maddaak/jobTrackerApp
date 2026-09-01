@@ -15,3 +15,5 @@ export function validateRouteId(pattern: RegExp, errorMessage: string) {
 export const NUMERIC_ID = /^\d+$/;
 export const RESUME_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const ROUND_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Mongo document ids, which Spring Data renders as a 24-character ObjectId hex string.
+export const MONGO_ID = /^[0-9a-f]{24}$/i;

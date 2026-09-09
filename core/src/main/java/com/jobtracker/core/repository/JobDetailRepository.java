@@ -17,10 +17,11 @@ public interface JobDetailRepository extends MongoRepository<JobDetail, String> 
 
     void deleteByJobId(Long jobId);
 
-    // Projects away the JD blobs, ~93% of the collection's bytes and growing with every scrape.
-    // Returns JobJourney rather than JobDetail so the nulls the projection leaves behind can't be
-    // saved back over the real fields; see JobJourney for why a shared interface would not do that.
+    // Projects away the JD blobs, most of the collection's bytes. JobJourney, so the nulls can't be saved back.
     @Query(value = "{ 'ownerId': ?0 }",
-            fields = "{ 'jobId': 1, 'stageHistory': 1, 'interviews': 1 }")
+            fields = "{ 'jobId': 1, 'stageHistory': 1, 'interviews': 1, 'relatedJobs': 1 }")
     List<JobJourney> findJourneysByOwnerId(Long ownerId);
+
+    // Finds the inbound edges a deleted job leaves behind.
+    List<JobDetail> findByOwnerIdAndRelatedJobsJobId(Long ownerId, Long jobId);
 }

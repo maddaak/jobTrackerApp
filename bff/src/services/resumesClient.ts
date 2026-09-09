@@ -33,7 +33,7 @@ export async function createResume(
   buffer: Buffer,
 ): Promise<CoreResult<CreateResumeData & Partial<ErrorResponseData>>> {
   const form = new FormData();
-  form.append("file", new Blob([Uint8Array.from(buffer)], { type: contentType }), fileName);
+  form.append("file", new Blob([new Uint8Array(buffer)], { type: contentType }), fileName);
 
   // Turn a fetch rejection into a real 5xx (504 timeout, 502 otherwise) instead of a generic 500.
   let res: globalThis.Response;

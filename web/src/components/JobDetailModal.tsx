@@ -1,18 +1,29 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Modal from "./Modal";
+import JobImageAttachments from "./JobImageAttachments";
 import { safeHref } from "../safeHref";
 import {
   getJobDetail,
   getJobStages,
+  deleteJobStage,
   updateJobDetail,
+  linkJob,
+  unlinkJob,
   STAGE_LABELS,
+  JOB_RELATION_LABELS,
+  JOB_RELATIONS,
+  type JobLink,
+  type JobRelation,
   type JobSummary,
+  type Stage,
   type StageHistoryEntry,
 } from "../api/jobsApi";
 import { listInterviews, INTERVIEW_TYPE_LABELS, type Interview } from "../api/interviewsApi";
 
 export interface JobDetailModalProps {
   job: JobSummary | null;
+  // Source for the link picker.
+  allJobs: JobSummary[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -27,7 +38,7 @@ function formatRoundDateTime(iso: string): string {
   });
 }
 
-export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModalProps) {
+export default function JobDetailModal({ job, allJobs, onClose, onSaved }: JobDetailModalProps) {
   const [notes, setNotes] = useState("");
   const [rejectedReason, setRejectedReason] = useState("");
   const [interviewNotes, setInterviewNotes] = useState("");
@@ -38,6 +49,11 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
   const [rounds, setRounds] = useState<Interview[]>([]);
   const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([]);
   const [recommendedResume, setRecommendedResume] = useState<string | null>(null);
+  const [links, setLinks] = useState<JobLink[]>([]);
+  const [linkRelation, setLinkRelation] = useState<JobRelation>("REPLACED_BY");
+  const [linkTargetId, setLinkTargetId] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [deletingStage, setDeletingStage] = useState(false);
 
   useEffect(() => {
     if (!job) return;
@@ -50,6 +66,8 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
     setRounds([]);
     setStageHistory([]);
     setRecommendedResume(null);
+    setLinks([]);
+    setLinkTargetId("");
     getJobDetail(job.id)
       .then(detail => {
         if (ignore) return;
@@ -58,6 +76,7 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
         setRecommendedResume(detail.recommendedResume);
         setNotes(detail.notes ?? "");
         setRejectedReason(detail.rejectedReason ?? "");
+        setLinks(detail.links ?? []);
       })
       .catch(err => {
         if (ignore) return;
@@ -96,10 +115,57 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
 
   const rejectedReasonEnabled = job?.outcome === "REJECTED";
 
-  // Collapse consecutive duplicate stages into one entry.
-  const dedupedStages = stageHistory.filter(
-    (entry, i) => i === 0 || entry.stage !== stageHistory[i - 1].stage,
+  // A row carries every entry it collapses: deleting only the first would re-render identically, reading as a no-op.
+  const dedupedStages = stageHistory.reduce<{ stage: Stage; enteredAt: string; run: string[] }[]>((rows, entry) => {
+    const last = rows[rows.length - 1];
+    if (last && last.stage === entry.stage) {
+      last.run.push(entry.enteredAt);
+      return rows;
+    }
+    rows.push({ stage: entry.stage, enteredAt: entry.enteredAt, run: [entry.enteredAt] });
+    return rows;
+  }, []);
+
+  async function handleDeleteStage(stage: Stage, run: string[]) {
+    if (!job) return;
+    setDeletingStage(true);
+    setError(null);
+    let history = stageHistory;
+    try {
+      for (const enteredAt of run) {
+        history = await deleteJobStage(job.id, enteredAt, stage);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to delete stage entry");
+    } finally {
+      // A run deletes one entry per call, so a mid-run failure still leaves real deletions to show.
+      setStageHistory(history);
+      // The funnel reads stage history, so metrics needs the refreshed jobs too.
+      onSaved();
+      setDeletingStage(false);
+    }
+  }
+
+  // Drop already-linked jobs: re-picking one would silently overwrite its relation.
+  const linkableJobs = allJobs.filter(
+    other => other.id !== job?.id && !links.some(link => link.jobId === other.id),
   );
+
+  // Reports success so a failed link keeps the picker's selection to retry with.
+  async function runLinkChange(change: () => Promise<JobLink[]>) {
+    setLinking(true);
+    setError(null);
+    try {
+      setLinks(await change());
+      onSaved();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to update linked jobs");
+      return false;
+    } finally {
+      setLinking(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -141,10 +207,21 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
               <p className="text-sm text-neutral-500 dark:text-neutral-400">No stage history yet.</p>
             ) : (
               <ol className="space-y-1 text-sm">
-                {dedupedStages.map((entry, i) => (
-                  <li key={i} className="flex items-center gap-2">
+                {dedupedStages.map(entry => (
+                  <li key={`${entry.stage}-${entry.enteredAt}`} className="flex items-center gap-2">
                     <span className="font-medium">{STAGE_LABELS[entry.stage]}</span>
                     <span className="text-neutral-500 dark:text-neutral-400">{formatRoundDateTime(entry.enteredAt)}</span>
+                    {stageHistory.length > entry.run.length && (
+                      <button
+                        type="button"
+                        aria-label={`Delete ${STAGE_LABELS[entry.stage]} history entry`}
+                        disabled={deletingStage}
+                        onClick={() => handleDeleteStage(entry.stage, entry.run)}
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </li>
                 ))}
               </ol>
@@ -188,6 +265,75 @@ export default function JobDetailModal({ job, onClose, onSaved }: JobDetailModal
               </ol>
             )}
           </div>
+
+          <div>
+            <p className={labelClass}>Linked jobs</p>
+            {links.length === 0 ? (
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">No linked jobs yet.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {links.map(link => (
+                  <li
+                    key={link.jobId}
+                    className="flex items-center justify-between gap-2 rounded border border-neutral-200 px-2 py-1 dark:border-neutral-700"
+                  >
+                    <span className="truncate" title={`${link.company} — ${link.role}`}>
+                      <span className="text-neutral-500 dark:text-neutral-400">
+                        {JOB_RELATION_LABELS[link.relation]}
+                      </span>{" "}
+                      {link.company} — {link.role}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={linking}
+                      onClick={() => runLinkChange(() => unlinkJob(job.id, link.jobId))}
+                      className="shrink-0 text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                    >
+                      Unlink
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {linkableJobs.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Relation"
+                  className={`${textareaClass} w-auto`}
+                  value={linkRelation}
+                  onChange={e => setLinkRelation(e.target.value as JobRelation)}
+                >
+                  {JOB_RELATIONS.map(relation => (
+                    <option key={relation} value={relation}>{JOB_RELATION_LABELS[relation]}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Job to link"
+                  className={`${textareaClass} w-auto max-w-xs`}
+                  value={linkTargetId}
+                  onChange={e => setLinkTargetId(e.target.value)}
+                >
+                  <option value="">Select a job…</option>
+                  {linkableJobs.map(other => (
+                    <option key={other.id} value={other.id}>{other.company} — {other.role}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={linking || linkTargetId === ""}
+                  onClick={() =>
+                    runLinkChange(() => linkJob(job.id, Number(linkTargetId), linkRelation))
+                      .then(ok => ok && setLinkTargetId(""))
+                  }
+                  className="rounded border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                >
+                  Link
+                </button>
+              </div>
+            )}
+          </div>
+
+          <JobImageAttachments jobId={job.id} />
 
           <div>
             <label htmlFor="job-notes" className={labelClass}>Notes</label>

@@ -18,7 +18,7 @@ router.post("/match", match);
 router.post("/:id/summarize", summarize);
 router.post("/:id/custom-summary", setCustomSummary);
 
-// Map multer's next(err) to a client error (413 over the size limit, 400 otherwise) instead of a 500.
+// Multer reports a rejected upload through next(err), which would otherwise surface as a 500.
 router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {

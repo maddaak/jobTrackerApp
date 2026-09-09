@@ -67,6 +67,22 @@ describe("CalendarGrid", () => {
     expect(onSelectDay).not.toHaveBeenCalled();
   });
 
+  it("shows the interview time and sorts same-day interviews chronologically", () => {
+    const sameDay: Interview[] = [
+      { ...interviews[0], roundId: "round-later", company: "Later Co", interviewDateTime: "2026-08-14T20:00:00.000Z" },
+      { ...interviews[0], roundId: "round-earlier", company: "Earlier Co", interviewDateTime: "2026-08-14T13:00:00.000Z" },
+    ];
+
+    render(
+      <CalendarGrid interviews={sameDay} month={new Date(2026, 7, 1)} onSelectDay={vi.fn()} onSelectInterview={vi.fn()} />,
+    );
+
+    const chips = screen.getAllByRole("button", { name: /Co/ });
+    expect(chips[0]).toHaveTextContent("Earlier Co");
+    expect(chips[1]).toHaveTextContent("Later Co");
+    expect(chips[0]).toHaveTextContent(new Date(sameDay[1].interviewDateTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+  });
+
   it("calls onSelectDay when clicking empty space on a day cell", () => {
     const onSelectDay = vi.fn();
     render(

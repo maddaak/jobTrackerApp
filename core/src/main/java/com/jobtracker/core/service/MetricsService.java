@@ -17,13 +17,17 @@ import com.jobtracker.core.repository.JobRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -134,10 +138,10 @@ public class MetricsService {
                 .toList();
     }
 
-    // Tie-breaker only for round nodes with equal average position; live order is globalRoundOrder.
+    // Tie-breaker only for round nodes with no observed order between them; live order is globalRoundOrder.
     private static final List<String> ROUND_NODE_ORDER = List.of(
             "RECRUITER_PHONE_SCREEN", "TECHNICAL_PHONE_SCREEN", "HIRING_MANAGER_SCREEN",
-            "SYSTEM_DESIGN", "BEHAVIOR", "CULTURE_FIT", "VALUES", "PANEL");
+            "SYSTEM_DESIGN", "DATA_MODELING", "BEHAVIOR", "CULTURE_FIT", "VALUES", "PANEL");
 
     // Strict node ordering (RESUME_CHECK < INTERVIEW_REQUEST < rounds < OFFER < terminals) keeps the graph acyclic.
     private SankeyData sankeyData(List<Job> ownerJobs, Map<Long, Stage> furthestByJobId,
@@ -187,27 +191,109 @@ public class MetricsService {
         return new SankeyData(links, companiesByNode);
     }
 
-    // Sorts round nodes by average first-occurrence index; ties break by canonical order then name.
+    // jobPath renders every job as a subsequence of this list, so it must place every node or the chart cycles.
     private List<String> globalRoundOrder(Map<Long, List<String>> nodeSequencesByJobId) {
-        Map<String, Long> sumOfPositions = new HashMap<>();
-        Map<String, Long> counts = new HashMap<>();
+        Set<String> allNodes = new HashSet<>();
+        Map<String, Map<String, Integer>> edgeSupport = new HashMap<>();
         for (List<String> sequence : nodeSequencesByJobId.values()) {
             Map<String, Integer> firstIndex = new LinkedHashMap<>();
             for (int i = 0; i < sequence.size(); i++) {
                 firstIndex.putIfAbsent(sequence.get(i), i);
             }
-            for (Map.Entry<String, Integer> entry : firstIndex.entrySet()) {
-                sumOfPositions.merge(entry.getKey(), (long) entry.getValue(), Long::sum);
-                counts.merge(entry.getKey(), 1L, Long::sum);
+            List<String> chronological = firstIndex.entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .toList();
+            allNodes.addAll(chronological);
+            for (int i = 1; i < chronological.size(); i++) {
+                edgeSupport.computeIfAbsent(chronological.get(i - 1), key -> new HashMap<>())
+                        .merge(chronological.get(i), 1, Integer::sum);
             }
         }
+        return topologicalSort(allNodes, edgeSupport);
+    }
 
-        List<String> order = new ArrayList<>(counts.keySet());
-        order.sort(Comparator
-                .comparingDouble((String node) -> (double) sumOfPositions.get(node) / counts.get(node))
-                .thenComparingInt(this::canonicalRank)
-                .thenComparing(Comparator.naturalOrder()));
+    // Deterministic regardless of hash order. A cycle means two jobs contradict, so the weakest edge in it goes.
+    private List<String> topologicalSort(Set<String> nodes, Map<String, Map<String, Integer>> edgeSupport) {
+        Map<String, Map<String, Integer>> edges = new HashMap<>();
+        edgeSupport.forEach((source, targets) -> edges.put(source, new HashMap<>(targets)));
+        List<String> order = new ArrayList<>();
+        Set<String> remaining = new HashSet<>(nodes);
+        while (!remaining.isEmpty()) {
+            Map<String, Integer> inDegree = new HashMap<>();
+            remaining.forEach(node -> inDegree.put(node, 0));
+            for (String source : remaining) {
+                edges.getOrDefault(source, Map.of()).keySet().stream()
+                        .filter(remaining::contains)
+                        .forEach(target -> inDegree.merge(target, 1, Integer::sum));
+            }
+            String next = remaining.stream()
+                    .filter(node -> inDegree.get(node) == 0)
+                    .min(byCanonicalRank())
+                    .orElse(null);
+            if (next == null) {
+                // Every remaining node has an inbound edge, so a cycle exists; place the rest rather than spin.
+                if (!removeWeakestCycleEdge(remaining, edges)) {
+                    remaining.stream().sorted(byCanonicalRank()).forEach(order::add);
+                    remaining.clear();
+                }
+                continue;
+            }
+            order.add(next);
+            remaining.remove(next);
+        }
         return order;
+    }
+
+    // Only a cycle edge can be the contradicting pair; dropping another would reorder a job that contradicts nothing.
+    private boolean removeWeakestCycleEdge(Set<String> remaining, Map<String, Map<String, Integer>> edges) {
+        String weakestSource = null;
+        String weakestTarget = null;
+        int weakestSupport = Integer.MAX_VALUE;
+        for (String source : remaining) {
+            for (Map.Entry<String, Integer> edge : edges.getOrDefault(source, Map.of()).entrySet()) {
+                if (!remaining.contains(edge.getKey()) || !reaches(edge.getKey(), source, remaining, edges)) {
+                    continue;
+                }
+                String candidateKey = source + "->" + edge.getKey();
+                String weakestKey = weakestSource == null ? null : weakestSource + "->" + weakestTarget;
+                if (edge.getValue() < weakestSupport
+                        || (edge.getValue() == weakestSupport && candidateKey.compareTo(weakestKey) < 0)) {
+                    weakestSupport = edge.getValue();
+                    weakestSource = source;
+                    weakestTarget = edge.getKey();
+                }
+            }
+        }
+        if (weakestSource == null) {
+            return false;
+        }
+        edges.get(weakestSource).remove(weakestTarget);
+        return true;
+    }
+
+    // A path back to the source means the edge closes a cycle.
+    private boolean reaches(String from, String to, Set<String> remaining, Map<String, Map<String, Integer>> edges) {
+        Set<String> seen = new HashSet<>();
+        Deque<String> stack = new ArrayDeque<>();
+        stack.push(from);
+        while (!stack.isEmpty()) {
+            String node = stack.pop();
+            if (node.equals(to)) {
+                return true;
+            }
+            if (!seen.add(node)) {
+                continue;
+            }
+            edges.getOrDefault(node, Map.of()).keySet().stream()
+                    .filter(remaining::contains)
+                    .forEach(stack::push);
+        }
+        return false;
+    }
+
+    private Comparator<String> byCanonicalRank() {
+        return Comparator.comparingInt(this::canonicalRank).thenComparing(Comparator.naturalOrder());
     }
 
     private int canonicalRank(String node) {
@@ -245,7 +331,7 @@ public class MetricsService {
             } else {
                 path.add("IN_PROGRESS");
             }
-        } else if (outcome == Outcome.REJECTED || outcome == Outcome.GHOSTED || outcome == Outcome.WITHDRAWN) {
+        } else if (outcome.closesPipeline()) {
             path.add(outcome.name());
         } else {
             path.add("IN_PROGRESS");

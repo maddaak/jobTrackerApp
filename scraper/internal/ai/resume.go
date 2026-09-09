@@ -23,8 +23,7 @@ func analyzeResume(ctx context.Context, text string) (resumeAnalysis, error) {
 		log.Printf("resume analysis: failed to parse claude response as JSON: %v; raw response: %s", err, textutil.Truncate(raw, 2000))
 		return analysis, errBadResponse
 	}
-	// "{}" unmarshals cleanly. Returning it would be stored with analysisStatus "ok", so the UI
-	// shows an analyzed resume with no summary and the recommender silently drops it from scoring.
+	// "{}" unmarshals cleanly, so returning it would store an "ok" resume with no summary.
 	if strings.TrimSpace(analysis.Summary) == "" {
 		log.Printf("resume analysis: claude returned no summary; raw response: %s", textutil.Truncate(raw, 2000))
 		return analysis, errBadResponse
@@ -55,8 +54,7 @@ func matchResume(ctx context.Context, req matchResumeRequest) (matchResult, erro
 		log.Printf("resume match: failed to parse claude response as JSON: %v; raw response: %s", err, textutil.Truncate(raw, 2000))
 		return result, errBadResponse
 	}
-	// bff and web type this as a union, but nothing enforced it: anything other than "APPLY"
-	// renders as "You should not apply", so an empty parse became a confident rejection.
+	// Anything other than "APPLY" renders as "You should not apply", so an empty parse became a confident rejection.
 	if !validRecommendations[result.Recommendation] {
 		log.Printf("resume match: claude returned recommendation %q; raw response: %s", result.Recommendation, textutil.Truncate(raw, 2000))
 		return result, errBadResponse

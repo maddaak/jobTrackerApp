@@ -14,8 +14,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// These constraints are the only thing stopping a direct API call from doing what the UI forbids,
-// so they are worth pinning independently of any controller.
+// The only thing stopping a direct API call from doing what the UI forbids, so pinned on their own.
 class RequestConstraintTests {
 
     private static Validator validator;
@@ -69,8 +68,7 @@ class RequestConstraintTests {
 
     @Test
     void analysisStatusRejectsWrongCaseAndUnknownValues() {
-        // "OK" stored fine before and then made the resume invisible to the recommender, because
-        // AnalysisStatus.OK.equals(...) is case-sensitive.
+        // AnalysisStatus.OK.equals is case-sensitive, so "OK" stored fine and then hid the resume.
         for (String rejected : List.of("OK", "Ok", "done", "")) {
             assertThat(validator.validate(new ApplyResumeAnalysisRequest("{}", rejected, "AI")))
                     .as("status %s", rejected)

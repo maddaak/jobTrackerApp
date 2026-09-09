@@ -8,6 +8,7 @@ export type InterviewType =
   | "TECHNICAL_CODE_REVIEW"
   | "HIRING_MANAGER_SCREEN"
   | "SYSTEM_DESIGN"
+  | "DATA_MODELING"
   | "BEHAVIOR"
   | "CULTURE_FIT"
   | "VALUES"
@@ -29,6 +30,7 @@ export const INTERVIEW_TYPES: InterviewType[] = [
   "TECHNICAL_CODE_REVIEW",
   "HIRING_MANAGER_SCREEN",
   "SYSTEM_DESIGN",
+  "DATA_MODELING",
   "BEHAVIOR",
   "CULTURE_FIT",
   "VALUES",
@@ -51,6 +53,7 @@ export const INTERVIEW_TYPE_LABELS: Record<InterviewType, string> = {
   TECHNICAL_CODE_REVIEW: "Technical Code Review",
   HIRING_MANAGER_SCREEN: "Hiring Manager Screen",
   SYSTEM_DESIGN: "System Design",
+  DATA_MODELING: "Data Modeling",
   BEHAVIOR: "Behavior",
   CULTURE_FIT: "Culture Fit",
   VALUES: "Values",

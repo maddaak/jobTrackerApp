@@ -56,8 +56,7 @@ export function resetUpdateCache(): void {
   cached = null;
 }
 
-// Fails closed: any problem reaching GitHub reports "no update known", never an error to the user.
-// The check is a convenience, so it must not make the app look broken when it can't run.
+// Fails closed: the check is a convenience, so a problem reaching GitHub must not look like a broken app.
 async function fetchLatestTag(now: number): Promise<string | null> {
   if (cached && now - cached.at < UPDATE_CACHE_MS) {
     return cached.latest;

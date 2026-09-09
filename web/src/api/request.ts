@@ -1,4 +1,3 @@
-// Shared fetch wrapper so error handling is identical across every api/*.ts call.
 // AuthContext listens for this and clears the user on 401, sending ProtectedRoute to /login.
 export const UNAUTHORIZED_EVENT = "auth:unauthorized";
 

@@ -5,8 +5,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
 });
 
-// A response whose body isn't JSON used to resolve to {} and be returned as T, so a caller
-// expecting an array crashed later on .map with an error that pointed nowhere near the cause.
+// A non-JSON body used to resolve to {} as T, so the caller crashed later on .map, far from the cause.
 function nonJsonResponse(status: number) {
   return { ok: status < 400, status, json: () => Promise.reject(new SyntaxError("Unexpected token <")) };
 }
@@ -64,8 +63,7 @@ describe("request", () => {
   });
 });
 
-// F72: getJobStages asserted the response shape through the cast, so a body missing stageEvents
-// put undefined into state and crashed JobDetailModal on .filter one render later.
+// F72: a body missing stageEvents put undefined into state and crashed the modal a render later.
 describe("getJobStages", () => {
   it("fails when the response has no stageEvents rather than returning undefined", async () => {
     const { getJobStages } = await import("../../src/api/jobsApi");

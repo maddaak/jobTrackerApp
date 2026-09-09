@@ -18,9 +18,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// The projection's two guarantees only hold at runtime, so they are asserted against a real Mongo
-// rather than reasoned about: F71 (the JD blobs stay behind) and F74 (what comes back is not a
-// JobDetail that could be saved with the projected-away fields nulled).
+// Against a real Mongo: the projection's guarantees (F71, F74) only hold at runtime, not on paper.
 @SpringBootTest
 class JobDetailProjectionTests {
 

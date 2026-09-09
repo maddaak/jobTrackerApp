@@ -5,13 +5,17 @@ import com.jobtracker.core.dto.JobDetailDocumentResponse;
 import com.jobtracker.core.dto.JobDetailResponse;
 import com.jobtracker.core.dto.JobSummaryResponse;
 import com.jobtracker.core.dto.ResumeRecommendationResponse;
+import com.jobtracker.core.dto.StageEventResponse;
 import com.jobtracker.core.dto.UpdateJobDetailRequest;
 import com.jobtracker.core.dto.UpdateJobRequest;
+import com.jobtracker.core.model.Stage;
 import com.jobtracker.core.service.JobDetailService;
 import com.jobtracker.core.service.JobService;
 import com.jobtracker.core.service.ResumeRecommenderService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -57,6 +61,14 @@ public class JobController {
     public Map<String, Boolean> delete(@RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id) {
         jobService.deleteJob(ownerId, id);
         return Map.of("deleted", true);
+    }
+
+    @DeleteMapping("/{id}/stages")
+    public List<StageEventResponse> deleteStageEvent(
+            @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant enteredAt,
+            @RequestParam(required = false) Stage stage) {
+        return jobService.deleteStageEvent(ownerId, id, enteredAt, stage);
     }
 
     @GetMapping("/{id}/detail")

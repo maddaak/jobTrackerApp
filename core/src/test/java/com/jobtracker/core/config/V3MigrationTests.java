@@ -19,9 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// This converts real user data on an upgrade, so it is tested against actual databases rather than
-// mocks: H2 for the relational side, an in-memory Mongo for the documents. The two cases that
-// matter most are opposites — convert a pre-v3 database faithfully, and leave a first install alone.
+// Real databases, not mocks: this converts real user data, and the two cases that matter are opposites.
 class V3MigrationTests {
 
     private DataSource freshDatabase() {

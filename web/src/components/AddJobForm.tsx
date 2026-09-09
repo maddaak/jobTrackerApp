@@ -48,14 +48,17 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
 
   const [pastedJdText, setPastedJdText] = useState("");
   const [matching, setMatching] = useState(false);
+  // The pasted JD is the source for the fields below it, so they stay out of reach while it reads.
+  const [readingPastedJd, setReadingPastedJd] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   // "skipped" (expected) vs "fetch_failed" (a problem) sets the manual-paste box's tone.
   const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | "insufficient_jd" | null>(null);
   // Why the scrape came back empty, so the paste box can say it instead of a second banner repeating it.
   const [scrapeReason, setScrapeReason] = useState<ScrapeFailureReason | null>(null);
 
-  async function runMatch(jobDescriptionText: string) {
+  async function runMatch(jobDescriptionText: string, fromPaste = false) {
     setMatching(true);
+    setReadingPastedJd(fromPaste);
     setMatchResult(null);
     try {
       const result = await matchResumeToJob(jobDescriptionText);
@@ -69,6 +72,7 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
       setMatchResult({ status: "unavailable" });
     } finally {
       setMatching(false);
+      setReadingPastedJd(false);
     }
   }
 
@@ -89,8 +93,7 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
       if (result.compMax != null) setCompMax(String(result.compMax));
       setScrapedRaw(result.raw);
       raw = result.raw;
-      // The scraper says why, so a dead link no longer reads like a page with no description.
-      // Held as the reason rather than an error banner: the paste box below states it once.
+      // Held as a reason rather than an error banner: the paste box below states it once.
       reason = result.reason;
       setScrapeReason(result.reason ?? null);
     } catch (err) {
@@ -146,9 +149,11 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
       });
       // Name only, so Job Details can show which resume was recommended.
       const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
-      if (scrapedRaw) {
+      // A pasted JD is the one we could not fetch, so it is the description this job has.
+      const jdText = scrapedRaw || pastedJdText;
+      if (jdText) {
         // Seed the Job Detail JD text so nothing needs re-pasting later.
-        updateJobDetail(job.id, { jdText: scrapedRaw, interviewNotes: "", recommendedResume })
+        updateJobDetail(job.id, { jdText, interviewNotes: "", recommendedResume })
           .catch(() => onWarning(ATTACH_FAILED));
       } else if (url) {
         // URL entered without a Fetch: background scrape to populate the JD text.
@@ -254,68 +259,78 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
           matchResult={matchResult}
           pastedJdText={pastedJdText}
           onPastedJdTextChange={setPastedJdText}
-          onGetRecommendation={() => runMatch(pastedJdText)}
+          onGetRecommendation={() => runMatch(pastedJdText, true)}
           onGetRecommendationFromScrape={() => runMatch(scrapedRaw)}
         />
       )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="company" className={labelClass}>Company</label>
-          <input id="company" className={inputClass} value={company} onChange={e => setCompany(e.target.value)} required />
+      <fieldset disabled={readingPastedJd} className="relative space-y-4 border-0 p-0">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="company" className={labelClass}>Company</label>
+            <input id="company" className={inputClass} value={company} onChange={e => setCompany(e.target.value)} required />
+          </div>
+          <div>
+            <label htmlFor="role" className={labelClass}>Role</label>
+            <input id="role" className={inputClass} value={role} onChange={e => setRole(e.target.value)} required />
+          </div>
+          <div>
+            <label htmlFor="sourceCategory" className={labelClass}>Source</label>
+            <select
+              id="sourceCategory"
+              className={inputClass}
+              value={sourceCategory}
+              onChange={e => setSourceCategory(e.target.value as SourceCategory)}
+            >
+              {SOURCE_CATEGORIES.map(category => (
+                <option key={category} value={category}>{SOURCE_CATEGORY_LABELS[category]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="location" className={labelClass}>Location</label>
+            <select id="location" className={inputClass} value={location} onChange={e => setLocation(e.target.value as Location | "")}>
+              <option value="">Not set</option>
+              {LOCATIONS.map(loc => (
+                <option key={loc.value} value={loc.value}>{loc.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label htmlFor="url-form" className={labelClass}>Job Posting Link</label>
+            <input id="url-form" className={inputClass} value={url} onChange={e => setUrl(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="compMin" className={labelClass}>Comp min</label>
+            <input id="compMin" type="number" className={inputClass} value={compMin} onChange={e => setCompMin(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="compMax" className={labelClass}>Comp max</label>
+            <input id="compMax" type="number" className={inputClass} value={compMax} onChange={e => setCompMax(e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label htmlFor="notes" className={labelClass}>Notes</label>
+            <input id="notes" className={inputClass} value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
         </div>
-        <div>
-          <label htmlFor="role" className={labelClass}>Role</label>
-          <input id="role" className={inputClass} value={role} onChange={e => setRole(e.target.value)} required />
-        </div>
-        <div>
-          <label htmlFor="sourceCategory" className={labelClass}>Source</label>
-          <select
-            id="sourceCategory"
-            className={inputClass}
-            value={sourceCategory}
-            onChange={e => setSourceCategory(e.target.value as SourceCategory)}
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {SOURCE_CATEGORIES.map(category => (
-              <option key={category} value={category}>{SOURCE_CATEGORY_LABELS[category]}</option>
-            ))}
-          </select>
+            {submitting ? "Adding…" : "Add job"}
+          </button>
         </div>
-        <div>
-          <label htmlFor="location" className={labelClass}>Location</label>
-          <select id="location" className={inputClass} value={location} onChange={e => setLocation(e.target.value as Location | "")}>
-            <option value="">Not set</option>
-            {LOCATIONS.map(loc => (
-              <option key={loc.value} value={loc.value}>{loc.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label htmlFor="url-form" className={labelClass}>Job Posting Link</label>
-          <input id="url-form" className={inputClass} value={url} onChange={e => setUrl(e.target.value)} />
-        </div>
-        <div>
-          <label htmlFor="compMin" className={labelClass}>Comp min</label>
-          <input id="compMin" type="number" className={inputClass} value={compMin} onChange={e => setCompMin(e.target.value)} />
-        </div>
-        <div>
-          <label htmlFor="compMax" className={labelClass}>Comp max</label>
-          <input id="compMax" type="number" className={inputClass} value={compMax} onChange={e => setCompMax(e.target.value)} />
-        </div>
-        <div className="col-span-2">
-          <label htmlFor="notes" className={labelClass}>Notes</label>
-          <input id="notes" className={inputClass} value={notes} onChange={e => setNotes(e.target.value)} />
-        </div>
-      </div>
-      <div className="flex justify-end">
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {submitting ? "Adding…" : "Add job"}
-        </button>
-      </div>
+        {readingPastedJd && (
+          <div
+            role="status"
+            className="absolute inset-0 flex items-start justify-center bg-white/70 pt-6 text-sm text-neutral-600 dark:bg-neutral-900/70 dark:text-neutral-300"
+          >
+            Reading the job description…
+          </div>
+        )}
+      </fieldset>
     </form>
   );
 }

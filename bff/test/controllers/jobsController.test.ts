@@ -249,6 +249,124 @@ describe("PUT /jobs/:id/detail", () => {
   });
 });
 
+describe("DELETE /jobs/:id/stages", () => {
+  it("returns 401 with no auth cookie", async () => {
+    const res = await request(app).delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z");
+    expect(res.status).toBe(401);
+  });
+
+  it("forwards enteredAt and stage to core and returns the remaining stage events", async () => {
+    const events = [{ stage: "RESUME_CHECK", enteredAt: "2026-08-25T23:00:00Z", note: null }];
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, events));
+
+    const res = await request(app)
+      .delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z&stage=INTERVIEW_STAGE")
+      .set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(events);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/jobs/1/stages?enteredAt=2026-08-26T20%3A24%3A30Z&stage=INTERVIEW_STAGE"),
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "X-User-Id": "42" }),
+      }),
+    );
+  });
+
+  it("returns 400 for a malformed enteredAt without calling core", async () => {
+    const res = await request(app)
+      .delete("/jobs/1/stages?enteredAt=yesterday&stage=RESUME_CHECK")
+      .set("Cookie", authCookie());
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when enteredAt is missing entirely", async () => {
+    const res = await request(app).delete("/jobs/1/stages?stage=RESUME_CHECK").set("Cookie", authCookie());
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a stage that isn't an enum name, without calling core", async () => {
+    const res = await request(app)
+      .delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z&stage=../../admin")
+      .set("Cookie", authCookie());
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /jobs/:id/links", () => {
+  const links = [{ jobId: 2, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }];
+
+  it("returns 401 with no auth cookie", async () => {
+    const res = await request(app).post("/jobs/1/links").send({ targetJobId: 2, relation: "REPLACED_BY" });
+    expect(res.status).toBe(401);
+  });
+
+  it("forwards the link body and returns the job's links", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, links));
+
+    const body = { targetJobId: 2, relation: "REPLACED_BY" };
+    const res = await request(app).post("/jobs/1/links").set("Cookie", authCookie("42")).send(body);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(links);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/jobs/1/links"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-User-Id": "42" }),
+        body: JSON.stringify(body),
+      }),
+    );
+  });
+
+  it("proxies core's 400 through unchanged when the target is the job itself", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeCoreResponse(400, { error: "a job cannot be linked to itself" }),
+    );
+
+    const res = await request(app)
+      .post("/jobs/1/links")
+      .set("Cookie", authCookie())
+      .send({ targetJobId: 1, relation: "RELATED" });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "a job cannot be linked to itself" });
+  });
+});
+
+describe("DELETE /jobs/:id/links/:targetId", () => {
+  it("returns 401 with no auth cookie", async () => {
+    const res = await request(app).delete("/jobs/1/links/2");
+    expect(res.status).toBe(401);
+  });
+
+  it("forwards the caller's id and returns the remaining links", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, []));
+
+    const res = await request(app).delete("/jobs/1/links/2").set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/jobs/1/links/2"),
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "X-User-Id": "42" }),
+      }),
+    );
+  });
+
+  it("returns 400 for a non-numeric target id without calling core", async () => {
+    const res = await request(app).delete("/jobs/1/links/..%2Fadmin").set("Cookie", authCookie());
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /jobs/:id/resume-recommendation", () => {
   const rulesRecommendation = {
     recommendedVariantId: "base",

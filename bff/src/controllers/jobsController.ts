@@ -8,6 +8,9 @@ import {
   getJobDetail,
   updateJobDetail,
   getResumeRecommendation,
+  linkJob,
+  unlinkJob,
+  deleteJobStage,
 } from "../services/jobsClient.js";
 import { recommendResumeVariant } from "../services/scraperAnalysisClient.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
@@ -50,6 +53,40 @@ export async function getDetail(req: AuthedRequest, res: Response) {
 export async function updateDetail(req: AuthedRequest, res: Response) {
   const jobId = req.params.id as string;
   const result = await updateJobDetail(req.userId!, jobId, req.body ?? {});
+  sendUpstream(res, result);
+}
+
+// Both reach an upstream URL, so they must match a fixed shape first.
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
+const ENUM_NAME = /^[A-Z_]{1,40}$/;
+
+export async function removeStage(req: AuthedRequest, res: Response) {
+  const jobId = req.params.id as string;
+  const enteredAt = req.query.enteredAt;
+  if (typeof enteredAt !== "string" || !ISO_INSTANT.test(enteredAt)) {
+    res.status(400).json({ error: "invalid enteredAt" });
+    return;
+  }
+  // Two entries can share a millisecond, so the stage says which of them the row stands for.
+  const stage = req.query.stage;
+  if (typeof stage !== "string" || !ENUM_NAME.test(stage)) {
+    res.status(400).json({ error: "invalid stage" });
+    return;
+  }
+  const result = await deleteJobStage(req.userId!, jobId, enteredAt, stage);
+  sendUpstream(res, result);
+}
+
+export async function addLink(req: AuthedRequest, res: Response) {
+  const jobId = req.params.id as string;
+  const result = await linkJob(req.userId!, jobId, req.body ?? {});
+  sendUpstream(res, result);
+}
+
+export async function removeLink(req: AuthedRequest, res: Response) {
+  const jobId = req.params.id as string;
+  const targetJobId = req.params.targetId as string;
+  const result = await unlinkJob(req.userId!, jobId, targetJobId);
   sendUpstream(res, result);
 }
 

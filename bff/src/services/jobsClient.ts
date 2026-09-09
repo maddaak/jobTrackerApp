@@ -21,9 +21,19 @@ export type Outcome =
   | "OFFER_DECLINED"
   | "REJECTED"
   | "GHOSTED"
-  | "WITHDRAWN";
+  | "WITHDRAWN"
+  | "POSITION_CLOSED";
 
 export type Location = "REMOTE" | "NYC_IN_PERSON" | "NYC_HYBRID";
+
+export type JobRelation = "REPLACED_BY" | "REPLACES" | "RELATED";
+
+export interface JobLinkData {
+  jobId: number;
+  company: string;
+  role: string;
+  relation: JobRelation;
+}
 
 export interface StageEventData {
   stage: Stage;
@@ -54,6 +64,7 @@ export interface JobSummaryData {
   compMax: number | null;
   createdAt: string;
   latestInterview: LatestInterviewSummaryData | null;
+  links: JobLinkData[];
 }
 
 export interface JobDetailData extends JobSummaryData {
@@ -107,6 +118,14 @@ export function deleteJob(userId: string, jobId: string) {
   });
 }
 
+export function deleteJobStage(userId: string, jobId: string, enteredAt: string, stage: string) {
+  return callCore<StageEventData[] & Partial<ErrorResponseData>>(
+    `/jobs/${encodeURIComponent(jobId)}/stages`
+      + `?enteredAt=${encodeURIComponent(enteredAt)}&stage=${encodeURIComponent(stage)}`,
+    { method: "DELETE", userId },
+  );
+}
+
 export interface JobDetailDocumentData {
   jobId: number;
   jdText: string;
@@ -114,6 +133,7 @@ export interface JobDetailDocumentData {
   recommendedResume: string | null;
   notes: string | null;
   rejectedReason: string | null;
+  links: JobLinkData[];
 }
 
 export interface UpdateJobDetailData {
@@ -132,6 +152,24 @@ export function updateJobDetail(userId: string, jobId: string, patch: UpdateJobD
   return callCore<JobDetailDocumentData & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}/detail`, {
     method: "PUT", userId, body: patch,
   });
+}
+
+export interface CreateJobLinkData {
+  targetJobId: number;
+  relation: JobRelation;
+}
+
+export function linkJob(userId: string, jobId: string, body: CreateJobLinkData) {
+  return callCore<JobLinkData[] & Partial<ErrorResponseData>>(`/jobs/${encodeURIComponent(jobId)}/links`, {
+    method: "POST", userId, body,
+  });
+}
+
+export function unlinkJob(userId: string, jobId: string, targetJobId: string) {
+  return callCore<JobLinkData[] & Partial<ErrorResponseData>>(
+    `/jobs/${encodeURIComponent(jobId)}/links/${encodeURIComponent(targetJobId)}`,
+    { method: "DELETE", userId },
+  );
 }
 
 export interface ResumeVariantSummaryData {

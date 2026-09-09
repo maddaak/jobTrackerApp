@@ -10,32 +10,35 @@ import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import java.util.List;
 
 @Service
 public class JobDetailService {
 
     private final JobRepository jobs;
     private final JobDetailRepository jobDetails;
+    private final JobLinkService jobLinkService;
 
-    public JobDetailService(JobRepository jobs, JobDetailRepository jobDetails) {
+    public JobDetailService(JobRepository jobs, JobDetailRepository jobDetails, JobLinkService jobLinkService) {
         this.jobs = jobs;
         this.jobDetails = jobDetails;
+        this.jobLinkService = jobLinkService;
     }
 
     public JobDetailDocumentResponse getDetail(Long ownerId, Long jobId) {
         requireOwnedJob(ownerId, jobId);
-        return loadDetail(jobId);
+        return loadDetail(ownerId, jobId);
     }
 
     // Skips the ownership query when the caller already holds an ownership-checked job.
     public JobDetailDocumentResponse getDetail(Job ownedJob) {
-        return loadDetail(ownedJob.getId());
+        return loadDetail(ownedJob.getOwner().getId(), ownedJob.getId());
     }
 
-    private JobDetailDocumentResponse loadDetail(Long jobId) {
+    private JobDetailDocumentResponse loadDetail(Long ownerId, Long jobId) {
         return jobDetails.findByJobId(jobId)
-                .map(this::toResponse)
-                .orElse(new JobDetailDocumentResponse(jobId, "", "", null, null, null));
+                .map(detail -> toResponse(ownerId, detail))
+                .orElse(new JobDetailDocumentResponse(jobId, "", "", null, null, null, List.of()));
     }
 
     // Created with the job so every job has a document for its stage history from the start.
@@ -48,10 +51,10 @@ public class JobDetailService {
     public JobDetailDocumentResponse updateDetail(Long ownerId, Long jobId, UpdateJobDetailRequest request) {
         Job job = requireOwnedJob(ownerId, jobId);
         try {
-            return toResponse(saveDetail(job, request));
+            return toResponse(ownerId, saveDetail(job, request));
         } catch (DuplicateKeyException race) {
             // Lost a first-save race on the jobId unique index; retry against the now-existing doc.
-            return toResponse(saveDetail(job, request));
+            return toResponse(ownerId, saveDetail(job, request));
         }
     }
 
@@ -82,9 +85,10 @@ public class JobDetailService {
         return jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
     }
 
-    private JobDetailDocumentResponse toResponse(JobDetail detail) {
+    private JobDetailDocumentResponse toResponse(Long ownerId, JobDetail detail) {
         return new JobDetailDocumentResponse(
                 detail.getJobId(), Gzip.decompress(detail.getJdTextCompressed()), detail.getInterviewNotes(),
-                detail.getRecommendedResume(), detail.getNotes(), detail.getRejectedReason());
+                detail.getRecommendedResume(), detail.getNotes(), detail.getRejectedReason(),
+                jobLinkService.resolve(ownerId, detail.getRelatedJobs()));
     }
 }

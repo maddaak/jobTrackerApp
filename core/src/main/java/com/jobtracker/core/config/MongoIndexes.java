@@ -1,6 +1,7 @@
 package com.jobtracker.core.config;
 
 import com.jobtracker.core.model.JobDetail;
+import com.jobtracker.core.model.JobImage;
 import com.jobtracker.core.model.Resume;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,8 +13,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.stereotype.Component;
 
-// Spring Data defaults autoIndexCreation to false, so @Indexed alone builds nothing.
-// Off in tests, where the Mongo driver connects lazily and is never reached.
+// Spring Data defaults autoIndexCreation to false, so @Indexed alone builds nothing. Off in tests.
 @Component
 @ConditionalOnProperty(name = "app.ensure-mongo-indexes", matchIfMissing = true)
 public class MongoIndexes {
@@ -26,9 +26,7 @@ public class MongoIndexes {
         this.mongo = mongo;
     }
 
-    // Failing here would make Mongo a hard boot dependency, so it is caught. But the app then runs
-    // without the unique jobId index, which is what stops two documents describing one job, so the
-    // failure is reported on /health rather than living only in a log line nobody reads.
+    // Caught so Mongo isn't a hard boot dependency; /health reports it, since the unique jobId index is load-bearing.
     private volatile boolean ready;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -51,5 +49,8 @@ public class MongoIndexes {
         // Round lookups for update/delete go through this rather than scanning the owner's documents.
         mongo.indexOps(JobDetail.class).createIndex(new Index().on("interviews.roundId", Sort.Direction.ASC));
         mongo.indexOps(Resume.class).createIndex(new Index().on("ownerId", Sort.Direction.ASC));
+        // Listing a job's attachments and the delete cascade both go through jobId.
+        mongo.indexOps(JobImage.class).createIndex(new Index().on("jobId", Sort.Direction.ASC));
+        mongo.indexOps(JobImage.class).createIndex(new Index().on("ownerId", Sort.Direction.ASC));
     }
 }

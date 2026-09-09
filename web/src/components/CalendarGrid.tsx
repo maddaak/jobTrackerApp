@@ -22,6 +22,10 @@ function isSameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 export interface CalendarGridProps {
   interviews: Interview[];
   month: Date;
@@ -48,7 +52,9 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
         </div>
       ))}
       {days.map(day => {
-        const dayInterviews = interviews.filter(interview => isSameDay(new Date(interview.interviewDateTime), day));
+        const dayInterviews = interviews
+          .filter(interview => isSameDay(new Date(interview.interviewDateTime), day))
+          .sort((a, b) => new Date(a.interviewDateTime).getTime() - new Date(b.interviewDateTime).getTime());
         const inMonth = isSameMonth(day, month);
         return (
           <div
@@ -81,8 +87,8 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
                   }}
                   className="truncate rounded bg-blue-100 px-1 py-0.5 text-left text-xs text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
                 >
-                  {interview.company}
-                  {interview.interviewType && ` · ${INTERVIEW_TYPE_LABELS[interview.interviewType]}`}
+                  {formatTime(interview.interviewDateTime)} · {interview.company}
+                  {interview.interviewType && ` - ${INTERVIEW_TYPE_LABELS[interview.interviewType]}`}
                 </button>
               ))}
             </div>

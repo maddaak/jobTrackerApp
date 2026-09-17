@@ -167,7 +167,7 @@ class StageDeletionMetricsTests {
     @Test
     void aDeletedStageDoesNotRemoveInterviewRoundsFromTheSankey() {
         givenJobWithMisclick(Stage.INTERVIEW_STAGE, Outcome.ACTIVE);
-        detail.addInterview(new InterviewRound(Instant.parse("2026-08-26T20:24:40Z"),
+        detail.addInterview(new InterviewRound(Instant.parse("2026-08-26T20:24:40Z"), null,
                 InterviewType.SYSTEM_DESIGN, null, null, List.of()));
 
         jobService.deleteStageEvent(OWNER, JOB_ID, MISCLICK_AT, Stage.INTERVIEW_STAGE);

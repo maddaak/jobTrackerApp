@@ -41,6 +41,7 @@ const jobs: JobSummary[] = [
     latestInterview: {
       roundId: "round-99",
       interviewDateTime: "2026-08-14T18:00:00.000Z",
+      interviewEndDateTime: null,
       interviewType: "SYSTEM_DESIGN",
       roundCount: 1,
       meetingLink: null,
@@ -463,6 +464,25 @@ describe("JobsTable", () => {
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(screen.queryByLabelText("Interview date and time")).not.toBeInTheDocument();
+  });
+
+  it("sends the end time the inline editor filled in from the start", async () => {
+    render(<JobsTable jobs={jobs} onSaved={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("+ Add interview"));
+    fireEvent.change(screen.getByLabelText("Interview date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Interview type"), { target: { value: "SYSTEM_DESIGN" } });
+    // The editor defaults it to an hour out, so the cramped cell needs no second entry step.
+    expect(screen.getByLabelText("Interview end time")).toHaveValue("2026-08-20T15:00");
+
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-101" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith("/interviews", expect.objectContaining({ method: "POST" })),
+    );
+    const body = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1].body);
+    expect(body.interviewEndDateTime).toBe(new Date("2026-08-20T15:00").toISOString());
   });
 
   it("blocks saving an interview with no date or type instead of discarding it", () => {

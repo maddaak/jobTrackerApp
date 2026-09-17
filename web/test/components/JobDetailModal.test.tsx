@@ -132,12 +132,14 @@ describe("JobDetailModal", () => {
         {
           roundId: "round-11", jobId: 5, company: "Acme", role: "Backend",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-01T18:00:00.000Z",
+          interviewEndDateTime: "2026-08-01T19:00:00.000Z",
           interviewType: "SYSTEM_DESIGN", meetingLink: null, location: null,
           interviewers: [{ name: "Jane Doe", linkedInUrl: null }],
         },
         {
           roundId: "round-22", jobId: 99, company: "Other", role: "X",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-02T18:00:00.000Z",
+          interviewEndDateTime: null,
           interviewType: "BEHAVIOR", meetingLink: null, location: null, interviewers: [],
         },
       ]),

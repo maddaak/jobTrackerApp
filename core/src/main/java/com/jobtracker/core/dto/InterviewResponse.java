@@ -12,6 +12,7 @@ public record InterviewResponse(
         String role,
         Stage stage,
         Instant interviewDateTime,
+        Instant interviewEndDateTime,
         InterviewType interviewType,
         String meetingLink,
         String location,

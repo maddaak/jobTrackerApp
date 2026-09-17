@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { safeHref } from "../safeHref";
 import { useInterviewerDraft } from "../hooks/useInterviewerDraft";
+import { endFollowingStart } from "../interviewTimes";
 import {
   googleMapsUrl,
   INTERVIEW_TYPES,
@@ -11,6 +12,7 @@ import {
 
 export interface InlineInterviewDraft {
   interviewDateTime: string;
+  interviewEndDateTime: string;
   interviewType: InterviewType | "";
   meetingLink: string;
   location: string;
@@ -27,6 +29,7 @@ interface InlineInterviewEditorProps {
 // Owns draft state so typing re-renders only this editor, not the whole table.
 export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: InlineInterviewEditorProps) {
   const [interviewDateTime, setInterviewDateTime] = useState("");
+  const [interviewEndDateTime, setInterviewEndDateTime] = useState("");
   const [interviewType, setInterviewType] = useState<InterviewType | "">("");
   const [meetingLink, setMeetingLink] = useState("");
   const [location, setLocation] = useState("");
@@ -40,6 +43,7 @@ export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: 
     if (missingRequired) return;
     onSave({
       interviewDateTime,
+      interviewEndDateTime,
       interviewType,
       meetingLink,
       location,
@@ -55,7 +59,18 @@ export default function InlineInterviewEditor({ inputClass, onSave, onCancel }: 
         autoFocus
         className={inputClass}
         value={interviewDateTime}
-        onChange={e => setInterviewDateTime(e.target.value)}
+        onChange={e => {
+          setInterviewEndDateTime(endFollowingStart(e.target.value, interviewDateTime, interviewEndDateTime));
+          setInterviewDateTime(e.target.value);
+        }}
+      />
+      <input
+        aria-label="Interview end time"
+        type="datetime-local"
+        className={inputClass}
+        value={interviewEndDateTime}
+        min={interviewDateTime}
+        onChange={e => setInterviewEndDateTime(e.target.value)}
       />
       <select
         aria-label="Interview type"

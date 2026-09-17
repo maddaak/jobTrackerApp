@@ -101,6 +101,7 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
 export interface LatestInterviewSummary {
   roundId: string;
   interviewDateTime: string;
+  interviewEndDateTime: string | null;
   interviewType: InterviewType | null;
   roundCount: number;
   meetingLink: string | null;

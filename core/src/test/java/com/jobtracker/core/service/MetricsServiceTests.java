@@ -85,7 +85,7 @@ class MetricsServiceTests {
 
     // Explicit interviewDateTime lets a test drive the data-driven Sankey order via timestamps.
     private InterviewRound round(InterviewType type, Instant interviewDateTime) {
-        return new InterviewRound(interviewDateTime, type, null, null, List.of());
+        return new InterviewRound(interviewDateTime, null, type, null, null, List.of());
     }
 
     @Test

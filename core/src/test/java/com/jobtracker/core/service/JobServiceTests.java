@@ -231,8 +231,8 @@ class JobServiceTests {
 
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
         JobDetail detail = new JobDetail(1L, 2L, new byte[0], "");
-        detail.addInterview(new InterviewRound(base, InterviewType.SYSTEM_DESIGN, null, null, List.of()));
-        detail.addInterview(new InterviewRound(base.plusSeconds(3600), InterviewType.BEHAVIOR, null, null,
+        detail.addInterview(new InterviewRound(base, null, InterviewType.SYSTEM_DESIGN, null, null, List.of()));
+        detail.addInterview(new InterviewRound(base.plusSeconds(3600), null, InterviewType.BEHAVIOR, null, null,
                 List.of(new Interviewer("Jordan Lee", null))));
         when(jobDetailRepo.findJourneysByOwnerId(2L)).thenReturn(List.of(journey(detail)));
 

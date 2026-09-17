@@ -165,7 +165,8 @@ public class JobService {
         return rounds.stream()
                 .max(Comparator.comparing(InterviewRound::getInterviewDateTime))
                 .map(round -> new LatestInterviewSummary(round.getRoundId(), round.getInterviewDateTime(),
-                        round.getInterviewType(), rounds.size(), round.getMeetingLink(), round.getLocation(),
+                        round.getInterviewEndDateTime(), round.getInterviewType(), rounds.size(),
+                        round.getMeetingLink(), round.getLocation(),
                         round.getInterviewers().stream()
                                 .map(i -> new InterviewerResponse(i.getName(), i.getLinkedInUrl()))
                                 .toList()))

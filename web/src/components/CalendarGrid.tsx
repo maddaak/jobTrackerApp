@@ -1,3 +1,4 @@
+import { formatTimeRange } from "../interviewTimes";
 import { INTERVIEW_TYPE_LABELS, type Interview } from "../api/interviewsApi";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -20,10 +21,6 @@ function isSameDay(a: Date, b: Date): boolean {
 
 function isSameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 export interface CalendarGridProps {
@@ -87,7 +84,7 @@ export default function CalendarGrid({ interviews, month, onSelectDay, onSelectI
                   }}
                   className="truncate rounded bg-blue-100 px-1 py-0.5 text-left text-xs text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
                 >
-                  {formatTime(interview.interviewDateTime)} · {interview.company}
+                  {formatTimeRange(interview.interviewDateTime, interview.interviewEndDateTime)} · {interview.company}
                   {interview.interviewType && ` - ${INTERVIEW_TYPE_LABELS[interview.interviewType]}`}
                 </button>
               ))}

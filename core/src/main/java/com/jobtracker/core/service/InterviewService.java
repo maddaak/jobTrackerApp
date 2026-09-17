@@ -41,8 +41,9 @@ public class InterviewService {
         JobDetail detail = jobDetails.findByJobIdAndOwnerId(job.getId(), ownerId)
                 .orElseThrow(JobNotFoundException::new);
 
-        InterviewRound round = new InterviewRound(request.interviewDateTime(), request.interviewType(),
-                request.meetingLink(), request.location(), toInterviewers(request.interviewers()));
+        InterviewRound round = new InterviewRound(request.interviewDateTime(), request.interviewEndDateTime(),
+                request.interviewType(), request.meetingLink(), request.location(),
+                toInterviewers(request.interviewers()));
         detail.addInterview(round);
 
         // Postgres first: a failed second write costs a history entry, not a wrong stage in the grid.
@@ -57,8 +58,8 @@ public class InterviewService {
                 .orElseThrow(JobNotFoundException::new);
 
         InterviewRound round = detail.findInterview(roundId);
-        round.apply(request.interviewDateTime(), request.interviewType(), request.meetingLink(),
-                request.location(), toInterviewers(request.interviewers()));
+        round.apply(request.interviewDateTime(), request.interviewEndDateTime(), request.interviewType(),
+                request.meetingLink(), request.location(), toInterviewers(request.interviewers()));
         jobDetails.save(detail);
 
         Job job = jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).orElseThrow(JobNotFoundException::new);
@@ -112,7 +113,8 @@ public class InterviewService {
     private InterviewResponse toResponse(InterviewRound round, Job job) {
         return new InterviewResponse(
                 round.getRoundId(), job.getId(), job.getCompany(), job.getRole(), job.getCurrentStage(),
-                round.getInterviewDateTime(), round.getInterviewType(), round.getMeetingLink(),
+                round.getInterviewDateTime(), round.getInterviewEndDateTime(), round.getInterviewType(),
+                round.getMeetingLink(),
                 round.getLocation(), toInterviewerResponses(round.getInterviewers()));
     }
 

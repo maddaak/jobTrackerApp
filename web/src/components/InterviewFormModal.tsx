@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import Modal from "./Modal";
 import { safeHref } from "../safeHref";
+import { DEFAULT_LENGTH_MS, endFollowingStart, toDatetimeLocalValue } from "../interviewTimes";
 import { useInterviewerDraft } from "../hooks/useInterviewerDraft";
 import { listJobs, type JobSummary } from "../api/jobsApi";
 import {
@@ -30,16 +31,13 @@ const inputClass =
   "w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
 const labelClass = "mb-1 block text-sm font-medium";
 
-function toDatetimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }: InterviewFormModalProps) {
   const onCalendarPage = useLocation().pathname === "/calendar";
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [jobId, setJobId] = useState<number | "">("");
   const [interviewDateTime, setInterviewDateTime] = useState("");
+  const [interviewEndDateTime, setInterviewEndDateTime] = useState("");
   const [interviewType, setInterviewType] = useState<InterviewType | "">("");
   const [meetingLink, setMeetingLink] = useState("");
   const [location, setLocation] = useState("");
@@ -67,12 +65,19 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         });
       setJobId("");
       setInterviewDateTime(toDatetimeLocalValue(mode.date));
+      setInterviewEndDateTime(toDatetimeLocalValue(new Date(mode.date.getTime() + DEFAULT_LENGTH_MS)));
       setInterviewType("");
       setMeetingLink("");
       setLocation("");
       setInterviewers([]);
     } else {
       setInterviewDateTime(toDatetimeLocalValue(new Date(mode.interview.interviewDateTime)));
+      // Blank for a round saved before end times existed, rather than inventing a length.
+      setInterviewEndDateTime(
+        mode.interview.interviewEndDateTime
+          ? toDatetimeLocalValue(new Date(mode.interview.interviewEndDateTime))
+          : "",
+      );
       setInterviewType(mode.interview.interviewType ?? "");
       setMeetingLink(mode.interview.meetingLink ?? "");
       setLocation(mode.interview.location ?? "");
@@ -103,6 +108,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
           jobId,
           stage: "INTERVIEW_STAGE",
           interviewDateTime: new Date(interviewDateTime).toISOString(),
+          interviewEndDateTime: interviewEndDateTime ? new Date(interviewEndDateTime).toISOString() : undefined,
           interviewType,
           meetingLink: meetingLink || undefined,
           location: location || undefined,
@@ -114,6 +120,7 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
         }
         await updateInterview(mode.interview.roundId, {
           interviewDateTime: new Date(interviewDateTime).toISOString(),
+          interviewEndDateTime: interviewEndDateTime ? new Date(interviewEndDateTime).toISOString() : null,
           interviewType,
           meetingLink: meetingLink || null,
           location: location || null,
@@ -179,8 +186,24 @@ export default function InterviewFormModal({ mode, onClose, onSaved, onDeleted }
             type="datetime-local"
             className={inputClass}
             value={interviewDateTime}
-            onChange={e => setInterviewDateTime(e.target.value)}
+            onChange={e => {
+              setInterviewEndDateTime(endFollowingStart(e.target.value, interviewDateTime, interviewEndDateTime));
+              setInterviewDateTime(e.target.value);
+            }}
             required
+          />
+        </div>
+
+        <div>
+          <label htmlFor="interview-end-datetime" className={labelClass}>Ends at</label>
+          <input
+            id="interview-end-datetime"
+            type="datetime-local"
+            className={inputClass}
+            value={interviewEndDateTime}
+            // The browser refuses an earlier end, so core's rule is met before the request is made.
+            min={interviewDateTime}
+            onChange={e => setInterviewEndDateTime(e.target.value)}
           />
         </div>
 

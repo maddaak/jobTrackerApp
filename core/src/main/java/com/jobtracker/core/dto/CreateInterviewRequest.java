@@ -12,6 +12,8 @@ public record CreateInterviewRequest(
         // createInterview advances the job, so an unconstrained stage lets a POST jump the pipeline.
         @NotNull @InterviewStage Stage stage,
         @NotNull Instant interviewDateTime,
+        // Optional: the length is not always known when the round is booked.
+        Instant interviewEndDateTime,
         @NotNull InterviewType interviewType,
         String meetingLink,
         String location,

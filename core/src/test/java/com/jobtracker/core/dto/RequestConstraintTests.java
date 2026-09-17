@@ -27,7 +27,7 @@ class RequestConstraintTests {
     }
 
     private CreateInterviewRequest interviewAt(Stage stage) {
-        return new CreateInterviewRequest(1L, stage, Instant.parse("2026-08-01T18:00:00Z"),
+        return new CreateInterviewRequest(1L, stage, Instant.parse("2026-08-01T18:00:00Z"), null,
                 InterviewType.SYSTEM_DESIGN, null, null, List.of());
     }
 
@@ -51,10 +51,10 @@ class RequestConstraintTests {
     @Test
     void interviewTypeIsRequiredOnCreateAndUpdate() {
         var create = new CreateInterviewRequest(1L, Stage.INTERVIEW_STAGE,
-                Instant.parse("2026-08-01T18:00:00Z"), null, null, null, List.of());
+                Instant.parse("2026-08-01T18:00:00Z"), null, null, null, null, List.of());
         assertThat(validator.validate(create)).isNotEmpty();
 
-        var update = new UpdateInterviewRequest(Instant.parse("2026-08-01T18:00:00Z"), null, null, null, List.of());
+        var update = new UpdateInterviewRequest(Instant.parse("2026-08-01T18:00:00Z"), null, null, null, null, List.of());
         assertThat(validator.validate(update)).isNotEmpty();
     }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Modal from "./Modal";
 import JobImageAttachments from "./JobImageAttachments";
+import { formatFullDateTimeRange } from "../interviewTimes";
 import { safeHref } from "../safeHref";
 import {
   getJobDetail,
@@ -240,7 +241,7 @@ export default function JobDetailModal({ job, allJobs, onClose, onSaved }: JobDe
                     className="rounded border border-neutral-200 px-2 py-1 dark:border-neutral-700"
                   >
                     <span className="font-medium">Round {i + 1}:</span>{" "}
-                    {formatRoundDateTime(round.interviewDateTime)}
+                    {formatFullDateTimeRange(round.interviewDateTime, round.interviewEndDateTime)}
                     {round.interviewType && ` · ${INTERVIEW_TYPE_LABELS[round.interviewType]}`}
                     {round.interviewers.length > 0 && (
                       <span className="text-neutral-500 dark:text-neutral-400">

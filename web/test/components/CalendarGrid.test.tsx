@@ -11,6 +11,7 @@ const interviews: Interview[] = [
     role: "Engineer",
     stage: "INTERVIEW_STAGE",
     interviewDateTime: "2026-08-14T18:00:00.000Z",
+    interviewEndDateTime: null,
     interviewType: "SYSTEM_DESIGN",
     meetingLink: null,
     location: null,
@@ -81,6 +82,35 @@ describe("CalendarGrid", () => {
     expect(chips[0]).toHaveTextContent("Earlier Co");
     expect(chips[1]).toHaveTextContent("Later Co");
     expect(chips[0]).toHaveTextContent(new Date(sameDay[1].interviewDateTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+  });
+
+  it("shows a start and end range when the round has an end time", () => {
+    const start = "2026-08-14T18:00:00.000Z";
+    const end = "2026-08-14T19:00:00.000Z";
+    const withEnd: Interview[] = [{ ...interviews[0], interviewEndDateTime: end }];
+
+    render(
+      <CalendarGrid interviews={withEnd} month={new Date(2026, 7, 1)} onSelectDay={vi.fn()} onSelectInterview={vi.fn()} />,
+    );
+
+    // Built the same way the component does, so the assertion holds in any locale or timezone.
+    const expected = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+      .formatRange(new Date(start), new Date(end));
+    // textContent, not toHaveTextContent: formatRange uses a narrow no-break space that jest-dom
+    // normalizes on the element but not on the expected string.
+    expect(screen.getByRole("button", { name: /Acme/ })?.textContent).toContain(expected);
+  });
+
+  it("falls back to the start alone for a round saved before end times existed", () => {
+    render(
+      <CalendarGrid interviews={interviews} month={new Date(2026, 7, 1)} onSelectDay={vi.fn()} onSelectInterview={vi.fn()} />,
+    );
+
+    const startOnly = new Date(interviews[0].interviewDateTime)
+      .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const chip = screen.getByRole("button", { name: /Acme/ });
+    expect(chip.textContent).toContain(startOnly);
+    expect(chip.textContent).not.toMatch(/–|-\s*\d/);
   });
 
   it("calls onSelectDay when clicking empty space on a day cell", () => {

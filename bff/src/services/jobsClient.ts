@@ -44,6 +44,7 @@ export interface StageEventData {
 export interface LatestInterviewSummaryData {
   roundId: string;
   interviewDateTime: string;
+  interviewEndDateTime: string | null;
   interviewType: InterviewType | null;
   roundCount: number;
   meetingLink: string | null;

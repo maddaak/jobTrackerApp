@@ -7,6 +7,7 @@ import java.util.List;
 public record LatestInterviewSummary(
         String roundId,
         Instant interviewDateTime,
+        Instant interviewEndDateTime,
         InterviewType interviewType,
         long roundCount,
         String meetingLink,

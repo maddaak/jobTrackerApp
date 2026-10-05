@@ -40,6 +40,8 @@ export interface InterviewData {
   role: string;
   stage: Stage;
   interviewDateTime: string;
+  // Null on rounds recorded before end times existed, and whenever the length was not given.
+  interviewEndDateTime: string | null;
   interviewType: InterviewType | null;
   meetingLink: string | null;
   location: string | null;
@@ -50,6 +52,7 @@ export interface CreateInterviewData {
   jobId: number;
   stage: Stage;
   interviewDateTime: string;
+  interviewEndDateTime?: string;
   interviewType: InterviewType;
   meetingLink?: string;
   location?: string;
@@ -58,6 +61,7 @@ export interface CreateInterviewData {
 
 export interface UpdateInterviewData {
   interviewDateTime: string;
+  interviewEndDateTime: string | null;
   interviewType: InterviewType;
   meetingLink: string | null;
   location: string | null;

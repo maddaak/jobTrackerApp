@@ -4,6 +4,25 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V3.3.0
+
+Interviews can carry an end time, so the calendar shows how long a round runs rather than only when
+it starts. Upgrading is a pull and a restart; no data change.
+
+### Interview times
+- An interview round now has an optional **Ends at** time, next to the start in both editors: the
+  full interview form and the inline one in the jobs table's Stage cell.
+- It defaults to an hour after the start, and moving the start drags it along, keeping whatever
+  length you set. So the common case is no extra typing, and the end can never drift behind the
+  start.
+- The calendar, the upcoming-interviews banner, the jobs table's Stage cell, and the job details
+  modal all show the range, collapsing what the two ends share: a same-afternoon round reads
+  `2:00 – 3:00 PM` rather than repeating the meridiem.
+- Optional on purpose. Rounds recorded before this release have no end time and keep showing just
+  their start, and a round whose length you do not know yet can still be saved without one.
+- `core` refuses an end that does not follow its start, so a direct API call cannot store a round
+  that ends before it begins.
+
 ## V3.2.0
 
 Linked jobs, image attachments, deletable stage history, a Position Closed outcome, and a Sankey

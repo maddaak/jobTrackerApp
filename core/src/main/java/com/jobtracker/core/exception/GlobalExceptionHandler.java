@@ -56,6 +56,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
+    @ExceptionHandler(InvalidInterviewTimeException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidInterviewTime(InvalidInterviewTimeException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidStageHistoryException.class)
     public ResponseEntity<Map<String, String>> handleInvalidStageHistory(InvalidStageHistoryException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));

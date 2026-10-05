@@ -36,7 +36,7 @@ class JobDetailProjectionTests {
         detail.setNotes("notes");
         detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-01-01T00:00:00Z"), null);
         detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-01-02T00:00:00Z"), null);
-        detail.addInterview(new InterviewRound(Instant.parse("2026-01-03T00:00:00Z"),
+        detail.addInterview(new InterviewRound(Instant.parse("2026-01-03T00:00:00Z"), null,
                 InterviewType.SYSTEM_DESIGN, "https://meet.example", "NYC",
                 List.of(new Interviewer("Dana", null))));
         jobDetails.save(detail);

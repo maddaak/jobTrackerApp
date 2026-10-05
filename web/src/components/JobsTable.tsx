@@ -45,6 +45,7 @@ import InlineInterviewEditor, { type InlineInterviewDraft } from "./InlineInterv
 import { ColumnFilterPopover } from "./JobsTableFilters";
 import JobDetailModal from "./JobDetailModal";
 import JobLinksBadge from "./JobLinksBadge";
+import { formatDateTimeRange } from "../interviewTimes";
 import { safeHref } from "../safeHref";
 
 // Always-visible border so every field in a multi-input editor looks editable, not just the autoFocused one.
@@ -87,12 +88,6 @@ function salaryFilter(row: Row<JobSummary>, _columnId: string, value: string): b
 type EditableField = "position" | "company" | "salary" | "interview";
 
 const INTERVIEW_STAGES: Stage[] = ["INTERVIEW_REQUEST", "INTERVIEW_STAGE", "WAITING_INTERVIEW_RESULTS"];
-
-function formatInterviewDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-  });
-}
 
 function effective<K extends keyof JobSummary>(
   job: JobSummary,
@@ -285,6 +280,9 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
         jobId,
         stage: effective(job, pendingEditsRef.current, "currentStage"),
         interviewDateTime: new Date(draft.interviewDateTime).toISOString(),
+        interviewEndDateTime: draft.interviewEndDateTime
+          ? new Date(draft.interviewEndDateTime).toISOString()
+          : undefined,
         interviewType: draft.interviewType,
         meetingLink: draft.meetingLink || undefined,
         location: draft.location || undefined,
@@ -594,7 +592,7 @@ export default function JobsTable({ jobs, onSaved, onDeleted }: JobsTableProps) 
                         className="hover:underline hover:text-blue-600 dark:hover:text-blue-400"
                       >
                         {job.latestInterview.roundCount > 1 && `${job.latestInterview.roundCount} rounds · latest `}
-                        {formatInterviewDateTime(job.latestInterview.interviewDateTime)}
+                        {formatDateTimeRange(job.latestInterview.interviewDateTime, job.latestInterview.interviewEndDateTime)}
                         {job.latestInterview.interviewType && ` · ${INTERVIEW_TYPE_LABELS[job.latestInterview.interviewType]}`}
                       </button>
                       <button

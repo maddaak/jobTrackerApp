@@ -15,6 +15,7 @@ const acmeInterview: Interview = {
   role: "Backend Engineer",
   stage: "INTERVIEW_STAGE",
   interviewDateTime: "2026-08-01T18:00:00.000Z",
+  interviewEndDateTime: "2026-08-01T19:00:00.000Z",
   interviewType: "SYSTEM_DESIGN",
   meetingLink: null,
   location: null,

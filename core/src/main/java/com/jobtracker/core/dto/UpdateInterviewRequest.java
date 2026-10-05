@@ -8,6 +8,7 @@ import java.util.List;
 
 public record UpdateInterviewRequest(
         @NotNull Instant interviewDateTime,
+        Instant interviewEndDateTime,
         @NotNull InterviewType interviewType,
         String meetingLink,
         String location,

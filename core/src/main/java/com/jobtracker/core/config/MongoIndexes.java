@@ -1,8 +1,11 @@
 package com.jobtracker.core.config;
 
+import com.jobtracker.core.model.AccountAiResult;
 import com.jobtracker.core.model.JobDetail;
 import com.jobtracker.core.model.JobImage;
+import com.jobtracker.core.model.ReminderSettings;
 import com.jobtracker.core.model.Resume;
+import com.jobtracker.core.model.SentReminder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -52,5 +55,12 @@ public class MongoIndexes {
         // Listing a job's attachments and the delete cascade both go through jobId.
         mongo.indexOps(JobImage.class).createIndex(new Index().on("jobId", Sort.Direction.ASC));
         mongo.indexOps(JobImage.class).createIndex(new Index().on("ownerId", Sort.Direction.ASC));
+        mongo.indexOps(ReminderSettings.class).createIndex(new Index().on("ownerId", Sort.Direction.ASC).unique());
+        // Unique, so two quick clicks can't leave two briefs for one company.
+        mongo.indexOps(AccountAiResult.class).createIndex(
+                new Index().on("ownerId", Sort.Direction.ASC).on("key", Sort.Direction.ASC).unique());
+        // Unique, so two overlapping passes can't both record, and so both send, the same reminder.
+        mongo.indexOps(SentReminder.class).createIndex(
+                new Index().on("ownerId", Sort.Direction.ASC).on("key", Sort.Direction.ASC).unique());
     }
 }

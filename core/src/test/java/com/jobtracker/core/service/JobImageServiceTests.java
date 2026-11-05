@@ -4,7 +4,7 @@ import com.jobtracker.core.dto.JobImageResponse;
 import com.jobtracker.core.exception.ImageNotFoundException;
 import com.jobtracker.core.exception.ImageTooLargeException;
 import com.jobtracker.core.exception.JobNotFoundException;
-import com.jobtracker.core.exception.UnsupportedImageTypeException;
+import com.jobtracker.core.exception.InvalidImageException;
 import com.jobtracker.core.model.*;
 import com.jobtracker.core.repository.JobImageRepository;
 import com.jobtracker.core.repository.JobRepository;
@@ -78,7 +78,7 @@ class JobImageServiceTests {
 
         // The filename and declared type are the caller's; only the bytes decide.
         assertThatThrownBy(() -> jobImageService.upload(OWNER, JOB_ID, "diagram.png", svg))
-                .isInstanceOf(UnsupportedImageTypeException.class);
+                .isInstanceOf(InvalidImageException.class);
         verify(images, never()).save(any());
     }
 
@@ -102,7 +102,7 @@ class JobImageServiceTests {
     @Test
     void rejectsAnEmptyUpload() {
         assertThatThrownBy(() -> jobImageService.upload(OWNER, JOB_ID, "empty.png", new byte[0]))
-                .isInstanceOf(UnsupportedImageTypeException.class);
+                .isInstanceOf(InvalidImageException.class);
     }
 
     @Test
@@ -120,7 +120,7 @@ class JobImageServiceTests {
         when(images.countByJobId(JOB_ID)).thenReturn((long) JobImageService.MAX_IMAGES_PER_JOB);
 
         assertThatThrownBy(() -> jobImageService.upload(OWNER, JOB_ID, "one-too-many.png", png()))
-                .isInstanceOf(UnsupportedImageTypeException.class);
+                .isInstanceOf(InvalidImageException.class);
     }
 
     @Test

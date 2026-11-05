@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -45,6 +46,9 @@ class StageDeletionMetricsTests {
     @Mock
     private JobImageRepository jobImages;
 
+    @Mock
+    private SeasonService seasons;
+
     private JobService jobService;
     private MetricsService metricsService;
 
@@ -54,10 +58,12 @@ class StageDeletionMetricsTests {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        when(seasons.inView(any())).thenReturn(job -> true);
         JobLinkService jobLinkService = new JobLinkService(jobs, jobDetails);
         jobService = new JobService(jobs, users, jobDetails,
-                new JobDetailService(jobs, jobDetails, jobLinkService), jobLinkService, new JobImageService(jobs, jobImages));
-        metricsService = new MetricsService(jobs, jobDetails);
+                new JobDetailService(jobs, jobDetails, jobLinkService), jobLinkService, new JobImageService(jobs, jobImages),
+                seasons, Clock.systemUTC());
+        metricsService = new MetricsService(jobs, jobDetails, seasons, Clock.systemUTC());
     }
 
     // Mis-click: forward to Interview Stage, then straight back to Interview Request.
@@ -167,7 +173,7 @@ class StageDeletionMetricsTests {
     @Test
     void aDeletedStageDoesNotRemoveInterviewRoundsFromTheSankey() {
         givenJobWithMisclick(Stage.INTERVIEW_STAGE, Outcome.ACTIVE);
-        detail.addInterview(new InterviewRound(Instant.parse("2026-08-26T20:24:40Z"),
+        detail.addInterview(new InterviewRound(Instant.parse("2026-08-26T20:24:40Z"), null,
                 InterviewType.SYSTEM_DESIGN, null, null, List.of()));
 
         jobService.deleteStageEvent(OWNER, JOB_ID, MISCLICK_AT, Stage.INTERVIEW_STAGE);

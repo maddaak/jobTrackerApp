@@ -1,21 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { listUpcomingInterviews, INTERVIEW_TYPE_LABELS, type Interview } from "../api/interviewsApi";
+import { formatWeekdayDateTimeRange } from "../interviewTimes";
 import InterviewFormModal, { type InterviewFormMode } from "./InterviewFormModal";
 
 export interface UpcomingInterviewsBannerProps {
   // Bumped by the parent on any interview change anywhere on the page.
   refreshSignal: number;
   onInterviewChanged: () => void;
-}
-
-function formatInterviewDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewChanged }: UpcomingInterviewsBannerProps) {
@@ -87,7 +78,7 @@ export default function UpcomingInterviewsBanner({ refreshSignal, onInterviewCha
                   {interview.company}
                 </button>
                 {" — "}
-                {formatInterviewDateTime(interview.interviewDateTime)}
+                {formatWeekdayDateTimeRange(interview.interviewDateTime, interview.interviewEndDateTime)}
                 {interview.interviewType && ` · ${INTERVIEW_TYPE_LABELS[interview.interviewType]}`}
               </li>
             ))}

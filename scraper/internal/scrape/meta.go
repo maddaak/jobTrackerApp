@@ -6,9 +6,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// extractFromMetaAndTitle falls back to Open Graph meta and title-tag heuristics when no JSON-LD is present.
 func extractFromMetaAndTitle(doc *goquery.Document, result *response) {
-	if siteName, ok := doc.Find(`meta[property="og:site_name"]`).Attr("content"); ok {
+	// Fill-only, like every field below: this runs after JSON-LD and must not overwrite what it found.
+	if siteName, ok := doc.Find(`meta[property="og:site_name"]`).Attr("content"); ok && result.Company == "" {
 		result.Company = strings.TrimSpace(siteName)
 	}
 
@@ -39,7 +39,6 @@ func extractFromMetaAndTitle(doc *goquery.Document, result *response) {
 	}
 }
 
-// splitTitleHeuristic splits the common "Role at Company" / "Role - Company" title patterns.
 func splitTitleHeuristic(title string) (role string, company string) {
 	for _, sep := range []string{" at ", " - ", " | "} {
 		if idx := strings.Index(title, sep); idx > 0 {

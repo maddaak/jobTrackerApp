@@ -5,7 +5,6 @@ import java.util.regex.Pattern;
 
 class UsernamePolicy {
 
-    // 3-30 chars; letters/digits/. _ -; must start and end with a letter or digit.
     private static final Pattern VALID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{1,28}[A-Za-z0-9]$");
 
     private UsernamePolicy() {

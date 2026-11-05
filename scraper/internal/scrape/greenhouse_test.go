@@ -18,7 +18,8 @@ func withGreenhouseBoardsAPIBaseURL(t *testing.T, url string) {
 	t.Cleanup(func() { greenhouseBoardsAPIBaseURL = original })
 }
 
-// Career page that only embeds Greenhouse's widget: no JSON-LD, just the embed script and a URL job id, so the scraper must call Greenhouse's API.
+// An embed-only page has no JSON-LD, just the embed script and a URL job id, so the scraper must call
+// Greenhouse's API.
 func TestScrapeFromGreenhouseEmbedFallback(t *testing.T) {
 	pageServer := fixtureServer(t, "testdata/greenhouse_embed.html")
 	defer pageServer.Close()
@@ -49,8 +50,11 @@ func TestScrapeFromGreenhouseEmbedFallback(t *testing.T) {
 	if resp.Company != "TestCo" {
 		t.Errorf("expected company from greenhouse API, got %q", resp.Company)
 	}
-	if resp.Location != "NYC_HYBRID" {
-		t.Errorf("expected location NYC_HYBRID classified from JD text, got %q", resp.Location)
+	if resp.Location != "HYBRID" {
+		t.Errorf("expected location HYBRID classified from JD text, got %q", resp.Location)
+	}
+	if resp.City != "NYC Global HQ" {
+		t.Errorf("expected the posting's place as the city, got %q", resp.City)
 	}
 	if resp.CompMin == nil || *resp.CompMin != 107000 {
 		t.Errorf("expected compMin 107000, got %v", resp.CompMin)

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Setup help
+    url: https://github.com/maddaak/jobTrackerApp#troubleshooting
+    about: Most setup problems (a certificate warning, a container restarting, AI features missing) are covered here.

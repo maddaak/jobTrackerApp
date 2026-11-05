@@ -98,7 +98,7 @@ describe("deleteResume", () => {
 
 describe("matchResumeToJob", () => {
   it("posts the job text and returns the match result", async () => {
-    const result = { status: "ok", fileName: "resume.txt", recommendation: "APPLY", reasoning: "Strong match." };
+    const result = { status: "ok", fileName: "resume.txt", recommendation: "APPLY", company: "", role: "", strengths: ["Go"], gaps: [] };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, result));
 
     const response = await matchResumeToJob("We need a backend engineer.");

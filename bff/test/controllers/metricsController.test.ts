@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { request } from "../testServer.js";
 import jwt from "jsonwebtoken";
-import { app } from "../../src/app.js";
 
 const JWT_SECRET = "test-secret-not-for-production-use-only-in-tests-hs512-min-64-bytes";
 
@@ -20,7 +19,7 @@ beforeEach(() => {
 
 describe("GET /metrics", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/metrics");
+    const res = await request().get("/metrics");
     expect(res.status).toBe(401);
   });
 
@@ -33,7 +32,7 @@ describe("GET /metrics", () => {
     };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, metrics));
 
-    const res = await request(app).get("/metrics").set("Cookie", authCookie("42"));
+    const res = await request().get("/metrics").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(metrics);
@@ -41,5 +40,16 @@ describe("GET /metrics", () => {
       expect.stringContaining("/metrics"),
       expect.objectContaining({ headers: expect.objectContaining({ "X-User-Id": "42" }) }),
     );
+  });
+
+  it("returns each season's numbers for the Seasons page", async () => {
+    const stats = [{ seasonId: 1, applications: 9, active: 3, heardBack: 4, interviewed: 2, offers: 1,
+      firstApplied: "2026-01-02T00:00:00Z", lastApplied: "2026-03-04T00:00:00Z" }];
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, stats));
+
+    const res = await request().get("/metrics/seasons").set("Cookie", authCookie("42"));
+
+    expect(res.body).toEqual(stats);
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/\/metrics\/seasons$/);
   });
 });

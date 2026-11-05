@@ -1,3 +1,4 @@
+import type { RoundAiResults } from "./aiApi";
 import type { Stage } from "./jobsApi";
 import { request } from "./request";
 
@@ -86,16 +87,21 @@ export interface Interview {
   role: string;
   stage: Stage;
   interviewDateTime: string;
+  // Null on rounds saved before end times existed, and whenever the length was not given.
+  interviewEndDateTime: string | null;
   interviewType: InterviewType | null;
   meetingLink: string | null;
   location: string | null;
   interviewers: Interviewer[];
+  // Only the kinds that have been run.
+  aiResults: RoundAiResults;
 }
 
+// No stage: core decides what logging a round does to the job, the same from every editor.
 export interface CreateInterviewInput {
   jobId: number;
-  stage: Stage;
   interviewDateTime: string;
+  interviewEndDateTime?: string;
   interviewType: InterviewType;
   meetingLink?: string;
   location?: string;
@@ -104,6 +110,7 @@ export interface CreateInterviewInput {
 
 export interface UpdateInterviewInput {
   interviewDateTime: string;
+  interviewEndDateTime: string | null;
   interviewType: InterviewType;
   meetingLink: string | null;
   location: string | null;

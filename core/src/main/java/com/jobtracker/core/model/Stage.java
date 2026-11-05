@@ -7,5 +7,14 @@ public enum Stage {
     INTERVIEW_STAGE,
     WAITING_INTERVIEW_RESULTS,
     OFFER_STAGE,
-    FINALIZED
+    FINALIZED;
+
+    // The stages an InterviewPhase refines.
+    public boolean isInterviewing() {
+        return this == INTERVIEW_STAGE || this == WAITING_INTERVIEW_RESULTS;
+    }
+
+    public boolean isOnBoard() {
+        return this == INTERVIEW_REQUEST || isInterviewing();
+    }
 }

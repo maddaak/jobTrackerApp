@@ -29,6 +29,10 @@ public class Job {
     @Column(nullable = false)
     private Stage currentStage;
 
+    // Nullable so the column adds to a populated table without a backfill; see interviewPhaseOr.
+    @Enumerated(EnumType.STRING)
+    private InterviewPhase interviewPhase;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Outcome outcome;
@@ -40,12 +44,18 @@ public class Job {
     @Enumerated(EnumType.STRING)
     private Location location;
 
+    @Column(length = 100)
+    private String city;
+
     private Integer compMin;
 
     private Integer compMax;
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(nullable = false)
+    private Long seasonId;
 
     protected Job() {
     }
@@ -100,6 +110,22 @@ public class Job {
         return location;
     }
 
+    public String getCity() {
+        return city;
+    }
+
+    public void setCity(String city) {
+        this.city = city == null || city.isBlank() ? null : city.strip();
+    }
+
+    public Long getSeasonId() {
+        return seasonId;
+    }
+
+    public void moveToSeason(Long seasonId) {
+        this.seasonId = seasonId;
+    }
+
     public Integer getCompMin() {
         return compMin;
     }
@@ -108,12 +134,55 @@ public class Job {
         return compMax;
     }
 
+    // Puts back exactly what a backup or an import held, without applyUpdate's rules: the caller has applied them.
+    public void restoreState(Stage currentStage, InterviewPhase interviewPhase, Outcome outcome, Instant createdAt) {
+        this.currentStage = currentStage;
+        this.interviewPhase = interviewPhase;
+        this.outcome = outcome;
+        this.createdAt = createdAt;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
+    // A decided offer keeps OFFER_STAGE, but the outcome check covers a stage rewound after the fact.
+    public boolean hasOffer() {
+        return currentStage == Stage.OFFER_STAGE
+                || outcome == Outcome.OFFER_ACCEPTED || outcome == Outcome.OFFER_DECLINED;
+    }
+
+    public InterviewPhase getInterviewPhase() {
+        return interviewPhase;
+    }
+
+    // Where the card sits: the drag if there was one, else the furthest round logged. Never stored, so a
+    // later round can still move an undragged card.
+    public InterviewPhase boardPhase(InterviewPhase furthestRoundPhase) {
+        return interviewPhase != null ? interviewPhase : furthestRoundPhase;
+    }
+
+    // Interviewing, not waiting on a verdict, and nothing booked ahead: they've asked for the next round and
+    // it isn't on the calendar yet. A round under way counts as booked until it ends.
+    public boolean needsScheduling(InterviewRound latestRound, Instant now) {
+        if (outcome != Outcome.ACTIVE || currentStage != Stage.INTERVIEW_STAGE) {
+            return false;
+        }
+        if (latestRound == null || latestRound.getInterviewDateTime() == null) {
+            return true;
+        }
+        Instant over = latestRound.getInterviewEndDateTime() != null
+                ? latestRound.getInterviewEndDateTime() : latestRound.getInterviewDateTime();
+        return over.isBefore(now);
+    }
+
+    // An offer reached and then lost (withdrawn, rejected) still counts, which the current stage alone forgets.
+    public boolean reachedOffer(Stage furthestStage) {
+        return hasOffer() || furthestStage == Stage.OFFER_STAGE;
+    }
+
     public void applyUpdate(String company, String role, SourceCategory sourceCategory, String url, Location location,
-            Integer compMin, Integer compMax, Stage currentStage, Outcome outcome) {
+            Integer compMin, Integer compMax, Stage currentStage, InterviewPhase interviewPhase, Outcome outcome) {
         this.company = company;
         this.role = role;
         this.sourceCategory = sourceCategory;
@@ -124,11 +193,16 @@ public class Job {
         this.outcome = outcome;
         // Enforced here, not in the UI, so a direct PATCH can't park a closed job mid-pipeline.
         this.currentStage = outcome.closesPipeline() ? Stage.FINALIZED : currentStage;
+        // A phase only means something while interviewing; kept elsewhere it would resurface on a later return.
+        this.interviewPhase = this.currentStage.isInterviewing() ? interviewPhase : null;
     }
 
     // Moves the job to wherever the trail now ends, unless a closed outcome pins it to FINALIZED.
     public void rewindStageTo(Stage stage) {
         this.currentStage = outcome.closesPipeline() ? Stage.FINALIZED : stage;
+        if (!this.currentStage.isInterviewing()) {
+            this.interviewPhase = null;
+        }
     }
 
     public void advanceStageIfFurther(Stage newStage) {

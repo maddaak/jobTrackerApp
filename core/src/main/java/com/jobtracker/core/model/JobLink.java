@@ -21,4 +21,9 @@ public class JobLink {
     public JobRelation getRelation() {
         return relation;
     }
+
+    // A restored job gets a new id, so a link has to follow it.
+    public JobLink retargeted(Long newJobId) {
+        return new JobLink(newJobId, relation);
+    }
 }

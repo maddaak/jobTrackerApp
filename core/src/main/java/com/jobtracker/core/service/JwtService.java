@@ -1,11 +1,14 @@
 package com.jobtracker.core.service;
 
+import com.jobtracker.core.config.PlaceholderSecrets;
+import com.jobtracker.core.model.User;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
@@ -18,10 +21,14 @@ public class JwtService {
 
     private final SecretKey key;
     private final Duration expiry;
+    private final Clock clock;
 
     public JwtService(
             @Value("${app.jwt-secret}") String secret,
-            @Value("${app.jwt-expiry-days}") long expiryDays) {
+            @Value("${app.jwt-expiry-days}") long expiryDays,
+            Clock clock) {
+        this.clock = clock;
+        PlaceholderSecrets.refuse("JWT_SECRET", secret);
         byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (secretBytes.length < MIN_SECRET_BYTES) {
             throw new IllegalStateException(
@@ -32,11 +39,13 @@ public class JwtService {
         this.expiry = Duration.ofDays(expiryDays);
     }
 
-    public String issue(Long userId, String username) {
-        Instant now = Instant.now();
+    // ver is the account's session version; the bff signs out a token whose ver is behind it.
+    public String issue(User user) {
+        Instant now = clock.instant();
         return Jwts.builder()
-                .subject(userId.toString())
-                .claim("username", username)
+                .subject(user.getId().toString())
+                .claim("username", user.getUsername())
+                .claim("ver", user.getSessionVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(expiry)))
                 .signWith(key, Jwts.SIG.HS512)

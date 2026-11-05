@@ -1,8 +1,14 @@
 package com.jobtracker.core.model;
 
+import com.jobtracker.core.exception.InvalidInterviewTimeException;
+
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 // Embedded in JobDetail: variable rounds each owning variable interviewers is a document, not tables.
@@ -11,18 +17,32 @@ public class InterviewRound {
     // Addressable id for update/delete, since embedded documents have no database identity.
     private String roundId;
     private Instant interviewDateTime;
+
+    // Optional: rounds recorded before end times existed have none, and the length is not always known.
+    private Instant interviewEndDateTime;
+
     private InterviewType interviewType;
     private String meetingLink;
     private String location;
     private List<Interviewer> interviewers = new ArrayList<>();
 
+    // By AiKind key: this round's debrief. Kept through edits to the round's time or type.
+    private Map<String, AiResult> aiResults = new HashMap<>();
+
     protected InterviewRound() {
     }
 
-    public InterviewRound(Instant interviewDateTime, InterviewType interviewType, String meetingLink,
-            String location, List<Interviewer> interviewers) {
+    public InterviewRound(Instant interviewDateTime, Instant interviewEndDateTime, InterviewType interviewType,
+            String meetingLink, String location, List<Interviewer> interviewers) {
         this.roundId = UUID.randomUUID().toString();
-        apply(interviewDateTime, interviewType, meetingLink, location, interviewers);
+        apply(interviewDateTime, interviewEndDateTime, interviewType, meetingLink, location, interviewers);
+    }
+
+    // Latest by start, so a booked round ahead wins over ones already held.
+    public static Optional<InterviewRound> latest(List<InterviewRound> rounds) {
+        return rounds.stream()
+                .filter(round -> round.getInterviewDateTime() != null)
+                .max(Comparator.comparing(InterviewRound::getInterviewDateTime));
     }
 
     public String getRoundId() {
@@ -31,6 +51,10 @@ public class InterviewRound {
 
     public Instant getInterviewDateTime() {
         return interviewDateTime;
+    }
+
+    public Instant getInterviewEndDateTime() {
+        return interviewEndDateTime;
     }
 
     public InterviewType getInterviewType() {
@@ -49,9 +73,23 @@ public class InterviewRound {
         return interviewers;
     }
 
-    public void apply(Instant interviewDateTime, InterviewType interviewType, String meetingLink,
-            String location, List<Interviewer> interviewers) {
+    // Rounds written before this field existed map it to null.
+    public Map<String, AiResult> getAiResults() {
+        if (aiResults == null) {
+            aiResults = new HashMap<>();
+        }
+        return aiResults;
+    }
+
+    // Here rather than in a service so create and update cannot disagree about what a round may hold.
+    public void apply(Instant interviewDateTime, Instant interviewEndDateTime, InterviewType interviewType,
+            String meetingLink, String location, List<Interviewer> interviewers) {
+        if (interviewEndDateTime != null && interviewDateTime != null
+                && !interviewEndDateTime.isAfter(interviewDateTime)) {
+            throw new InvalidInterviewTimeException("an interview must end after it starts");
+        }
         this.interviewDateTime = interviewDateTime;
+        this.interviewEndDateTime = interviewEndDateTime;
         this.interviewType = interviewType;
         this.meetingLink = meetingLink;
         this.location = location;

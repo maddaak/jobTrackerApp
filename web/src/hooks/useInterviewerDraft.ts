@@ -8,7 +8,6 @@ export interface InterviewerDraft {
   linkedInUrl: string;
 }
 
-// Shared interviewer-list state, used by InterviewFormModal and the JobsTable inline editor.
 export function useInterviewerDraft() {
   const [interviewers, setInterviewers] = useState<InterviewerDraft[]>([]);
   const nextKeyRef = useRef(0);

@@ -20,6 +20,8 @@ func TestExtractCompRange(t *testing.T) {
 		// The k applies to both sides, so a side that is already a full number must not be multiplied again.
 		{"k shorthand mixed with a full number", "$120k - $150,000", 120000, 150000, true},
 		{"full number first, k shorthand second", "$120,000 - $150k", 120000, 150000, true},
+		{"a signing bonus is not the salary", "Signing bonus $5-10k. Base $140k-$170k", 140000, 170000, true},
+		{"an hourly rate is not an annual salary", "$45 - $60 per hour", 0, 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,9 +39,42 @@ func TestExtractCompRange(t *testing.T) {
 	}
 }
 
-// F65: the Greenhouse path classifies in place now, so classifyLocation must accept its own output.
+func TestClassifyLocationReadsHowPostingsPhraseIt(t *testing.T) {
+	for text, want := range map[string]string{
+		"Remote (US)":                 "REMOTE",
+		"This role is not remote":     "",
+		"Non-remote, New York office": "",
+		"Hybrid, 3 days in office":    "HYBRID",
+		"Remote-friendly hybrid":      "HYBRID",
+		"On site in Manhattan":        "ON_SITE",
+		"In-office five days a week":  "ON_SITE",
+		"New York, NY":                "",
+	} {
+		if got := classifyLocation(text); got != want {
+			t.Errorf("classifyLocation(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
+
+func TestTitleFromText(t *testing.T) {
+	for text, want := range map[string]string{
+		"Senior Backend Engineer\nInitech, New York":                   "Senior Backend Engineer",
+		"\n  Staff Data Scientist  \n\nAbout us":                       "Staff Data Scientist",
+		"About Initech\nWe build things.\nJob Title: Product Designer": "Product Designer",
+		"Position:  Engineering Manager, Platform\nRemote":             "Engineering Manager, Platform",
+		"Initech\nWe're hiring!":                                       "",
+		"We are looking for an engineer to join our team.":             "",
+		"Role: You will lead the design of our APIs.":                  "",
+	} {
+		if got := titleFromText(text); got != want {
+			t.Errorf("titleFromText(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
+
+// The Greenhouse path classifies in place now, so classifyLocation must accept its own output.
 func TestClassifyLocationIsIdempotent(t *testing.T) {
-	for _, value := range []string{"REMOTE", "NYC_HYBRID", "NYC_IN_PERSON"} {
+	for _, value := range []string{"REMOTE", "HYBRID", "ON_SITE"} {
 		if got := classifyLocation(value); got != value {
 			t.Fatalf("classifyLocation(%q) = %q, want %q", value, got, value)
 		}

@@ -7,7 +7,7 @@ import (
 )
 
 // MaxBodyBytes caps request and fetched-page bodies so a huge payload can't exhaust memory.
-const MaxBodyBytes = 5 << 20 // 5MB
+const MaxBodyBytes = 5 << 20
 
 func WriteJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", "application/json")

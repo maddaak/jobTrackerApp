@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import CalendarGrid from "../../src/components/CalendarGrid";
 import type { Interview } from "../../src/api/interviewsApi";
@@ -11,10 +11,12 @@ const interviews: Interview[] = [
     role: "Engineer",
     stage: "INTERVIEW_STAGE",
     interviewDateTime: "2026-08-14T18:00:00.000Z",
+    interviewEndDateTime: null,
     interviewType: "SYSTEM_DESIGN",
     meetingLink: null,
     location: null,
     interviewers: [],
+    aiResults: {},
   },
 ];
 
@@ -30,9 +32,16 @@ describe("CalendarGrid", () => {
     );
 
     for (const label of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: label })).toBeInTheDocument();
     }
-    expect(screen.getAllByRole("gridcell")).toHaveLength(42);
+    // A header row then six weeks, each a row of seven days, so a screen reader can move by week.
+    const [, ...weeks] = screen.getAllByRole("row");
+    expect(weeks).toHaveLength(6);
+    for (const week of weeks) {
+      expect(within(week).getAllByRole("gridcell")).toHaveLength(7);
+    }
+    // August 2026 starts on a Saturday, so the first week opens on July 26.
+    expect(within(weeks[0]).getAllByRole("gridcell")[0]).toHaveAccessibleName(new Date(2026, 6, 26).toDateString());
   });
 
   it("places an interview chip on the correct day and omits it from other days", () => {
@@ -81,6 +90,35 @@ describe("CalendarGrid", () => {
     expect(chips[0]).toHaveTextContent("Earlier Co");
     expect(chips[1]).toHaveTextContent("Later Co");
     expect(chips[0]).toHaveTextContent(new Date(sameDay[1].interviewDateTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+  });
+
+  it("shows a start and end range when the round has an end time", () => {
+    const start = "2026-08-14T18:00:00.000Z";
+    const end = "2026-08-14T19:00:00.000Z";
+    const withEnd: Interview[] = [{ ...interviews[0], interviewEndDateTime: end }];
+
+    render(
+      <CalendarGrid interviews={withEnd} month={new Date(2026, 7, 1)} onSelectDay={vi.fn()} onSelectInterview={vi.fn()} />,
+    );
+
+    // Built the same way the component does, so the assertion holds in any locale or timezone.
+    const expected = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+      .formatRange(new Date(start), new Date(end));
+    // textContent, not toHaveTextContent: formatRange uses a narrow no-break space that jest-dom
+    // normalizes on the element but not on the expected string.
+    expect(screen.getByRole("button", { name: /Acme/ })?.textContent).toContain(expected);
+  });
+
+  it("falls back to the start alone for a round saved before end times existed", () => {
+    render(
+      <CalendarGrid interviews={interviews} month={new Date(2026, 7, 1)} onSelectDay={vi.fn()} onSelectInterview={vi.fn()} />,
+    );
+
+    const startOnly = new Date(interviews[0].interviewDateTime)
+      .toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const chip = screen.getByRole("button", { name: /Acme/ });
+    expect(chip.textContent).toContain(startOnly);
+    expect(chip.textContent).not.toMatch(/–|-\s*\d/);
   });
 
   it("calls onSelectDay when clicking empty space on a day cell", () => {

@@ -51,6 +51,8 @@ public class V3Migration {
             widenUrlColumn(connection);
             backfillSourceCategory(connection);
             indexOwnerId(connection);
+            // source_category exists only now, so the startup sync had to skip it.
+            EnumCheckConstraints.sync(connection);
             log.info("migration complete: {} job(s) converted. Postgres still holds every pre-v3 column and "
                     + "table; run core/migrations/008_drop_relational_leftovers.sql once you are satisfied.", jobs);
         }
@@ -82,7 +84,9 @@ public class V3Migration {
                         .set("notes", jobs.getString("notes"))
                         .set("rejectedReason", jobs.getString("rejected_reason"))
                         .set("stageHistory", historyByJob.getOrDefault(jobId, List.of()))
-                        .set("interviews", roundsByJob.getOrDefault(jobId, List.of()));
+                        .set("interviews", roundsByJob.getOrDefault(jobId, List.of()))
+                        // DetailVersions ran before this, and a document without one can't be saved.
+                        .setOnInsert("version", 0L);
                 mongo.upsert(new Query(Criteria.where("jobId").is(jobId)), update, "job_details");
                 converted++;
             }
@@ -207,7 +211,7 @@ public class V3Migration {
         return false;
     }
 
-    private boolean columnExists(DatabaseMetaData metaData, String table, String column) throws SQLException {
+    static boolean columnExists(DatabaseMetaData metaData, String table, String column) throws SQLException {
         for (String name : new String[] {table, table.toUpperCase()}) {
             try (ResultSet columns = metaData.getColumns(null, null, name, null)) {
                 while (columns.next()) {

@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { checkCoreHealth, checkScraperHealth } from "../services/coreClient.js";
+import { checkCoreHealth, checkScraperHealth } from "../services/healthClient.js";
 
 export function health(_req: Request, res: Response) {
   res.json({ status: "ok", service: "bff" });

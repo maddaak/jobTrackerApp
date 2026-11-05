@@ -1,4 +1,4 @@
-// Package ai wraps the Anthropic Messages API and the resume features built on it.
+// Package ai calls the configured AI provider and builds the resume and offer features on it.
 package ai
 
 import (
@@ -8,8 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -17,173 +18,123 @@ import (
 	"jobtracker/scraper/internal/textutil"
 )
 
-// anthropicBaseURL is a package var so tests can point it at a local server.
-var anthropicBaseURL = "https://api.anthropic.com"
+// Go resends custom headers on a redirect, so following one would hand the API key to wherever it points.
+var aiHTTPClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
-var claudeHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// The whole call, every attempt included: long enough for a full comparison of several offers, and short
+// of the bff's 120s, so the answer always gets back to someone still waiting for it.
+var callBudget = 100 * time.Second
 
-var errNotConfigured = errors.New("anthropic api key not configured")
+var errNotConfigured = errors.New("no AI provider configured")
 
 // errBadResponse marks a call that succeeded but came back unusable, so the caller answers 502 rather than 503.
-var errBadResponse = errors.New("unusable response from claude")
-
-var errInvalidVariants = errors.New("invalid variants")
+var errBadResponse = errors.New("unusable response from the AI provider")
 
 const maxPromptChars = 12000
-const defaultAnthropicModel = "claude-sonnet-5"
 
-// Retries beyond the first attempt for transient Anthropic failures.
-const claudeMaxRetries = 2
+const maxRetries = 2
 
-var claudeRetryBackoffBase = 500 * time.Millisecond
+var retryBackoffBase = 500 * time.Millisecond
 
-type anthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
+// Statuses a provider sends before doing any work, so asking again can't pay twice: rate limited,
+// unavailable, and Anthropic's overloaded. A 500 or a gateway error can arrive after the work is done.
+var turnedAway = map[int]bool{http.StatusTooManyRequests: true, http.StatusServiceUnavailable: true, 529: true}
 
-type cacheControl struct {
-	Type string `json:"type"`
-}
-
-// System prompts are fixed per call, so mark them cacheable; a no-op until they exceed the model's min cacheable prefix.
-type anthropicSystemBlock struct {
-	Type         string        `json:"type"`
-	Text         string        `json:"text"`
-	CacheControl *cacheControl `json:"cache_control,omitempty"`
-}
-
-// anthropicThinking disables adaptive thinking so the token budget goes to the JSON answer, not reasoning.
-type anthropicThinking struct {
-	Type string `json:"type"`
-}
-
-type anthropicRequest struct {
-	Model     string                 `json:"model"`
-	MaxTokens int                    `json:"max_tokens"`
-	Thinking  *anthropicThinking     `json:"thinking,omitempty"`
-	System    []anthropicSystemBlock `json:"system"`
-	Messages  []anthropicMessage     `json:"messages"`
-}
-
-type anthropicContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type anthropicResponse struct {
-	Content    []anthropicContentBlock `json:"content"`
-	StopReason string                  `json:"stop_reason"`
-}
-
-// callClaude sends one single-turn message and returns Claude's text; errNotConfigured (no key) vs a transient error retried up to claudeMaxRetries with backoff.
-func callClaude(ctx context.Context, systemPrompt, userMessage string, maxTokens int) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return "", errNotConfigured
-	}
-	model := os.Getenv("ANTHROPIC_MODEL")
-	if model == "" {
-		model = defaultAnthropicModel
-	}
-
-	// Fable/Mythos always think and 400 on an explicit thinking field, so omit it for them.
-	lowerModel := strings.ToLower(model)
-	var thinking *anthropicThinking
-	if !strings.HasPrefix(lowerModel, "claude-fable") && !strings.HasPrefix(lowerModel, "claude-mythos") {
-		thinking = &anthropicThinking{Type: "disabled"}
-	}
-
-	reqBody, err := json.Marshal(anthropicRequest{
-		Model:     model,
-		MaxTokens: maxTokens,
-		Thinking:  thinking,
-		System: []anthropicSystemBlock{
-			{Type: "text", Text: systemPrompt, CacheControl: &cacheControl{Type: "ephemeral"}},
-		},
-		Messages: []anthropicMessage{{Role: "user", Content: userMessage}},
-	})
+func complete(ctx context.Context, systemPrompt, userMessage string, maxTokens int) (string, error) {
+	p, err := configuredProvider()
 	if err != nil {
-		return "", fmt.Errorf("marshal anthropic request: %w", err)
+		return "", err
 	}
+	ctx, cancel := context.WithTimeout(ctx, callBudget)
+	defer cancel()
+	respBody, err := post(ctx, p, p.spec.protocol.request(p, systemPrompt, userMessage, maxTokens))
+	if err != nil {
+		return "", err
+	}
+	return p.spec.protocol.answer(respBody)
+}
 
+// post retries only a request the provider never worked on, so it costs at most one billed answer; the
+// caller's context carries the time budget every attempt shares.
+func post(ctx context.Context, p provider, request any) ([]byte, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	var lastErr error
-	for attempt := 0; attempt <= claudeMaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			// Bail out if the caller disconnects mid-backoff instead of sleeping the full delay.
 			select {
-			case <-time.After(time.Duration(attempt) * claudeRetryBackoffBase):
+			case <-time.After(time.Duration(attempt) * retryBackoffBase):
 			case <-ctx.Done():
-				return "", ctx.Err()
+				return nil, ctx.Err()
 			}
 		}
-		text, retryable, err := doClaudeRequest(ctx, apiKey, reqBody)
+		respBody, retryable, err := sendOnce(ctx, p, body)
 		if err == nil {
-			return text, nil
+			return respBody, nil
 		}
 		lastErr = err
 		if !retryable {
-			return "", err
+			return nil, err
 		}
 	}
-	return "", lastErr
+	return nil, lastErr
 }
 
-// doClaudeRequest makes one attempt; the bool reports whether the failure is transient (network or 429/5xx).
-func doClaudeRequest(ctx context.Context, apiKey string, reqBody []byte) (string, bool, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicBaseURL+"/v1/messages", bytes.NewReader(reqBody))
+// sendOnce makes one attempt; the bool reports whether the provider turned it away unworked.
+func sendOnce(ctx context.Context, p provider, body []byte) ([]byte, bool, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+p.spec.protocol.path, bytes.NewReader(body))
 	if err != nil {
-		return "", false, fmt.Errorf("build anthropic request: %w", err)
+		return nil, false, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	for name, value := range p.spec.protocol.headers(p.apiKey) {
+		httpReq.Header.Set(name, value)
+	}
 
-	resp, err := claudeHTTPClient.Do(httpReq)
+	resp, err := aiHTTPClient.Do(httpReq)
 	if err != nil {
-		return "", true, fmt.Errorf("call anthropic: %w", err)
+		// Only a connection that was never made is safe to try again: a reset or a timeout can land
+		// after the provider has done, and billed, the work.
+		var opErr *net.OpError
+		neverConnected := errors.As(err, &opErr) && opErr.Op == "dial"
+		return nil, neverConnected, fmt.Errorf("call %s: %w", p.baseURL, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxBodyBytes))
-		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return "", retryable, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(body))
-	}
-
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpx.MaxBodyBytes))
+	if resp.StatusCode != http.StatusOK {
+		return nil, turnedAway[resp.StatusCode], fmt.Errorf("%s returned status %d: %s", p.baseURL, resp.StatusCode, textutil.Truncate(string(respBody), 2000))
+	}
 	if err != nil {
-		return "", true, fmt.Errorf("read anthropic response: %w", err)
+		// The call succeeded and was billed; asking again would pay twice.
+		return nil, false, fmt.Errorf("read answer: %w", err)
 	}
-
-	var parsed anthropicResponse
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", false, fmt.Errorf("decode anthropic response: %w", err)
-	}
-
-	var text strings.Builder
-	for _, block := range parsed.Content {
-		if block.Type == "text" {
-			text.WriteString(block.Text)
-		}
-	}
-	if text.Len() == 0 {
-		return "", false, fmt.Errorf("empty response from anthropic (stop_reason=%s): %s",
-			parsed.StopReason, textutil.Truncate(string(respBody), 2000))
-	}
-	return text.String(), false, nil
+	return respBody, false, nil
 }
 
-// extractJSON strips a code fence and slices first { to last } so a prose preamble doesn't fail the parse.
-func extractJSON(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start >= 0 && end > start {
-		return s[start : end+1]
+// ask returns the raw text too, so the caller's own checks can log what the model actually said.
+func ask(ctx context.Context, label, systemPrompt, userMessage string, maxTokens int, out any) (string, error) {
+	raw, err := complete(ctx, systemPrompt, userMessage, maxTokens)
+	if err != nil {
+		return "", err
 	}
-	return strings.TrimSpace(s)
+	return raw, decodeObject(label, raw, out)
+}
+
+// Starting at the first brace skips a fence or preamble; the decoder stops at the object's end, so
+// trailing prose with braces of its own can't break the parse.
+func decodeObject(label, raw string, out any) error {
+	start := strings.Index(raw, "{")
+	if start < 0 {
+		start = len(raw)
+	}
+	if err := json.NewDecoder(strings.NewReader(raw[start:])).Decode(out); err != nil {
+		log.Printf("%s: answer was not a JSON object: %v; raw response: %s", label, err, textutil.Truncate(raw, 2000))
+		return errBadResponse
+	}
+	return nil
 }

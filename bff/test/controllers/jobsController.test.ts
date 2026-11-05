@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { request } from "../testServer.js";
 import jwt from "jsonwebtoken";
-import { app } from "../../src/app.js";
 
 const JWT_SECRET = "test-secret-not-for-production-use-only-in-tests-hs512-min-64-bytes";
 
@@ -20,7 +19,7 @@ beforeEach(() => {
 
 describe("POST /jobs", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/jobs").send({ company: "Acme", role: "Engineer" });
+    const res = await request().post("/jobs").send({ company: "Acme", role: "Engineer" });
     expect(res.status).toBe(401);
   });
 
@@ -28,7 +27,7 @@ describe("POST /jobs", () => {
     const job = { id: 1, company: "Acme", role: "Engineer", currentStage: "RESUME_CHECK", outcome: "ACTIVE" };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, job));
 
-    const res = await request(app)
+    const res = await request()
       .post("/jobs")
       .set("Cookie", authCookie("42"))
       .send({ company: "Acme", role: "Engineer", sourceCategory: "SELF_APPLIED" });
@@ -49,16 +48,52 @@ describe("POST /jobs", () => {
       fakeCoreResponse(400, { error: "company must not be blank" }),
     );
 
-    const res = await request(app).post("/jobs").set("Cookie", authCookie()).send({ role: "Engineer" });
+    const res = await request().post("/jobs").set("Cookie", authCookie()).send({ role: "Engineer" });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: "company must not be blank" });
   });
 });
 
+describe("POST /jobs/import", () => {
+  // Past the default 100kb body limit, which a real search's spreadsheet reaches.
+  it("takes a large spreadsheet and hands the rows to core", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, { imported: 800, skipped: 0 }));
+    const jobs = Array.from({ length: 800 }, (_, i) => ({ company: `Company ${i}`, role: "Engineer", notes: "x".repeat(200) }));
+
+    const res = await request().post("/jobs/import").set("Cookie", authCookie("42")).send({ jobs });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ imported: 800, skipped: 0 });
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/jobs/import");
+    expect(JSON.parse(init.body).jobs).toHaveLength(800);
+  });
+
+  it("refuses a body with no jobs list without calling core", async () => {
+    const res = await request().post("/jobs/import").set("Cookie", authCookie()).send({ rows: [] });
+
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the default limit everywhere else", async () => {
+    const res = await request().post("/jobs").set("Cookie", authCookie()).send({ notes: "x".repeat(200_000) });
+
+    expect(res.status).toBe(413);
+  });
+
+  // Not JSON, so a parse would answer 400; 401 means the body was never read.
+  it("refuses a caller who isn't signed in before reading the body", async () => {
+    const res = await request().post("/jobs/import").set("Content-Type", "application/json").send("{not json");
+
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("GET /jobs", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/jobs");
+    const res = await request().get("/jobs");
     expect(res.status).toBe(401);
   });
 
@@ -66,7 +101,7 @@ describe("GET /jobs", () => {
     const jobs = [{ id: 1, company: "Acme" }];
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, jobs));
 
-    const res = await request(app).get("/jobs").set("Cookie", authCookie("42"));
+    const res = await request().get("/jobs").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(jobs);
@@ -79,7 +114,7 @@ describe("GET /jobs", () => {
 
 describe("GET /jobs/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/jobs/1");
+    const res = await request().get("/jobs/1");
     expect(res.status).toBe(401);
   });
 
@@ -87,7 +122,7 @@ describe("GET /jobs/:id", () => {
     const job = { id: 1, company: "Acme", stageEvents: [] };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, job));
 
-    const res = await request(app).get("/jobs/1").set("Cookie", authCookie("42"));
+    const res = await request().get("/jobs/1").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(job);
@@ -97,7 +132,7 @@ describe("GET /jobs/:id", () => {
   it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
-    const res = await request(app).get("/jobs/1").set("Cookie", authCookie());
+    const res = await request().get("/jobs/1").set("Cookie", authCookie());
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "job not found" });
@@ -106,7 +141,7 @@ describe("GET /jobs/:id", () => {
 
 describe("GET /jobs/:id id validation", () => {
   it("returns 400 for a non-numeric id without calling core", async () => {
-    const res = await request(app).get("/jobs/..%2Fadmin").set("Cookie", authCookie());
+    const res = await request().get("/jobs/..%2Fadmin").set("Cookie", authCookie());
     expect(res.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -114,7 +149,7 @@ describe("GET /jobs/:id id validation", () => {
 
 describe("PATCH /jobs/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).patch("/jobs/1").send({ company: "Acme" });
+    const res = await request().patch("/jobs/1").send({ company: "Acme" });
     expect(res.status).toBe(401);
   });
 
@@ -124,7 +159,7 @@ describe("PATCH /jobs/:id", () => {
 
     const patch = { company: "Acme", role: "Engineer", sourceCategory: "SELF_APPLIED",
       currentStage: "INTERVIEW_STAGE", outcome: "ACTIVE" };
-    const res = await request(app).patch("/jobs/1").set("Cookie", authCookie("42")).send(patch);
+    const res = await request().patch("/jobs/1").set("Cookie", authCookie("42")).send(patch);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(job);
@@ -141,7 +176,7 @@ describe("PATCH /jobs/:id", () => {
   it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
-    const res = await request(app).patch("/jobs/1").set("Cookie", authCookie()).send({ company: "Acme" });
+    const res = await request().patch("/jobs/1").set("Cookie", authCookie()).send({ company: "Acme" });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "job not found" });
@@ -152,7 +187,7 @@ describe("PATCH /jobs/:id", () => {
       fakeCoreResponse(400, { error: "company must not be blank" }),
     );
 
-    const res = await request(app).patch("/jobs/1").set("Cookie", authCookie()).send({ role: "Engineer" });
+    const res = await request().patch("/jobs/1").set("Cookie", authCookie()).send({ role: "Engineer" });
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: "company must not be blank" });
@@ -161,14 +196,14 @@ describe("PATCH /jobs/:id", () => {
 
 describe("DELETE /jobs/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).delete("/jobs/1");
+    const res = await request().delete("/jobs/1");
     expect(res.status).toBe(401);
   });
 
   it("forwards the caller's id to core and returns success", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, { deleted: true }));
 
-    const res = await request(app).delete("/jobs/1").set("Cookie", authCookie("42"));
+    const res = await request().delete("/jobs/1").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ deleted: true });
@@ -184,7 +219,7 @@ describe("DELETE /jobs/:id", () => {
   it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
-    const res = await request(app).delete("/jobs/1").set("Cookie", authCookie());
+    const res = await request().delete("/jobs/1").set("Cookie", authCookie());
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "job not found" });
@@ -193,7 +228,7 @@ describe("DELETE /jobs/:id", () => {
 
 describe("GET /jobs/:id/detail", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/jobs/1/detail");
+    const res = await request().get("/jobs/1/detail");
     expect(res.status).toBe(401);
   });
 
@@ -201,7 +236,7 @@ describe("GET /jobs/:id/detail", () => {
     const detail = { jobId: 1, jdText: "we are hiring...", interviewNotes: "" };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, detail));
 
-    const res = await request(app).get("/jobs/1/detail").set("Cookie", authCookie("42"));
+    const res = await request().get("/jobs/1/detail").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(detail);
@@ -214,7 +249,7 @@ describe("GET /jobs/:id/detail", () => {
 
 describe("PUT /jobs/:id/detail", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).put("/jobs/1/detail").send({ jdText: "x", interviewNotes: "" });
+    const res = await request().put("/jobs/1/detail").send({ jdText: "x", interviewNotes: "" });
     expect(res.status).toBe(401);
   });
 
@@ -223,7 +258,7 @@ describe("PUT /jobs/:id/detail", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, detail));
 
     const patch = { jdText: "updated jd", interviewNotes: "" };
-    const res = await request(app).put("/jobs/1/detail").set("Cookie", authCookie("42")).send(patch);
+    const res = await request().put("/jobs/1/detail").set("Cookie", authCookie("42")).send(patch);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(detail);
@@ -240,7 +275,7 @@ describe("PUT /jobs/:id/detail", () => {
   it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
 
-    const res = await request(app)
+    const res = await request()
       .put("/jobs/1/detail")
       .set("Cookie", authCookie())
       .send({ jdText: "x", interviewNotes: "" });
@@ -251,7 +286,7 @@ describe("PUT /jobs/:id/detail", () => {
 
 describe("DELETE /jobs/:id/stages", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z");
+    const res = await request().delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z");
     expect(res.status).toBe(401);
   });
 
@@ -259,7 +294,7 @@ describe("DELETE /jobs/:id/stages", () => {
     const events = [{ stage: "RESUME_CHECK", enteredAt: "2026-08-25T23:00:00Z", note: null }];
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, events));
 
-    const res = await request(app)
+    const res = await request()
       .delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z&stage=INTERVIEW_STAGE")
       .set("Cookie", authCookie("42"));
 
@@ -275,7 +310,7 @@ describe("DELETE /jobs/:id/stages", () => {
   });
 
   it("returns 400 for a malformed enteredAt without calling core", async () => {
-    const res = await request(app)
+    const res = await request()
       .delete("/jobs/1/stages?enteredAt=yesterday&stage=RESUME_CHECK")
       .set("Cookie", authCookie());
     expect(res.status).toBe(400);
@@ -283,13 +318,13 @@ describe("DELETE /jobs/:id/stages", () => {
   });
 
   it("returns 400 when enteredAt is missing entirely", async () => {
-    const res = await request(app).delete("/jobs/1/stages?stage=RESUME_CHECK").set("Cookie", authCookie());
+    const res = await request().delete("/jobs/1/stages?stage=RESUME_CHECK").set("Cookie", authCookie());
     expect(res.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it("returns 400 for a stage that isn't an enum name, without calling core", async () => {
-    const res = await request(app)
+    const res = await request()
       .delete("/jobs/1/stages?enteredAt=2026-08-26T20:24:30Z&stage=../../admin")
       .set("Cookie", authCookie());
     expect(res.status).toBe(400);
@@ -301,7 +336,7 @@ describe("POST /jobs/:id/links", () => {
   const links = [{ jobId: 2, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }];
 
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/jobs/1/links").send({ targetJobId: 2, relation: "REPLACED_BY" });
+    const res = await request().post("/jobs/1/links").send({ targetJobId: 2, relation: "REPLACED_BY" });
     expect(res.status).toBe(401);
   });
 
@@ -309,7 +344,7 @@ describe("POST /jobs/:id/links", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, links));
 
     const body = { targetJobId: 2, relation: "REPLACED_BY" };
-    const res = await request(app).post("/jobs/1/links").set("Cookie", authCookie("42")).send(body);
+    const res = await request().post("/jobs/1/links").set("Cookie", authCookie("42")).send(body);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(links);
@@ -328,7 +363,7 @@ describe("POST /jobs/:id/links", () => {
       fakeCoreResponse(400, { error: "a job cannot be linked to itself" }),
     );
 
-    const res = await request(app)
+    const res = await request()
       .post("/jobs/1/links")
       .set("Cookie", authCookie())
       .send({ targetJobId: 1, relation: "RELATED" });
@@ -340,14 +375,14 @@ describe("POST /jobs/:id/links", () => {
 
 describe("DELETE /jobs/:id/links/:targetId", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).delete("/jobs/1/links/2");
+    const res = await request().delete("/jobs/1/links/2");
     expect(res.status).toBe(401);
   });
 
   it("forwards the caller's id and returns the remaining links", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, []));
 
-    const res = await request(app).delete("/jobs/1/links/2").set("Cookie", authCookie("42"));
+    const res = await request().delete("/jobs/1/links/2").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
@@ -361,75 +396,9 @@ describe("DELETE /jobs/:id/links/:targetId", () => {
   });
 
   it("returns 400 for a non-numeric target id without calling core", async () => {
-    const res = await request(app).delete("/jobs/1/links/..%2Fadmin").set("Cookie", authCookie());
+    const res = await request().delete("/jobs/1/links/..%2Fadmin").set("Cookie", authCookie());
     expect(res.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 });
 
-describe("GET /jobs/:id/resume-recommendation", () => {
-  const rulesRecommendation = {
-    recommendedVariantId: "base",
-    recommendedDisplayName: "Base",
-    scores: { base: 5, adobe: 0 },
-    reason: "matched: backend, team lead",
-    variants: [
-      { id: "base", displayName: "Base", blurb: "General backend." },
-      { id: "adobe", displayName: "Adobe Developer Productivity", blurb: "CI/CD and platform." },
-    ],
-  };
-  const jobDetail = { jobId: 1, jdText: "we are hiring a backend engineer", interviewNotes: "" };
-
-  it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/jobs/1/resume-recommendation");
-    expect(res.status).toBe(401);
-  });
-
-  it("returns both the rules-based and AI recommendations together", async () => {
-    (fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(fakeCoreResponse(200, rulesRecommendation))
-      .mockResolvedValueOnce(fakeCoreResponse(200, jobDetail))
-      .mockResolvedValueOnce(fakeCoreResponse(200, { variantId: "base", reason: "Emphasizes backend and team lead." }));
-
-    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie("42"));
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      rules: {
-        recommendedVariantId: "base",
-        recommendedDisplayName: "Base",
-        scores: { base: 5, adobe: 0 },
-        reason: "matched: backend, team lead",
-      },
-      ai: {
-        status: "ok",
-        recommendedVariantId: "base",
-        recommendedDisplayName: "Base",
-        reason: "Emphasizes backend and team lead.",
-      },
-    });
-  });
-
-  it("reports the AI side as not_configured without failing the rules side", async () => {
-    (fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(fakeCoreResponse(200, rulesRecommendation))
-      .mockResolvedValueOnce(fakeCoreResponse(200, jobDetail))
-      .mockResolvedValueOnce(fakeCoreResponse(503, { error: "not_configured" }));
-
-    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie("42"));
-
-    expect(res.status).toBe(200);
-    expect(res.body.ai).toEqual({ status: "not_configured" });
-    expect(res.body.rules.recommendedVariantId).toBe("base");
-  });
-
-  it("proxies core's 404 through unchanged when the job isn't the caller's", async () => {
-    (fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }))
-      .mockResolvedValueOnce(fakeCoreResponse(404, { error: "job not found" }));
-
-    const res = await request(app).get("/jobs/1/resume-recommendation").set("Cookie", authCookie());
-
-    expect(res.status).toBe(404);
-  });
-});

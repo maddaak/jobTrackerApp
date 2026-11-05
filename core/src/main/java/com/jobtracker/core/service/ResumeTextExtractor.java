@@ -4,6 +4,7 @@ import com.jobtracker.core.exception.UnsupportedResumeTypeException;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,12 @@ import java.nio.charset.StandardCharsets;
 public class ResumeTextExtractor {
 
     private static final String TEXT = "text/plain";
+
+    // A .docx is a zip; POI's own ceiling on one unpacked part is 4GB, far past this server's memory. A real
+    // resume's largest part is a few megabytes, images included.
+    static {
+        ZipSecureFile.setMaxEntrySize(100L * 1024 * 1024);
+    }
 
     // Route by magic bytes, not the spoofable Content-Type, so a forged header can't reach the parsers.
     public String extract(String contentType, byte[] bytes) {
@@ -36,7 +43,6 @@ public class ResumeTextExtractor {
         }
     }
 
-    // %PDF
     private boolean looksLikePdf(byte[] bytes) {
         return bytes.length >= 4 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F';
     }

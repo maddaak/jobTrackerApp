@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -45,12 +46,17 @@ class JobServiceTests {
     @Mock
     private JobImageService jobImageService;
 
+    @Mock
+    private SeasonService seasons;
+
     private JobService jobService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService, new JobLinkService(jobs, jobDetailRepo), jobImageService);
+        when(seasons.inView(any())).thenReturn(job -> true);
+        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService, new JobLinkService(jobs, jobDetailRepo),
+                jobImageService, seasons, Clock.systemUTC());
         // updateJob creates the document when one is missing, so a stage change never drops its entry.
         when(jobDetailService.createDetail(anyLong(), anyLong(), any()))
                 .thenAnswer(i -> new JobDetail(i.getArgument(0), i.getArgument(1), new byte[0], ""));
@@ -186,7 +192,7 @@ class JobServiceTests {
 
         var request = new CreateJobRequest("Acme", "Backend Engineer",
                 SourceCategory.REFERRAL_APPLIED, "https://acme.com/jobs/1",
-                Location.REMOTE, 150000, 180000, "spoke to Kim");
+                Location.REMOTE, "Austin, TX", 150000, 180000, "spoke to Kim", null, null, null);
 
         Job savedJob = new Job("Acme", "Backend Engineer", owner, source,
                 "https://acme.com/jobs/1", Location.REMOTE, 150000, 180000);
@@ -208,6 +214,44 @@ class JobServiceTests {
         assertThat(response.stageEvents().get(0).stage()).isEqualTo(Stage.RESUME_CHECK);
         // Notes now live on the document, created eagerly with the job.
         verify(jobDetailService).createDetail(7L, 1L, "spoke to Kim");
+        verify(jobs).save(org.mockito.ArgumentMatchers.<Job>argThat(saved -> "Austin, TX".equals(saved.getCity())));
+    }
+
+    @Test
+    void aJobARecruiterReachedOutAboutStartsContactedWithApplicationStillInItsHistory() {
+        User owner = new User("alice", "hash");
+        when(users.getReferenceById(1L)).thenReturn(owner);
+        Job savedJob = new Job("Acme", "Backend Engineer", owner, SourceCategory.LINKEDIN_OUTREACH, null, null, null, null);
+        ReflectionTestUtils.setField(savedJob, "id", 7L);
+        when(jobs.save(any(Job.class))).thenReturn(savedJob);
+        when(jobDetailService.createDetail(anyLong(), anyLong(), any()))
+                .thenReturn(new JobDetail(7L, 1L, new byte[0], ""));
+
+        var request = new CreateJobRequest("Acme", "Backend Engineer", SourceCategory.LINKEDIN_OUTREACH,
+                null, null, null, null, null, null, Stage.INTERVIEW_REQUEST, null, null);
+        JobDetailResponse response = jobService.createJob(1L, request);
+
+        assertThat(response.currentStage()).isEqualTo(Stage.INTERVIEW_REQUEST);
+        assertThat(response.stageEvents()).extracting("stage")
+                .containsExactly(Stage.RESUME_CHECK, Stage.INTERVIEW_REQUEST);
+    }
+
+    @Test
+    void aNewJobSavesItsDescriptionAndRecommendedResumeInTheSameRequest() {
+        User owner = new User("alice", "hash");
+        when(users.getReferenceById(1L)).thenReturn(owner);
+        Job savedJob = new Job("Acme", "Backend Engineer", owner, SourceCategory.SELF_APPLIED, null, null, null, null);
+        ReflectionTestUtils.setField(savedJob, "id", 7L);
+        when(jobs.save(any(Job.class))).thenReturn(savedJob);
+        JobDetail detail = new JobDetail(7L, 1L, new byte[0], "");
+        when(jobDetailService.createDetail(anyLong(), anyLong(), any())).thenReturn(detail);
+
+        jobService.createJob(1L, new CreateJobRequest("Acme", "Backend Engineer", SourceCategory.SELF_APPLIED,
+                null, null, null, null, null, null, null, "We are hiring.", "Backend_Resume.pdf"));
+
+        assertThat(Gzip.decompress(detail.getJdTextCompressed())).isEqualTo("We are hiring.");
+        assertThat(detail.getRecommendedResume()).isEqualTo("Backend_Resume.pdf");
+        verify(jobDetailRepo).save(detail);
     }
 
     @Test
@@ -231,8 +275,8 @@ class JobServiceTests {
 
         Instant base = Instant.parse("2026-01-01T00:00:00Z");
         JobDetail detail = new JobDetail(1L, 2L, new byte[0], "");
-        detail.addInterview(new InterviewRound(base, InterviewType.SYSTEM_DESIGN, null, null, List.of()));
-        detail.addInterview(new InterviewRound(base.plusSeconds(3600), InterviewType.BEHAVIOR, null, null,
+        detail.addInterview(new InterviewRound(base, null, InterviewType.SYSTEM_DESIGN, null, null, List.of()));
+        detail.addInterview(new InterviewRound(base.plusSeconds(3600), null, InterviewType.BEHAVIOR, null, null,
                 List.of(new Interviewer("Jordan Lee", null))));
         when(jobDetailRepo.findJourneysByOwnerId(2L)).thenReturn(List.of(journey(detail)));
 
@@ -242,6 +286,114 @@ class JobServiceTests {
         assertThat(latest.interviewType()).isEqualTo(InterviewType.BEHAVIOR);
         assertThat(latest.roundCount()).isEqualTo(2);
         assertThat(latest.interviewers()).extracting("name").containsExactly("Jordan Lee");
+    }
+
+    private JobDetail withRounds(InterviewType... types) {
+        JobDetail detail = new JobDetail(1L, 2L, new byte[0], "");
+        Instant at = Instant.parse("2026-01-01T00:00:00Z");
+        for (InterviewType type : types) {
+            detail.addInterview(new InterviewRound(at, null, type, null, null, List.of()));
+            at = at.plusSeconds(86400);
+        }
+        return detail;
+    }
+
+    @Test
+    void anUndraggedCardSitsAtItsFurthestRoundNotItsLatest() {
+        Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
+        // A debrief after the panel must not slide the card back to Initial Screen.
+        when(jobDetailRepo.findJourneysByOwnerId(2L)).thenReturn(List.of(journey(withRounds(
+                InterviewType.RECRUITER_PHONE_SCREEN, InterviewType.PANEL_CODING, InterviewType.RECRUITER_DEBRIEF))));
+
+        JobSummaryResponse summary = jobService.listJobs(2L).get(0);
+
+        assertThat(summary.boardPhase()).isEqualTo(InterviewPhase.PANEL);
+        assertThat(summary.interviewPhase()).isNull();
+    }
+
+    @Test
+    void aDraggedPhaseWinsOverTheRounds() {
+        Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+        job.applyUpdate("Globex", "SRE", SourceCategory.SELF_APPLIED, null, null, null, null,
+                Stage.INTERVIEW_STAGE, InterviewPhase.MID_ROUNDS, Outcome.ACTIVE);
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
+        when(jobDetailRepo.findJourneysByOwnerId(2L)).thenReturn(List.of(journey(withRounds(InterviewType.PANEL_CODING))));
+
+        JobSummaryResponse summary = jobService.listJobs(2L).get(0);
+
+        assertThat(summary.boardPhase()).isEqualTo(InterviewPhase.MID_ROUNDS);
+        assertThat(summary.interviewPhase()).isEqualTo(InterviewPhase.MID_ROUNDS);
+    }
+
+    @Test
+    void anUnrelatedEditDoesNotFreezeAnUndraggedCard() {
+        // Save a salary change sending back what the summary showed, then log a panel round.
+        Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+        JobDetail detail = withRounds(InterviewType.RECRUITER_PHONE_SCREEN);
+        when(jobs.findByIdAndOwnerId(1L, 2L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(1L)).thenReturn(Optional.of(detail));
+        JobSummaryResponse shown = jobService.updateJob(2L, 1L, new UpdateJobRequest("Globex", "SRE",
+                SourceCategory.SELF_APPLIED, null, null, null, null, null, Stage.INTERVIEW_STAGE, null, Outcome.ACTIVE));
+
+        jobService.updateJob(2L, 1L, new UpdateJobRequest("Globex", "SRE", SourceCategory.SELF_APPLIED,
+                null, null, null, 150000, null, shown.currentStage(), shown.interviewPhase(), shown.outcome()));
+        detail.addInterview(new InterviewRound(Instant.parse("2026-02-01T00:00:00Z"), null,
+                InterviewType.PANEL_CODING, null, null, List.of()));
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
+        when(jobDetailRepo.findJourneysByOwnerId(2L)).thenReturn(List.of(journey(detail)));
+
+        assertThat(jobService.listJobs(2L).get(0).boardPhase()).isEqualTo(InterviewPhase.PANEL);
+    }
+
+    @Test
+    void anUndraggedCardWithNoRoundsHasNoPhase() {
+        Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(2L)).thenReturn(List.of(job));
+
+        assertThat(jobService.listJobs(2L).get(0).boardPhase()).isNull();
+    }
+
+    @Test
+    void reopeningAClosedJobReturnsItToTheLastStageItReached() {
+        Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+        job.applyUpdate("Globex", "SRE", SourceCategory.SELF_APPLIED, null, null, null, null,
+                Stage.INTERVIEW_STAGE, null, Outcome.REJECTED);
+        JobDetail detail = new JobDetail(1L, 2L, new byte[0], "");
+        detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-01-01T00:00:00Z"), null);
+        detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-01-05T00:00:00Z"), null);
+        detail.recordStage(Stage.FINALIZED, Instant.parse("2026-01-09T00:00:00Z"), null);
+        when(jobs.findByIdAndOwnerId(1L, 2L)).thenReturn(Optional.of(job));
+        when(jobDetailRepo.findByJobId(1L)).thenReturn(Optional.of(detail));
+
+        JobSummaryResponse reopened = jobService.updateJob(2L, 1L, new UpdateJobRequest("Globex", "SRE",
+                SourceCategory.SELF_APPLIED, null, null, null, null, null, Stage.FINALIZED, null, Outcome.ACTIVE));
+
+        assertThat(reopened.currentStage()).isEqualTo(Stage.INTERVIEW_STAGE);
+    }
+
+    // Unticking Waiting sends Interview Stage; a job that was only contacted must not gain one it never had.
+    @Test
+    void unTickingWaitingReturnsToTheStageHeldBeforeIt() {
+        for (Stage before : List.of(Stage.INTERVIEW_REQUEST, Stage.INTERVIEW_STAGE)) {
+            Job job = job(new User("bob", "hash"), SourceCategory.SELF_APPLIED, "Globex", "SRE", 1L);
+            job.applyUpdate("Globex", "SRE", SourceCategory.SELF_APPLIED, null, null, null, null,
+                    Stage.WAITING_INTERVIEW_RESULTS, null, Outcome.ACTIVE);
+            JobDetail detail = new JobDetail(1L, 2L, new byte[0], "");
+            detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-01-01T00:00:00Z"), null);
+            detail.recordStage(before, Instant.parse("2026-01-05T00:00:00Z"), null);
+            detail.recordStage(Stage.WAITING_INTERVIEW_RESULTS, Instant.parse("2026-01-09T00:00:00Z"), null);
+            when(jobs.findByIdAndOwnerId(1L, 2L)).thenReturn(Optional.of(job));
+            when(jobDetailRepo.findByJobId(1L)).thenReturn(Optional.of(detail));
+
+            JobSummaryResponse unticked = jobService.updateJob(2L, 1L, new UpdateJobRequest("Globex", "SRE",
+                    SourceCategory.SELF_APPLIED, null, null, null, null, null, Stage.INTERVIEW_STAGE, null, Outcome.ACTIVE));
+
+            assertThat(unticked.currentStage()).as("waiting after %s", before).isEqualTo(before);
+            assertThat(detail.getStageHistory()).as("waiting after %s", before)
+                    .extracting(StageHistoryEntry::getStage)
+                    .containsExactly(Stage.RESUME_CHECK, before, Stage.WAITING_INTERVIEW_RESULTS, before);
+        }
     }
 
     @Test
@@ -275,15 +427,16 @@ class JobServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         var request = new UpdateJobRequest("NewCo", "New Role", SourceCategory.REFERRAL_APPLIED,
-                "https://newco.com/jobs/1", Location.NYC_HYBRID, 100000, 120000,
-                Stage.RESUME_CHECK, Outcome.ACTIVE);
+                "https://newco.com/jobs/1", Location.HYBRID, "  Toronto  ", 100000, 120000,
+                Stage.RESUME_CHECK, null, Outcome.ACTIVE);
 
         JobSummaryResponse response = jobService.updateJob(1L, 10L, request);
 
         assertThat(response.company()).isEqualTo("NewCo");
         assertThat(response.role()).isEqualTo("New Role");
         assertThat(response.sourceCategory()).isEqualTo(SourceCategory.REFERRAL_APPLIED);
-        assertThat(response.location()).isEqualTo(Location.NYC_HYBRID);
+        assertThat(response.location()).isEqualTo(Location.HYBRID);
+        assertThat(response.city()).isEqualTo("Toronto");
         assertThat(response.compMin()).isEqualTo(100000);
         assertThat(response.compMax()).isEqualTo(120000);
         verify(jobs).save(job);
@@ -297,12 +450,27 @@ class JobServiceTests {
 
         // A direct PATCH closing the job mid-pipeline; the funnel would otherwise count it as live.
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, Stage.INTERVIEW_STAGE, Outcome.GHOSTED);
+                null, null, null, null, null, Stage.INTERVIEW_STAGE, null, Outcome.GHOSTED);
 
         JobSummaryResponse response = jobService.updateJob(1L, 10L, request);
 
         assertThat(response.currentStage()).isEqualTo(Stage.FINALIZED);
         assertThat(job.getCurrentStage()).isEqualTo(Stage.FINALIZED);
+    }
+
+    @Test
+    void pausingAJobKeepsItsStageAndColumnSoResumingPutsItBackInPlace() {
+        User owner = new User("hank", "hash");
+        Job job = job(owner, SourceCategory.SELF_APPLIED, "Acme", "Engineer", 10L);
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+
+        var pause = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
+                null, null, null, null, null, Stage.WAITING_INTERVIEW_RESULTS, InterviewPhase.PANEL, Outcome.PAUSED);
+        JobSummaryResponse paused = jobService.updateJob(1L, 10L, pause);
+
+        assertThat(paused.currentStage()).isEqualTo(Stage.WAITING_INTERVIEW_RESULTS);
+        assertThat(paused.interviewPhase()).isEqualTo(InterviewPhase.PANEL);
+        assertThat(Outcome.PAUSED.closesPipeline()).isFalse();
     }
 
     @Test
@@ -313,7 +481,7 @@ class JobServiceTests {
 
         // Accepted offers stay at OFFER_STAGE; the Sankey reads that stage to route them via OFFER.
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED);
+                null, null, null, null, null, Stage.OFFER_STAGE, null, Outcome.OFFER_ACCEPTED);
 
         JobSummaryResponse response = jobService.updateJob(1L, 10L, request);
 
@@ -329,7 +497,7 @@ class JobServiceTests {
         when(jobDetailRepo.findByJobId(10L)).thenReturn(Optional.of(detail));
 
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, Stage.INTERVIEW_REQUEST, Outcome.ACTIVE);
+                null, null, null, null, null, Stage.INTERVIEW_REQUEST, null, Outcome.ACTIVE);
 
         jobService.updateJob(1L, 10L, request);
 
@@ -345,7 +513,7 @@ class JobServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, Stage.RESUME_CHECK, Outcome.ACTIVE);
+                null, null, null, null, null, Stage.RESUME_CHECK, null, Outcome.ACTIVE);
 
         jobService.updateJob(1L, 10L, request);
 
@@ -359,7 +527,7 @@ class JobServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.EMAIL_OUTREACH,
-                null, null, null, null, Stage.RESUME_CHECK, Outcome.ACTIVE);
+                null, null, null, null, null, Stage.RESUME_CHECK, null, Outcome.ACTIVE);
 
         jobService.updateJob(1L, 10L, request);
 
@@ -371,7 +539,7 @@ class JobServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 999L)).thenReturn(Optional.empty());
 
         var request = new UpdateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
-                null, null, null, null, Stage.RESUME_CHECK, Outcome.ACTIVE);
+                null, null, null, null, null, Stage.RESUME_CHECK, null, Outcome.ACTIVE);
 
         assertThatThrownBy(() -> jobService.updateJob(999L, 10L, request))
                 .isInstanceOf(JobNotFoundException.class);

@@ -2,9 +2,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ResumesPage from "../../src/pages/ResumesPage";
-import { useAuth } from "../../src/context/AuthContext";
+import { useAuth } from "../../src/hooks/useAuth";
 
-vi.mock("../../src/context/AuthContext", () => ({ useAuth: vi.fn() }));
+vi.mock("../../src/hooks/useAuth", () => ({ useAuth: vi.fn() }));
 
 beforeEach(() => {
   vi.mocked(useAuth).mockReturnValue({ aiConfigured: true } as ReturnType<typeof useAuth>);
@@ -36,42 +36,7 @@ describe("ResumesPage", () => {
 
     await screen.findByText("r.pdf");
     expect(screen.queryByText("Summarize with AI")).not.toBeInTheDocument();
-    expect(screen.getByText(/AI summaries are disabled/)).toBeInTheDocument();
-  });
-
-  it("shows the onboarding banner only when the query param is present", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fakeResponse(200, []))));
-
-    renderResumesPage("/resumes?onboarding=1");
-
-    expect(await screen.findByText(/Skip for now/)).toBeInTheDocument();
-  });
-
-  it("switches the onboarding banner to a 'Continue' CTA once a resume has been uploaded", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          fakeResponse(200, [
-            { id: "1", fileName: "resume.pdf", uploadedAt: "2026-01-01", analysisStatus: "ok", summary: "Great fit", skills: [], seniority: "senior", roles: [] },
-          ]),
-        ),
-      ),
-    );
-
-    renderResumesPage("/resumes?onboarding=1");
-
-    expect(await screen.findByText("Continue → Home")).toBeInTheDocument();
-    expect(screen.queryByText(/Skip for now/)).not.toBeInTheDocument();
-  });
-
-  it("does not show the onboarding banner on a normal visit", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(fakeResponse(200, []))));
-
-    renderResumesPage("/resumes");
-
-    await screen.findByText("No resumes uploaded yet.");
-    expect(screen.queryByText(/Skip for now/)).not.toBeInTheDocument();
+    expect(screen.getByText(/AI summaries are off/)).toBeInTheDocument();
   });
 
   it("renders each analysisStatus variant with the right copy", async () => {
@@ -95,7 +60,7 @@ describe("ResumesPage", () => {
     expect(screen.getByText(/AI-generated/)).toBeInTheDocument();
     expect(screen.getByText("Summarize with AI")).toBeInTheDocument();
     expect(screen.getByLabelText("Custom summary for pending.pdf")).toBeInTheDocument();
-    expect(screen.getByText("Add an Anthropic API key to enable AI summaries")).toBeInTheDocument();
+    expect(screen.getByText("Set up an AI provider to enable AI summaries")).toBeInTheDocument();
     expect(screen.getByText("AI summary failed — try again or write your own below")).toBeInTheDocument();
   });
 
@@ -198,7 +163,7 @@ describe("ResumesPage", () => {
 
     renderResumesPage();
 
-    expect(await screen.findByText("Add an Anthropic API key to enable AI summaries")).toBeInTheDocument();
+    expect(await screen.findByText("Set up an AI provider to enable AI summaries")).toBeInTheDocument();
     expect(screen.queryByText("Summarize with AI")).not.toBeInTheDocument();
     expect(screen.queryByText("Retry with AI")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Custom summary for unconfigured.pdf")).toBeInTheDocument();

@@ -20,9 +20,11 @@ const baseInput: UpdateJobInput = {
   sourceCategory: "SELF_APPLIED",
   url: null,
   location: null,
+  city: null,
   compMin: null,
   compMax: null,
   currentStage: "RESUME_CHECK",
+  interviewPhase: null,
   outcome: "ACTIVE",
 };
 

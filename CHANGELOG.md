@@ -4,6 +4,442 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V4.0.0
+
+A board replaces the table as home, with pages for submitted applications, offers, paused jobs, and
+closed ones around it. AI works with any provider and helps from adding a job through its rounds to
+the offer, interviews carry an end time, and Insights says which rounds you pass. Every existing stage is kept. Upgrading is a pull and a restart.
+
+### Upgrading
+- Automatic. On startup `core` adds the new interview-phase field to the jobs table (empty until a
+  card is moved), rewrites the stage and status checks so the new Paused status is accepted, and
+  gives each job's detail document a version number. Existing jobs keep their stages and land in
+  the matching board column.
+- **Check your `.env` first:** `core`, the bff, and the scraper now refuse to start if
+  `INTERNAL_TOKEN` or `JWT_SECRET` is still the `.env.example` placeholder, which is public. The log
+  says which one. Generate real values as in the README's Quick start.
+- Run `sh setup.sh` once: it adds the new `SCRAPER_TOKEN` to your `.env` and changes nothing else.
+  Without it the app still starts, with the scraper sharing core's token as before.
+- A `.env` with `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` keeps working; see AI below for the new
+  settings.
+- Locations are no longer tied to New York. A job saved as NYC in person becomes **On-site** and NYC
+  hybrid becomes **Hybrid**, each with the city set to New York, so nothing loses where it was. A
+  saved market check and an older backup are read the same way.
+- `core` now manages its database layout with numbered migrations (Flyway). On first start it records
+  your existing database as its starting point and changes only what V4 adds. It also widens the
+  posting link column, which on databases from earlier versions refused a link over 255 characters.
+- Upgrading straight from a version before v3 still converts in one start, and the converted jobs
+  save normally right away.
+- Every job you already have goes into one season, "My job hunt", which is the one shown. Rename it
+  on the Seasons page.
+- **The app now answers only on the machine running it.** If you open it from a phone or another
+  computer, set `BIND_ADDRESS=0.0.0.0` in `.env` before restarting. Everyone stays signed in through
+  the upgrade.
+- Email reminders stay off until `SMTP_*` settings are added to `.env`; see Reminders below.
+- Registration closes once an account exists, which an existing install already has. Set
+  `REGISTRATION_OPEN=true` to add another. Existing accounts get empty name and email fields, filled in
+  under Profile.
+
+### Board
+- The home page is a board of the jobs you're actively working, in four columns: **Interview
+  Request**, **Initial Screen**, **Mid Rounds**, and **Panel**. The last three split up the existing
+  Interview Stage, so a job can say which round it's at. Nothing was removed or renamed in the data.
+- Drag a card between columns, or use the keyboard: Space picks it up, the arrow keys jump between
+  columns, Enter opens it. Screen readers hear the company and column names.
+- Three exits beside the columns: **Got an offer**, **Pause**, and **Close** (which asks for the
+  closed outcome). A collapsible **Submitted** tray on the left holds applications waiting on a
+  reply; drag one onto a column when they answer, or a card back into it.
+- Cards show the latest round, a **Waiting on results** badge, and a **Schedule round** badge when
+  an interviewing job has nothing booked. The badge is worked out from the calendar, so adding the
+  round clears it.
+- A card you haven't moved is placed by the furthest round logged; dragging it stores the column.
+- The columns and exits fit a 1280-pixel-wide laptop screen without scrolling sideways.
+- **Follow-ups due** above the columns lists the people whose follow-up day has come, each opening its
+  job. It needs no email set up.
+
+### Seasons
+- Each job hunt is a **season**, so a search next year doesn't mix with this one. The season picker at
+  the top of the sidebar switches between them, starts a new one, or shows **All seasons** together.
+- The board, Submitted, Offers, Paused, Closed, All jobs, the calendar, and Insights all show the
+  season picked. A new season starts with all of them empty; the other seasons keep every job.
+- A new job, an import, or sample data goes into the season shown (the newest one when showing all).
+  Importing skips a job already in that season only, since applying again in a later search is a new
+  application.
+- A **Seasons** page (the picker's **Season** heading, or **See all seasons** in the picker) lays the seasons side by
+  side, newest first: the dates each covers, applications, how many heard back and were interviewed
+  (with the share of applications), offers, and how many are still active. **Open board** and **See
+  Insights** switch to that season and go there. **Rename** edits the name in place and the picker
+  follows at once; **Delete** removes an empty season; **Start a new season** is at the top. A season
+  holding jobs can't be deleted, so no job is lost with it.
+- **Move to another season** in a job's dialog refiles it.
+- Reminder emails cover every season, since an interview in an older search is still real.
+- A backup records each job's season by name, and a restore opens on the newest one.
+
+### Keyboard
+- `/` or Ctrl K opens a quick search that finds a job by company, role, or city and opens it.
+- `N` adds a job, `G` then `B`, `C`, `I`, or `A` goes to the board, calendar, Insights, or all jobs,
+  and `?` lists every shortcut. They pause while you're typing in a field.
+
+### Pages
+- **Submitted**: applications still waiting on a reply, with **Got an interview request** to put one
+  on the board. One with no reply in 30 days is flagged, with **Mark ghosted** on it and a banner to
+  mark them all at once, so the page holds only what might still answer.
+- **Offers**: base, bonus, equity, sign-on, start date, and decision deadline per offer, with an
+  average per year, and a **Decision** picker (Undecided, Accepted, Declined) that can be set back if
+  you change your mind. A blank amount is kept as unknown, not zero. With every offer paused, the page
+  says so and where to find them.
+  - The bonus is entered as dollars or as a percent of base, as the letter states it.
+  - Equity is entered as the letter states it too: a number of shares and a share price, or a dollar
+    value, then the years it vests over and an even or custom schedule (such as 5/15/40/40). The page
+    works out each year's shares and dollars, so a back-loaded grant shows how little it pays early
+    on. A new price is one field to edit. Only whole shares vest, and the years always add up to the
+    grant: 30 shares at 5/15/45/35 vest 2/5/13/10, not the 32 that rounding each year alone gives.
+    Letters round their own tables in ways no percent rule reproduces, so each year's share count can
+    also be typed straight from the letter; a blank year keeps the worked-out count, and the form says
+    if the years don't add up to the grant.
+  - The **sign-on bonus** is one payment, in year 1. An **offset**, the cash a letter pays in the
+    years a back-loaded grant leaves thin (such as $60,000 in year 1 and $45,000 in year 2), is entered
+    under Equity, in each year's column beside that year's vesting percent. An offer can have both.
+    Each year's column then shows its shares, its stock, and what the year pays, with and without the
+    letter's assumed growth. An offer saved with one sign-on amount reads it as the sign-on bonus.
+  - **Expected price growth**, optional, is the yearly share-price rise a letter assumes, such as 15%.
+    Each later vest is projected at the price grown that much a year, compounding and taken to the
+    cent, and shown on its own line beside the today's-price figures, marked as the letter's assumption.
+  - **Pay by year** adds base, bonus, that year's vesting, and that year's offset and sign-on, so an
+    offer that is cash heavy early and stock heavy later shows its real shape.
+  - **The average per year** is everything an offer pays, sign-on and offsets included and at the letter's assumed
+    growth, divided by the years. Every offer is averaged over the same years, the longest any of them
+    pays over, so a four-year grant with a two-year offset and a base with a sign-on
+    are compared on equal terms. It is what the AI comparison and the counter-offer draft weigh; the
+    market check still compares base, bonus, and the grant spread evenly, as pay sites quote it.
+  - An **Offered title** records a title or level different from the posting's, such as after a
+    downlevel. The card shows it, and the AI judges pay against it.
+- **Paused**: a new status for hiring freezes and holds. Resuming puts a job back where it stood.
+- **Closed**: rejected, ghosted, withdrawn, and closed-position jobs, filterable by outcome.
+- **All jobs**: the table from earlier versions, kept for scanning and bulk edits.
+- A left-hand menu groups the pages with live counts, and adding a job says where it landed.
+
+### Job dialog
+- **People**: the recruiter, referrer, hiring manager, or anyone else for the job, with email, a
+  LinkedIn link, notes, and when you last spoke. **Spoke today** updates that in one click. They're
+  part of the job's backup.
+  - **Follow up by** sets a day to get back to someone. Once it comes the person is marked due here,
+    listed on the board, and included in the follow-up email. Speaking to them on or after that day
+    settles it.
+- **Resume sent** records which of your resumes went with the application. It's separate from the
+  recommended one, and Insights compares replies by it.
+- **Status**, **Stage**, and **Waiting on results** in one place, the same controls the table uses.
+  Stage speaks the board's language: Submitted, Interview Request, the three interview columns
+  (grouped under Interviewing), and Offer.
+- Reopening a closed job returns it to the stage it last held, instead of leaving it Finalized with
+  no page to show it.
+- Unticking Waiting on results returns the job to the stage it held before, so a job waiting since
+  Interview Request doesn't gain an Interview Stage it never had.
+- The stage history folds Waiting into the stage it paused, so ticking it on and off adds no rows.
+  Deleting a row still removes every entry behind it.
+- Two tabs saving the same job's details no longer silently overwrite each other: the stale save is
+  refused instead.
+
+### Adding a job
+- One **Job description** box, whichever way you add: filled from a fetched link, pasted, or typed.
+  It's saved with the job, AI or not. Before, skipping the link left nowhere to put it unless AI
+  was set up.
+- **Back** returns from the form to the link, keeping what you typed.
+- **Get recommendation** runs on whatever is in the box, and can be run again after editing it. It's
+  now short: recommended or not, based on a few key words, any gaps flagged, and which resume to use.
+  It also names the company and role, filling them in when still empty. It leaves room for models that
+  always think first, which used to spend the whole reply on thinking and come back unavailable.
+- **Fill in title, location and pay** reads a pasted description with no AI, so it's free and works
+  with AI off. Only empty fields are filled, so nothing typed is overwritten.
+- You choose whether a job starts as applied or as a recruiter reaching out.
+- **Save to Job Tracker**, a bookmarklet offered in the add-job form and under Profile, works on any posting, including sites the
+  link fetcher can't read such as LinkedIn. One click opens the app with the add-job form holding the
+  posting's link, its heading as the role, and its text (or just what you selected), with location
+  and pay already read from it. On a board that shows its list beside the job, it takes only the job's
+  panel. It sends
+  the text only to this app; nothing is saved until you press Add.
+- **Location** is the work model (Remote, Hybrid, or On-site) and a separate **City**, for a search
+  anywhere. A fetched posting fills in the city when it names one, and the market check and offer
+  comparison price for that place.
+
+### Interviews
+- A round has an optional **Ends at** time. It defaults to an hour after the start when you first
+  enter one, and moving the start drags it along. A round saved without one keeps no end rather than
+  getting an invented hour. `core` refuses an end before the start.
+- The calendar, the banner, and the job dialog show the range.
+- **Add to calendar** on an upcoming round, and **Add upcoming rounds to my calendar** on the
+  Calendar page, download an `.ics` file that Google Calendar, Apple Calendar, and Outlook open, with
+  the time, the meeting link or address, and who you're meeting. It's a file rather than a
+  subscription link because a calendar service can't reach an app running on your own machine.
+- Adding a round from a job starts blank instead of prefilled with the current time.
+- The upcoming-interviews banner and the Insights tile leave out closed jobs, and count a round as
+  upcoming until it ends rather than until it starts. Both now follow the same rule.
+- One add-interview dialog everywhere: the table's separate inline editor, which had drifted from it,
+  is gone.
+
+### Insights
+- Opens with headline tiles: applications, response rate, interviews done and upcoming, and round
+  pass rate. The pipeline flow is still there, one click down.
+- **Weekly activity** charts applications sent and interviews held in each of the last 12 weeks, with
+  this week's count and the weekly average, so a search going quiet shows before the replies stop.
+- **Replies by resume** shows, for each resume recorded as sent, how many applications it went with
+  and how many heard back (a recruiter reaching out or further). Fewer than five is marked as too few
+  to compare.
+- The interview rounds table shows how each type went: times faced, passed, not passed, and a pass
+  rate. A panel counts once however many interviews it held. Withdrawing, a closed req, and a
+  pipeline still open are left out rather than counted as failures. Only rounds already held count,
+  so a job rejected before its booked round stopped at the round before, while a round with the next
+  one already booked counts as passed. The pipeline flow draws only held rounds too. Clicking a figure
+  lists the companies behind it.
+- A round type no job has ordered yet sits in its phase on the pipeline flow; before, a take-home
+  or code review with no ordering job was drawn after Panel.
+- Rounds belonging to deleted jobs no longer steer the flow's order.
+- The pipeline flow is tidier: every column stacks its stages in one fixed order (earlier rounds above
+  later ones, still-open outcomes above closed ones), so flows run in bands instead of criss-crossing.
+  It grows taller as stages are added. Hovering a stage traces how its jobs got there, from the
+  application up to that stage, and the one step each took next, so it shows which progressed: hover
+  Offer and the route each offer took through every earlier round lights up, in proportion to how many
+  jobs took each step, while the steps beyond that and everything off the route fade. The routes are
+  listed under the chart too, with routes that only part ways later counted as one, beside the
+  companies at that stage, so hovering alone shows who is there; the separate company box is gone.
+  Point at a route in the list and the chart and the companies narrow to that route; point at a
+  company and its route is picked out in the list and on the chart (two jobs at one company show
+  their roles). Clicking works both ways: a route keeps its companies listed, and a company keeps its
+  route, with its companies and that one marked, until clicked again. Clicking a stage
+  pins it: it stays while you read or copy, another stage hovered meanwhile shows in its place until
+  the pointer leaves, and clicking it again, Escape, or the ✕ lets go. Enter pins from the keyboard.
+  Hovering no longer flickers: the area under the chart keeps its height whatever it shows, so the
+  page doesn't jump under the pointer, moving between stages or down into the details keeps the
+  highlight, and a long company list scrolls on its own. A route too long for the window is cut
+  short, with the whole route on hover, rather than wrapping.
+- On the pipeline flow, jobs linked as replacing each other (a role reposted) are one journey carried
+  on: every posting's rounds in order, as far as any of them got, ending where the newest stands. A
+  repost no longer shows as two dead ends at Position Closed beside a route that starts at the panel.
+  The company is listed once, as "(3 postings)", and a line above the chart says how many journeys
+  came from how many applications. Everything else, the tiles and funnel included, still counts each
+  posting, since each was its own application. Related links stay separate.
+- A paused job ends at its own **Paused** node on the pipeline flow; it was drawn into In Progress, as
+  if still moving. Only active jobs count as in progress now.
+
+### AI
+- **Any provider.** Set `AI_PROVIDER` to `anthropic`, `openai`, `gemini`, `mistral`, `deepseek`,
+  `groq`, `xai`, or `openrouter`, or to `ollama` or `lmstudio` for a model on your own machine (no key
+  needed). Each tool knows its own address and settings; `AI_BASE_URL` is only for a tool somewhere
+  unusual. An unknown name stops the scraper at startup with the valid ones listed.
+- **A request is billed at most once.** It's retried only when the provider turned it away before
+  doing any work (rate limited or overloaded), never after a server error or a timeout, and every
+  attempt shares one 100-second budget. Before, one click could ask the provider up to three times
+  over about four and a half minutes.
+- **Help me decide** on the Offers page compares the undecided offers against priorities you write,
+  seeing each grant's year-by-year vesting as well as its average. The answer is saved for the season,
+  so coming back shows it with your priorities instead of paying for another, and it says when an
+  offer has been edited, decided, or added since. A comparison that fails keeps the last one and what
+  you typed. It's saved for the season it was made from, even if you switch while it runs.
+- **Check the market** on an offer says whether it's below, at, or above typical pay for the role
+  and location, with a typical range and points to negotiate. It prices the offered title when there
+  is one, and is told the posted title, so a downlevel is judged at the level offered and the answer
+  can say whether to negotiate the level. With Anthropic it searches the web and lists its sources;
+  other providers give an estimate, labelled as one. The result is kept with the offer, shown as one
+  line that expands to the full analysis, and can be removed. Editing the offer's pay, title, or
+  location keeps it but marks it out of date, with **Check again** beside it.
+- A request the scraper refuses (too many offers, an empty description) now says why instead of
+  reading as "AI unavailable".
+- A match with no reasoning, or a reply with trailing text after its JSON, is handled instead of
+  shown as a verdict or an error.
+- The unused resume-variant recommendation endpoint is removed.
+- **Every AI feature below is a button, and its answer is saved**: shown again for free, collapsed to
+  one line until opened, and only rerun or removed on request. With AI off they're hidden.
+- **Company brief**, on Add Job once a company is typed and in Job details: what the company does,
+  its size and funding, recent news such as layoffs, what candidates report about interviewing there,
+  and what to ask about. It's kept per company, so a second job there reuses it. Like the market check
+  it searches the web with Anthropic and is labelled an estimate elsewhere. Changing the company while
+  one runs drops that answer rather than showing it under the new name.
+- **Interview prep** in Job details, for whichever kind of round you pick (it starts on the job's
+  latest), so you can prep before a round is booked. Each kind's prep is kept. It's fitted to the
+  role's field: LeetCode problems candidates report the company asking for a coding round, design
+  primers for system design, STAR guides and the company's values for behavioral rounds, and the
+  matching question banks for other fields, such as valuation and modeling for a finance role. Each
+  is a link to open. It also gives topics to review, likely questions, which experiences on your
+  resume to lead with, and questions to ask. It uses the job description, the rounds already held,
+  and the resume recommended for the job (else your newest), and searches the web. Paste what the
+  recruiter sent about the round (format, length, topics) and the prep is built around it; it's kept,
+  so you can correct it and run again.
+- **Debrief**, on each round: paste rough notes after it for a clean summary, a thank-you
+  email to copy, and anything you said you'd follow up on. The notes are kept, so a correction can be
+  run again.
+- **Follow-up email** in Job details, once there's been an interview: a short note to the recruiter
+  about the last round held, using its debrief when there is one.
+- **Counter-offer email** on each undecided offer, grounded in its market check (when it's still
+  current), any downlevel, and your other open offers, with the asks listed separately.
+- **Resume tailoring** in Job details: specific bullet rewrites and missing keywords for this job's
+  description, for the resume you pick. It's told never to invent experience.
+- **Patterns** on Insights: what stands out across the search, from the funnel, outcomes, round
+  results, how you applied, where closed applications stopped, and your rejection reasons. Only
+  counts and reasons are sent, never company names, and it says when you've added jobs since. Each
+  season keeps its own patterns, as does showing every season, saved under the season they were made
+  from even if you switch while they run. A backup restore leaves out a single
+  season's patterns and comparison, since the season comes back under a new id; run them again there.
+
+### Reminders
+- A **Profile** page holds your account and **Notifications**. Email is opt-in: nothing is sent until
+  you turn it on and give an address, and turning it off keeps your choices for later.
+- Four kinds, each switchable: a **daily digest** at an hour you pick (today's and tomorrow's
+  interviews, deadlines this week, rounds to schedule, jobs gone quiet; skipped on a quiet day),
+  **interview soon** an hour before a round with its meeting link, **offer deadline** two days
+  before an offer's decision date, and **follow up**, off by default, when a job has heard nothing
+  for 7 calendar days after your last interview and again at 14. Applications with no interview are
+  never chased, and a new round starts the count over. The same switch covers a person's **Follow up
+  by** day: one email that morning naming who, and a line in the digest.
+- Times follow your own time zone, taken from the browser. Each reminder is sent once; a backlog of
+  follow-ups arrives as one email. Only active jobs are reminded about.
+- Sent through any SMTP account set in `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`,
+  `SMTP_PASSWORD`, `SMTP_FROM`). **Send a test email** shows the mail server's reason if it fails.
+  `APP_URL` sets the link in each email. Its default, `http://<SERVER_NAME>:5173`, works with or without
+  a certificate: with one, plain http on that port is redirected to https.
+
+### Accounts and setup
+- **`setup.sh`** makes `.env` with fresh secrets, and a certificate if `mkcert` is installed, so
+  setting up is one command. It never replaces a value already set. Without a shell, Docker runs it:
+  `docker run --rm -v "${PWD}:/app" -w /app alpine sh setup.sh`.
+- **`WEB_PORT`** in `.env` moves the app off port 5173 when something else holds it, such as a Vite
+  dev server. Before, that meant editing the compose file.
+- **A clone on Windows works as is.** `.gitattributes` keeps every file's line endings Linux-style, which
+  the setup script, the containers' start scripts, and the secrets in `.env` all need.
+- **mkcert is optional.** With no certificate in `certs/`, the app serves plain
+  `http://localhost:5173`, which browsers treat as secure on the same machine. The login cookie is
+  marked secure whenever the page came over https. An install with a certificate is unchanged.
+- **Try it with sample data** on a new account's empty board loads a made-up search, dated from today, so every
+  page has something to show: rounds coming up, offers to compare, rejections, and a Sankey. A banner
+  says while it's there, and **Remove sample data** takes out only those jobs, leaving anything you've
+  added. Sample interviews never send reminder emails.
+- **Register** asks for a name and email as well as a username and password, then opens a short
+  **Welcome**: upload resumes, turn on email reminders (the sign-up address is filled in), and a setup
+  check that says whether AI and email are working and gives the `.env` lines if not. Every step can be
+  skipped.
+- **Registration closes once the first account exists**, so nobody else who can reach the app can sign
+  up. Set `REGISTRATION_OPEN=true` in `.env` to allow another account.
+- **Profile** edits your name and email and changes your password. An account from before V4 is asked
+  to add a name and email there.
+- **Forgot password?** on the login page emails a one-hour, single-use reset link when email is set
+  up. It never says whether an account exists. Without email, run
+  `docker compose exec bff node dist/scripts/resetPassword.js <username>` on the machine for a
+  temporary password; no browser can reach that route.
+- **Your data** under Profile downloads a backup: every job, round, note, offer, image, resume, and
+  saved AI answer, plus reminder settings, in one JSON file (not your password). **Restore from a backup** puts it back
+  into an account with no jobs or resumes yet, such as a new install; links between jobs follow them to
+  their new ids, and a failed restore removes what it added. Images in it are checked like uploads, and
+  any that wouldn't pass are left out. Backups up to 200 MB.
+
+### Hosting safely
+For anyone who runs it somewhere other people can reach. The README's **Before it faces the internet**
+walks through the settings.
+- **Only this machine by default.** The app's port answers on `127.0.0.1` unless `BIND_ADDRESS` opens
+  it (`0.0.0.0`), so a laptop on shared Wi-Fi doesn't serve it to everyone there.
+- **Guessing a password slows down on the account itself**, not only per address: after 5 wrong
+  passwords in a row, each attempt waits, from 30 seconds doubling up to 15 minutes, and says how long.
+  It applies the same to a username that doesn't exist, so the wait never confirms an account. An
+  address you've signed in from before keeps its own count, so someone guessing elsewhere can't keep
+  you waiting there, while every other address shares one, so spreading guesses wide doesn't help.
+  Guesses sent all at once wait their turn too. It's kept in the database, so a restart doesn't reset
+  it, and a password reset clears it. Too many attempts from one address now says why instead of
+  "request failed".
+- **Changing your account email takes your password**, since reset links go there, and the old
+  address gets a note when email is set up. A stolen session alone can't redirect them, and guessing
+  the password this way shares sign-in's limit of 10 tries per 15 minutes.
+- **Forgot password?** answers in the same time whether or not the username exists; the email goes
+  out after.
+- **Changes come only from the app's own pages.** A page on another site, or another port on the same
+  machine, can't make your browser save, delete, or run AI features here.
+- **The scraper gets its own token**, `SCRAPER_TOKEN`, so the one service that reads outside web pages
+  holds nothing `core` trusts. `sh setup.sh` adds it to your `.env`; until then it shares the old one
+  and the bff's log says so.
+- The AI connection never follows a redirect, so a misconfigured `AI_BASE_URL` can't pass your key to
+  another host. A provider's error is logged in part, not whole.
+- **Each service reaches only the ones it works with.** The scraper, which reads outside web pages,
+  can no longer reach `core`, Postgres, or Mongo, and the databases can't reach the internet. Nothing
+  to do: `up -d` sets it up, and your data stays where it was.
+- `bff`, `core`, and the scraper run with no Linux capabilities and can't gain privileges.
+- Every field a request sends has a size limit, and an account keeps up to 50 resumes, so no request
+  can grow a job past what the database stores. A Word file that unpacks to more than 100MB is refused.
+- The 5MB spreadsheet import is read only after sign-in.
+- **A changed password signs out every other device**, a stolen cookie included, on every route,
+  while the one that changed it stays signed in. A reset link or temporary password does the same, and
+  ends any other reset link still out. **Sign out other devices** under Profile, **Password** does it
+  without a new password. The bff checks this on every signed-in request, whatever it calls, so a
+  device signed out this way opens on the sign-in page and can't upload, restore, or run an AI feature.
+- **Behind a proxy or tunnel**, `TRUSTED_PROXIES` says how many sit in front, so the limits see each
+  visitor rather than counting everyone as the proxy.
+- **A ceiling on requests**, `REQUESTS_PER_MINUTE` per visitor (600 by default), stops floods and
+  scripts. It sits far above real use, unlike the old limit that blocked the owner.
+- **A daily cap on AI calls**, `AI_DAILY_LIMIT` (100 by default, `0` for none), so a stolen session or
+  a runaway loop can't run up the AI bill. The day's count is kept in the database, so a restart
+  doesn't start it over. A refused call answers 429 and says why and when it resets, a resume summary included, which
+  keeps whatever it had rather than being marked failed.
+- **Security headers on every page**: scripts only from the app itself, no framing by other sites, no
+  MIME sniffing, and no nginx version in replies. **`HSTS=true`** adds Strict-Transport-Security for a
+  real domain with https; it's off by default, since on `localhost` it would force https on every other
+  local app.
+- `AI_DAILY_LIMIT` counts calls, not searches: a company brief or market check may run up to 4 web
+  searches, which the provider bills on their own.
+
+### Job links
+- Fetching a posting reads an hourly or monthly salary as yearly pay, skips a signing bonus quoted
+  as a range, keeps decimals, and refuses a minimum above the maximum.
+- "Not remote" no longer reads as remote, and "on site" and "in office" are recognized.
+- A link that redirects to an internal address is reported as blocked, not unreachable.
+- A link whose host is an address in octal, hex, or short form is refused on every system; before,
+  macOS and Linux disagreed on what some of them meant.
+
+### All jobs table
+- **Import from a spreadsheet** brings in a CSV saved from your own sheet, Google Sheets, Excel, or
+  another tracker. Columns are matched by name and can be changed before anything is saved, and the
+  first rows are shown as they'll land. Each job keeps its date applied, how far it got, and how it
+  ended, so the funnel and Sankey count it from the start. A job already tracked under the same
+  company and position is skipped, so importing twice adds nothing.
+- **Download as a spreadsheet** saves the jobs shown as a CSV with the same columns the importer
+  reads, so an export imports back where it was, waiting on results included. Excel opens it with accents intact, and a cell that
+  a spreadsheet would run as a formula is written as plain text.
+- **Save these filters** names the filters in use, such as "remote, still active", to apply again in
+  one click. They're kept in this browser.
+- A **City** column, beside Location.
+- Stage and Status use the job dialog's controls, so the table can no longer set Finalized on an
+  open job (which `core` silently undid).
+- After a dropdown change the row keeps its new value until the refreshed list arrives, instead of
+  flicking back to the old one.
+- Stage sorts and filters in pipeline order, in the board's terms.
+- The column filter opens as a dialog and closes with Escape.
+
+### Accessibility
+- The board, calendar, pipeline flow, and filters work by keyboard and read sensibly to a screen
+  reader: calendar weeks are rows, the Closed page's filters are toggle buttons, and pipeline-flow
+  nodes open with Enter.
+
+### Reliability
+- `core` uses about a third less memory, around 300MB idle against 415-620MB before: Java is tuned for
+  one user and hands idle memory back. A 150MB backup still restores. `JAVA_TOOL_OPTIONS` overrides it.
+- `core`'s log names the method and path of any request that fails on the server or takes 2 seconds
+  or more, and of any unexpected error, so `docker compose logs core` says which call broke. Imports,
+  restores, and sample data log their counts.
+- CI now starts the whole stack as a fresh install and drives it through nginx, checking that each
+  service still reads the fields the next one sends. Each service's own tests mock the others, so
+  they couldn't catch that.
+- The database layout is versioned with Flyway, and the tests check every migration against the code
+  that reads it.
+- A login token without a user id is refused.
+- Ordinary use stays far below the per-visitor ceiling (see Hosting safely), so it is never limited.
+- An AI feature that searches the web, such as Check the market, no longer shows "failed" after 60
+  seconds while the answer is still on its way. nginx gave up at 60 seconds; it now waits as long as
+  the bff does, so a slow search gets back to the page.
+- A malformed request body no longer writes a stack trace to the bff log.
+- Docker builds no longer copy the host's `node_modules` into the images.
+- The app opens faster: the first download is about half the size, compressed, and the Insights,
+  Calendar, All jobs, Offers, Resumes, Seasons, and Profile pages load when first opened.
+- CI's jobs get read-only repository access.
+- Smaller images, about 260MB less in all: `core` runs on Alpine (676MB to 471MB), the bff carries
+  only Node itself, without npm or yarn (256MB to 203MB), and the scraper is built without debug
+  symbols (28MB to 23MB).
+- The scraper image moves to a supported Alpine release.
+
 ## V3.2.0
 
 Linked jobs, image attachments, deletable stage history, a Position Closed outcome, and a Sankey
@@ -317,7 +753,7 @@ job-fit recommendations.
   that skips a column (for example a rejection straight out of a phone screen)
   no longer looks like it stops at the round it passes behind.
 - Clicking a node lists the companies at that point, with a count when a company
-  appears more than once (for example "Cortex (2)").
+  appears more than once (for example "Contoso (2)").
 - Visual polish: white gaps between stacked flows, single-line labels beside
   each node, and a tightened chart height.
 

@@ -5,16 +5,15 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"jobtracker/scraper/internal/httpx"
 )
 
-// StatusHandler reports whether the API key is configured, since only the scraper holds it.
+// StatusHandler reports whether an AI provider is usable, since only the scraper holds its settings.
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
-	configured := os.Getenv("ANTHROPIC_API_KEY") != ""
-	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"configured": configured})
+	_, err := configuredProvider()
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"configured": err == nil})
 }
 
 func AnalyzeResumeHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,19 +53,35 @@ func MatchResumeHandler(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
-func RecommendResumeVariantHandler(w http.ResponseWriter, r *http.Request) {
-	var req recommendVariantRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, httpx.MaxBodyBytes)).Decode(&req); err != nil ||
-		strings.TrimSpace(req.JobDescriptionText) == "" || len(req.Variants) == 0 {
-		httpx.WriteError(w, http.StatusBadRequest, "jobDescriptionText and at least one variant are required")
+func CompareOffersHandler(w http.ResponseWriter, r *http.Request) {
+	var req compareOffersRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, httpx.MaxBodyBytes)).Decode(&req); err != nil || len(req.Offers) == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "at least one offer is required")
 		return
 	}
-	if len(req.Variants) > maxResumeVariants {
-		httpx.WriteError(w, http.StatusBadRequest, "too many variants")
+	if len(req.Offers) > maxOffers {
+		httpx.WriteError(w, http.StatusBadRequest, "too many offers")
 		return
 	}
 
-	result, err := recommendVariant(r.Context(), req)
+	result, err := compareOffers(r.Context(), req)
+	if err != nil {
+		writeAIError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
+func MarketCheckHandler(w http.ResponseWriter, r *http.Request) {
+	var req marketCheckRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, httpx.MaxBodyBytes)).Decode(&req); err != nil ||
+		strings.TrimSpace(req.Company) == "" || strings.TrimSpace(req.Role) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "company and role are required")
+		return
+	}
+
+	result, err := checkMarket(r.Context(), req)
 	if err != nil {
 		writeAIError(w, err)
 		return
@@ -80,13 +95,11 @@ func writeAIError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errNotConfigured):
 		httpx.WriteError(w, http.StatusServiceUnavailable, "not_configured")
-	case errors.Is(err, errInvalidVariants):
-		httpx.WriteError(w, http.StatusBadRequest, "invalid variants")
 	case errors.Is(err, errBadResponse):
 		// The service already logged the raw response it couldn't use.
 		httpx.WriteError(w, http.StatusBadGateway, "unavailable")
 	default:
-		log.Printf("claude call failed: %v", err)
+		log.Printf("AI call failed: %v", err)
 		httpx.WriteError(w, http.StatusBadGateway, "unavailable")
 	}
 }

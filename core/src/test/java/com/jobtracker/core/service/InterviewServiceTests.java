@@ -4,16 +4,19 @@ import com.jobtracker.core.dto.CreateInterviewRequest;
 import com.jobtracker.core.dto.InterviewResponse;
 import com.jobtracker.core.dto.InterviewerRequest;
 import com.jobtracker.core.dto.UpdateInterviewRequest;
+import com.jobtracker.core.exception.InvalidInterviewTimeException;
 import com.jobtracker.core.exception.JobNotFoundException;
 import com.jobtracker.core.model.*;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -31,12 +34,16 @@ class InterviewServiceTests {
     @Mock
     private JobDetailRepository jobDetails;
 
+    @Mock
+    private SeasonService seasons;
+
     private InterviewService interviewService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        interviewService = new InterviewService(jobs, jobDetails);
+        when(seasons.inView(any())).thenReturn(job -> true);
+        interviewService = new InterviewService(jobs, jobDetails, seasons, Clock.systemUTC());
     }
 
     // findJourneysByOwnerId returns the projection, not the whole document.
@@ -55,7 +62,7 @@ class InterviewServiceTests {
     }
 
     private InterviewRound round(Instant when, InterviewType type) {
-        return new InterviewRound(when, type, null, null, List.of());
+        return new InterviewRound(when, null, type, null, null, List.of());
     }
 
     @Test
@@ -67,7 +74,7 @@ class InterviewServiceTests {
         when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
         Instant when = Instant.parse("2026-08-01T18:00:00Z");
-        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, when,
+        var request = new CreateInterviewRequest(10L, when, null,
                 InterviewType.SYSTEM_DESIGN, "https://meet.example/abc", "123 Main St, NYC",
                 List.of(new InterviewerRequest("Jordan Lee", "https://linkedin.com/in/jordanlee")));
 
@@ -90,6 +97,76 @@ class InterviewServiceTests {
     }
 
     @Test
+    void createInterviewKeepsAnEndTimeAndReturnsIt() {
+        User owner = new User("dana", "hash");
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
+
+        Instant start = Instant.parse("2026-08-01T18:00:00Z");
+        Instant end = Instant.parse("2026-08-01T19:00:00Z");
+        var request = new CreateInterviewRequest(10L, start, end,
+                InterviewType.SYSTEM_DESIGN, null, null, List.of());
+
+        InterviewResponse response = interviewService.createInterview(1L, request);
+
+        assertThat(response.interviewEndDateTime()).isEqualTo(end);
+        assertThat(detail.getInterviews().get(0).getInterviewEndDateTime()).isEqualTo(end);
+    }
+
+    @Test
+    void anEndTimeIsOptionalSoARoundWithoutOneStillSaves() {
+        User owner = new User("erin", "hash");
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
+
+        var request = new CreateInterviewRequest(10L, Instant.now(), null,
+                InterviewType.SYSTEM_DESIGN, null, null, List.of());
+
+        assertThat(interviewService.createInterview(1L, request).interviewEndDateTime()).isNull();
+    }
+
+    @Test
+    void anEndTimeThatDoesNotFollowTheStartIsRejected() {
+        User owner = new User("frank", "hash");
+        Job job = newJob(owner);
+        JobDetail detail = newDetail();
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
+
+        Instant start = Instant.parse("2026-08-01T18:00:00Z");
+        // Equal counts as invalid too: a zero-length round would render as a point, not a range.
+        for (Instant end : List.of(start.minusSeconds(60), start)) {
+            var request = new CreateInterviewRequest(10L, start, end,
+                    InterviewType.SYSTEM_DESIGN, null, null, List.of());
+
+            assertThatThrownBy(() -> interviewService.createInterview(1L, request))
+                    .isInstanceOf(InvalidInterviewTimeException.class);
+        }
+        assertThat(detail.getInterviews()).isEmpty();
+    }
+
+    @Test
+    void updateInterviewCanAddAnEndTimeToARoundSavedWithoutOne() {
+        JobDetail detail = newDetail();
+        InterviewRound round = round(Instant.parse("2026-08-01T18:00:00Z"), InterviewType.BEHAVIOR);
+        detail.addInterview(round);
+        when(jobDetails.findByOwnerIdAndInterviewsRoundId(1L, round.getRoundId()))
+                .thenReturn(Optional.of(detail));
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(newJob(new User("gita", "hash"))));
+
+        Instant end = Instant.parse("2026-08-01T18:45:00Z");
+        var request = new UpdateInterviewRequest(round.getInterviewDateTime(), end,
+                InterviewType.BEHAVIOR, null, null, List.of());
+
+        assertThat(interviewService.updateInterview(1L, round.getRoundId(), request).interviewEndDateTime())
+                .isEqualTo(end);
+    }
+
+    @Test
     void createInterviewRecordsAStageEntryOnlyWhenTheStageActuallyMoves() {
         User owner = new User("bob", "hash");
         Job job = newJob(owner);
@@ -98,7 +175,7 @@ class InterviewServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
         when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
-        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_REQUEST, Instant.now(),
+        var request = new CreateInterviewRequest(10L, Instant.now(), null,
                 InterviewType.BEHAVIOR, null, null, null);
 
         interviewService.createInterview(1L, request);
@@ -108,10 +185,29 @@ class InterviewServiceTests {
     }
 
     @Test
+    void loggingARoundMovesAJobOnlyForwardToInterviewing() {
+        for (Stage from : Stage.values()) {
+            if (from == Stage.FINALIZED) {
+                continue;
+            }
+            Job job = newJob(new User("bob", "hash"));
+            job.advanceStageIfFurther(from);
+            when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+            when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(newDetail()));
+
+            interviewService.createInterview(1L, new CreateInterviewRequest(10L, Instant.now(), null,
+                    InterviewType.BEHAVIOR, null, null, null));
+
+            Stage expected = from.ordinal() < Stage.INTERVIEW_STAGE.ordinal() ? Stage.INTERVIEW_STAGE : from;
+            assertThat(job.getCurrentStage()).as("from %s", from).isEqualTo(expected);
+        }
+    }
+
+    @Test
     void createInterviewThrowsJobNotFoundExceptionForAnotherUsersJob() {
         when(jobs.findByIdAndOwnerId(10L, 999L)).thenReturn(Optional.empty());
 
-        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, Instant.now(),
+        var request = new CreateInterviewRequest(10L, Instant.now(), null,
                 InterviewType.BEHAVIOR, null, null, null);
 
         assertThatThrownBy(() -> interviewService.createInterview(999L, request))
@@ -130,7 +226,7 @@ class InterviewServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
 
         Instant newTime = Instant.parse("2026-08-05T15:30:00Z");
-        var request = new UpdateInterviewRequest(newTime, InterviewType.BEHAVIOR,
+        var request = new UpdateInterviewRequest(newTime, null, InterviewType.BEHAVIOR,
                 "https://meet.example/xyz", null, List.of(new InterviewerRequest("Priya Shah", null)));
 
         InterviewResponse response = interviewService.updateInterview(1L, existing.getRoundId(), request);
@@ -147,7 +243,7 @@ class InterviewServiceTests {
     void updateInterviewThrowsJobNotFoundExceptionForAnotherUsersRound() {
         when(jobDetails.findByOwnerIdAndInterviewsRoundId(999L, "missing-round")).thenReturn(Optional.empty());
 
-        var request = new UpdateInterviewRequest(Instant.now(), InterviewType.BEHAVIOR, null, null, null);
+        var request = new UpdateInterviewRequest(Instant.now(), null, InterviewType.BEHAVIOR, null, null, null);
 
         assertThatThrownBy(() -> interviewService.updateInterview(999L, "missing-round", request))
                 .isInstanceOf(JobNotFoundException.class);
@@ -215,7 +311,7 @@ class InterviewServiceTests {
         Job job = newJob(owner);
         // Closed via the domain rule: REJECTED forces FINALIZED.
         job.applyUpdate("Acme", "Engineer", SourceCategory.SELF_APPLIED, null, null, null, null,
-                Stage.INTERVIEW_STAGE, Outcome.REJECTED);
+                Stage.INTERVIEW_STAGE, null, Outcome.REJECTED);
         JobDetail detail = newDetail();
         detail.recordStage(Stage.RESUME_CHECK, Instant.parse("2026-07-01T00:00:00Z"), null);
         detail.recordStage(Stage.INTERVIEW_STAGE, Instant.parse("2026-07-02T00:00:00Z"), null);
@@ -227,7 +323,7 @@ class InterviewServiceTests {
 
         interviewService.deleteInterview(1L, existing.getRoundId());
 
-        // Dropping out of FINALIZED while the outcome stays REJECTED is the inconsistent state F52 forbids.
+        // Dropping out of FINALIZED while the outcome stays REJECTED would leave a closed job mid-pipeline.
         assertThat(job.getCurrentStage()).isEqualTo(Stage.FINALIZED);
         assertThat(job.getOutcome()).isEqualTo(Outcome.REJECTED);
     }
@@ -262,6 +358,35 @@ class InterviewServiceTests {
     }
 
     @Test
+    void listUpcomingInterviewsKeepsARoundUntilItEnds() {
+        Job job = newJob(new User("frank", "hash"));
+        JobDetail detail = newDetail();
+        Instant now = Instant.now();
+        detail.addInterview(new InterviewRound(now.minusSeconds(1800), now.plusSeconds(1800),
+                InterviewType.BEHAVIOR, null, null, List.of()));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(journey(detail)));
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
+
+        assertThat(interviewService.listUpcomingInterviews(1L)).hasSize(1);
+    }
+
+    @Test
+    void listUpcomingInterviewsLeavesOutClosedJobs() {
+        for (Outcome outcome : Outcome.values()) {
+            Job job = newJob(new User("frank", "hash"));
+            job.applyUpdate("Acme", "Engineer", SourceCategory.SELF_APPLIED, null, null, null, null,
+                    Stage.INTERVIEW_STAGE, null, outcome);
+            JobDetail detail = newDetail();
+            detail.addInterview(round(Instant.now().plusSeconds(3600), InterviewType.BEHAVIOR));
+            when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of(journey(detail)));
+            when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(job));
+
+            assertThat(interviewService.listUpcomingInterviews(1L)).as("%s", outcome)
+                    .hasSize(outcome.closesPipeline() ? 0 : 1);
+        }
+    }
+
+    @Test
     void listUpcomingInterviewsReturnsEmptyListWhenNoneInWindow() {
         when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of());
 
@@ -278,7 +403,7 @@ class InterviewServiceTests {
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
         when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(detail));
 
-        var request = new CreateInterviewRequest(10L, Stage.INTERVIEW_STAGE, Instant.now(),
+        var request = new CreateInterviewRequest(10L, Instant.now(), null,
                 InterviewType.BEHAVIOR, null, null,
                 List.of(new InterviewerRequest("Jordan Lee", null)));
 
@@ -286,5 +411,20 @@ class InterviewServiceTests {
 
         // The round and its stage entry are both applied before the single save.
         verify(jobDetails, times(1)).save(any(JobDetail.class));
+    }
+
+    @Test
+    void createInterviewStartsTheDocumentWhenTheJobHasNoneYet() {
+        Job job = newJob(new User("grace", "hash"));
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.findByJobIdAndOwnerId(10L, 1L)).thenReturn(Optional.empty());
+
+        interviewService.createInterview(1L, new CreateInterviewRequest(10L, Instant.now(), null,
+                InterviewType.BEHAVIOR, null, null, null));
+
+        ArgumentCaptor<JobDetail> saved = ArgumentCaptor.forClass(JobDetail.class);
+        verify(jobDetails).save(saved.capture());
+        assertThat(saved.getValue().getJobId()).isEqualTo(10L);
+        assertThat(saved.getValue().getInterviews()).hasSize(1);
     }
 }

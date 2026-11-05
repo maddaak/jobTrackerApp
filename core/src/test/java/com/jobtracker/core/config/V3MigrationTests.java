@@ -1,5 +1,6 @@
 package com.jobtracker.core.config;
 
+import com.jobtracker.core.model.JobDetail;
 import com.jobtracker.core.support.InMemoryMongo;
 import com.mongodb.client.MongoClients;
 import org.bson.Document;
@@ -7,6 +8,8 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -109,6 +112,23 @@ class V3MigrationTests {
                 }
             });
         }
+    }
+
+    // The version backfill runs before this conversion, so a document it creates must carry a version itself.
+    @Test
+    void aConvertedJobCanBeSavedRightAway() throws SQLException {
+        DataSource dataSource = freshDatabase();
+        MongoTemplate mongo = freshMongo();
+        createPreV3Schema(dataSource);
+        execute(dataSource,
+                "insert into sources (id, category) values (7, 'SELF_APPLIED')",
+                "insert into jobs (id, owner_id, company, source_id) values (1, 42, 'Acme', 7)");
+
+        new V3Migration(dataSource, mongo).migrateIfNeeded();
+
+        JobDetail detail = mongo.findOne(new Query(Criteria.where("jobId").is(1L)), JobDetail.class);
+        detail.setNotes("first save after the upgrade");
+        assertThatCode(() -> mongo.save(detail)).doesNotThrowAnyException();
     }
 
     @Test

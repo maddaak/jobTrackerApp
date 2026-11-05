@@ -1,11 +1,16 @@
 name: CI
 
-# Runs all four test suites on every PR to main (gates the merge) and every push to main.
+# Runs all four test suites and builds every image on each PR to main (gates the merge) and push to main.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+
+# Read only: nothing here writes with GITHUB_TOKEN, and a PR's code runs in these jobs. auto-revert pushes
+# with its own REVERT_TOKEN.
+permissions:
+  contents: read
 
 jobs:
   web:
@@ -23,6 +28,9 @@ jobs:
       - run: npm run build
         working-directory: web
       - run: npm run lint
+        working-directory: web
+      # build covers src only; this checks the tests too, so a fixture can't drift from the types it mimics.
+      - run: npm run typecheck
         working-directory: web
       - run: npm test
         working-directory: web
@@ -51,6 +59,11 @@ jobs:
         with:
           go-version: "1.25"
           cache-dependency-path: scraper/go.sum
+      # gofmt -l only lists files, so fail on any output rather than on its exit code.
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        working-directory: scraper
+      - run: go vet ./...
+        working-directory: scraper
       - run: go test ./...
         working-directory: scraper
 
@@ -66,9 +79,44 @@ jobs:
       - run: mvn -B -q clean test
         working-directory: core
 
+  # The suites never build an image, so a broken Dockerfile used to surface only at publish, after merge.
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, bff, core, scraper]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          push: false
+
+  # Every suite mocks its neighbours, so this runs the whole stack as a fresh install and drives it through nginx.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # The prebuilt-images file is never started here, so check it matches the one that is, bar build and image.
+      - name: Both compose files match
+        run: |
+          norm() { docker compose -f "$1" config --no-interpolate --format json | jq -S 'del(.name, .services[].build, .services[].image)'; }
+          diff <(norm docker-compose.yml) <(norm docker-compose.images.yml)
+      - run: sh e2e/setup.test.sh
+      - run: sh setup.sh
+      - run: docker compose up -d --build --wait
+      - run: node e2e/smoke.mjs http://localhost:5173
+      - if: failure()
+        run: docker compose logs --tail=200
+
   # Revert a failed post-merge commit. Needs REVERT_TOKEN (a PAT) since GITHUB_TOKEN can't push to locked main.
   auto-revert:
-    needs: [web, bff, scraper, core]
+    needs: [web, bff, scraper, core, images, smoke]
     if: ${{ failure() && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:

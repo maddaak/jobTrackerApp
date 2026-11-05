@@ -23,7 +23,9 @@ class EnumCheckConstraintsTests {
                         id BIGINT PRIMARY KEY,
                         outcome VARCHAR(255),
                         current_stage VARCHAR(255),
-                        source_category VARCHAR(255))
+                        interview_phase VARCHAR(255),
+                        source_category VARCHAR(255),
+                        location VARCHAR(255))
                     """);
         }
         return connection;
@@ -86,6 +88,41 @@ class EnumCheckConstraintsTests {
                         .as("widening the constraint must not turn the column into free text")
                         .isInstanceOf(SQLException.class);
             }
+        }
+    }
+
+    // The outcome tests above stand in for the mechanism; this proves every column it owns got a constraint.
+    @Test
+    void everyConstrainedColumnAcceptsItsWholeEnumAndNothingElse() throws SQLException {
+        try (Connection connection = freshDatabase("every_column"); Statement statement = connection.createStatement()) {
+            EnumCheckConstraints.sync(connection);
+
+            long id = 0;
+            for (EnumCheckConstraints.EnumColumn column : EnumCheckConstraints.COLUMNS) {
+                for (Enum<?> value : column.type().getEnumConstants()) {
+                    statement.execute("INSERT INTO jobs (id, " + column.column() + ") VALUES ("
+                            + ++id + ", '" + value.name() + "')");
+                }
+                long nextId = ++id;
+                assertThatThrownBy(() -> statement.execute("INSERT INTO jobs (id, " + column.column() + ") VALUES ("
+                        + nextId + ", 'NONSENSE')"))
+                        .as(column.column())
+                        .isInstanceOf(SQLException.class);
+            }
+        }
+    }
+
+    @Test
+    void aColumnAnOlderSchemaLacksIsSkippedRatherThanUndoingEveryOtherConstraint() throws SQLException {
+        // The v2 shape: no source_category yet, which V3Migration adds later.
+        try (Connection connection = DriverManager.getConnection("jdbc:h2:mem:pre_v3", "sa", "");
+                Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE jobs (id BIGINT PRIMARY KEY, outcome VARCHAR(255), current_stage VARCHAR(255))");
+            addStaleOutcomeConstraint(connection);
+
+            EnumCheckConstraints.sync(connection);
+
+            insertOutcome(connection, 1L, Outcome.POSITION_CLOSED);
         }
     }
 

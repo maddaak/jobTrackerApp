@@ -67,11 +67,11 @@ class JobDetailServiceTests {
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(i -> i.getArgument(0));
 
         // AddJobForm's follow-up save sends no notes, which must not wipe the one just typed.
-        var omitted = new UpdateJobDetailRequest("jd", "notes", null, null, null);
+        var omitted = new UpdateJobDetailRequest("jd", "notes", null, null, null, null, null);
         assertThat(jobDetailService.updateDetail(1L, 10L, omitted).notes()).isEqualTo("spoke to Kim");
 
         // An empty string is the user actually clearing the field, which must still work.
-        var cleared = new UpdateJobDetailRequest("jd", "notes", null, "", null);
+        var cleared = new UpdateJobDetailRequest("jd", "notes", null, "", null, null, null);
         assertThat(jobDetailService.updateDetail(1L, 10L, cleared).notes()).isEmpty();
     }
 
@@ -83,7 +83,7 @@ class JobDetailServiceTests {
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.empty());
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(i -> i.getArgument(0));
 
-        var request = new UpdateJobDetailRequest("jd", "notes", null, "some notes", "should be cleared");
+        var request = new UpdateJobDetailRequest("jd", "notes", null, "some notes", "should be cleared", null, null);
 
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
@@ -96,16 +96,34 @@ class JobDetailServiceTests {
         User owner = new User("heidi", "hash");
         Job job = newJob(owner, SourceCategory.SELF_APPLIED);
         job.applyUpdate("Acme", "Engineer", SourceCategory.SELF_APPLIED, null, null, null, null,
-                Stage.RESUME_CHECK, Outcome.REJECTED);
+                Stage.RESUME_CHECK, null, Outcome.REJECTED);
         when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.empty());
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(i -> i.getArgument(0));
 
-        var request = new UpdateJobDetailRequest("jd", "notes", null, null, "not a fit");
+        var request = new UpdateJobDetailRequest("jd", "notes", null, null, "not a fit", null, null);
 
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
         assertThat(response.rejectedReason()).isEqualTo("not a fit");
+    }
+
+    @Test
+    void savingOnlyARejectedReasonLeavesTheDescriptionAndNotesAlone() {
+        Job job = newJob(new User("heidi", "hash"), SourceCategory.SELF_APPLIED);
+        job.applyUpdate("Acme", "Engineer", SourceCategory.SELF_APPLIED, null, null, null, null,
+                Stage.RESUME_CHECK, null, Outcome.REJECTED);
+        JobDetail stored = new JobDetail(10L, 1L, Gzip.compress("the jd"), "asked about queues");
+        when(jobs.findByIdAndOwnerId(10L, 1L)).thenReturn(Optional.of(job));
+        when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(stored));
+        when(jobDetails.save(any(JobDetail.class))).thenAnswer(i -> i.getArgument(0));
+
+        JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L,
+                new UpdateJobDetailRequest(null, null, null, null, "wanted more Go", null, null));
+
+        assertThat(response.jdText()).isEqualTo("the jd");
+        assertThat(response.interviewNotes()).isEqualTo("asked about queues");
+        assertThat(response.rejectedReason()).isEqualTo("wanted more Go");
     }
 
     @Test
@@ -126,7 +144,7 @@ class JobDetailServiceTests {
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         String longJdText = "We are hiring a Senior Engineer. ".repeat(50);
-        var request = new UpdateJobDetailRequest(longJdText, "asked about system design", null, null, null);
+        var request = new UpdateJobDetailRequest(longJdText, "asked about system design", null, null, null, null, null);
 
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
@@ -142,7 +160,7 @@ class JobDetailServiceTests {
     @Test
     void updateDetailThrowsJobNotFoundExceptionForAnotherUsersJob() {
         when(jobs.findByIdAndOwnerId(10L, 999L)).thenReturn(Optional.empty());
-        var request = new UpdateJobDetailRequest("text", "interview notes", null, null, null);
+        var request = new UpdateJobDetailRequest("text", "interview notes", null, null, null, null, null);
 
         assertThatThrownBy(() -> jobDetailService.updateDetail(999L, 10L, request))
                 .isInstanceOf(JobNotFoundException.class);
@@ -160,7 +178,7 @@ class JobDetailServiceTests {
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(existing));
         when(jobDetails.save(any(JobDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var request = new UpdateJobDetailRequest("new jd text", "new interview notes", null, null, null);
+        var request = new UpdateJobDetailRequest("new jd text", "new interview notes", null, null, null, null, null);
         JobDetailDocumentResponse response = jobDetailService.updateDetail(1L, 10L, request);
 
         assertThat(response.jdText()).isEqualTo("new jd text");
@@ -181,13 +199,13 @@ class JobDetailServiceTests {
         JobDetail stored = new JobDetail(10L, 1L, new byte[0], "");
         when(jobDetails.findByJobId(10L)).thenReturn(Optional.of(stored));
 
-        var withResume = new UpdateJobDetailRequest("jd", "notes", "backend-resume.pdf", null, null);
+        var withResume = new UpdateJobDetailRequest("jd", "notes", "backend-resume.pdf", null, null, null, null);
         JobDetailDocumentResponse first = jobDetailService.updateDetail(1L, 10L, withResume);
         assertThat(first.recommendedResume()).isEqualTo("backend-resume.pdf");
         assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");
 
         // A later save omitting it (null) must keep the previously-saved value.
-        var withoutResume = new UpdateJobDetailRequest("edited jd", "edited notes", null, null, null);
+        var withoutResume = new UpdateJobDetailRequest("edited jd", "edited notes", null, null, null, null, null);
         JobDetailDocumentResponse second = jobDetailService.updateDetail(1L, 10L, withoutResume);
         assertThat(second.recommendedResume()).isEqualTo("backend-resume.pdf");
         assertThat(stored.getRecommendedResume()).isEqualTo("backend-resume.pdf");

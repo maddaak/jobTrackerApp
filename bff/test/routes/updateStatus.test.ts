@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { request } from "../testServer.js";
 import jwt from "jsonwebtoken";
-import { app } from "../../src/app.js";
 import { resetUpdateCache } from "../../src/services/updateClient.js";
 
 const token = jwt.sign({ sub: "1", username: "alice" }, process.env.JWT_SECRET as string, {
@@ -15,7 +14,7 @@ beforeEach(() => {
 
 describe("GET /update-status", () => {
   it("requires auth, so the running version is not public", async () => {
-    const res = await request(app).get("/update-status");
+    const res = await request().get("/update-status");
 
     expect(res.status).toBe(401);
     expect(fetch).not.toHaveBeenCalled();
@@ -27,7 +26,7 @@ describe("GET /update-status", () => {
       json: () => Promise.resolve([{ name: "v2.2.1" }, { name: "v3" }]),
     });
 
-    const res = await request(app).get("/update-status").set("Cookie", [`token=${token}`]);
+    const res = await request().get("/update-status").set("Cookie", [`token=${token}`]);
 
     expect(res.status).toBe(200);
     expect(res.body.latest).toBe("v3");
@@ -38,7 +37,7 @@ describe("GET /update-status", () => {
   it("still answers 200 when GitHub cannot be reached", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("network down"));
 
-    const res = await request(app).get("/update-status").set("Cookie", [`token=${token}`]);
+    const res = await request().get("/update-status").set("Cookie", [`token=${token}`]);
 
     expect(res.status).toBe(200);
     expect(res.body.updateAvailable).toBe(false);

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   createJob,
   updateJobDetail,
@@ -7,19 +7,37 @@ import {
   LOCATIONS,
   type SourceCategory,
   type Location,
+  type CreatedJob,
 } from "../api/jobsApi";
-import { scrapeJob, SCRAPE_FAILURE_MESSAGE, type ScrapeFailureReason } from "../api/scrapeApi";
-import { matchResumeToJob, type MatchResult } from "../api/resumesApi";
-import { useAuth } from "../context/AuthContext";
+import { readPastedJob, scrapeJob, SCRAPE_FAILURE_MESSAGE, type ScrapeFailureReason } from "../api/scrapeApi";
+import { listResumes, matchResumeToJob, type MatchResult } from "../api/resumesApi";
+import { useAuth } from "../hooks/useAuth";
+import type { SavedPosting } from "../postingMessage";
+import CompanyBriefPanel from "./ai/CompanyBriefPanel";
+import SaveToJobTrackerButton from "./SaveToJobTrackerButton";
 
 const inputClass =
   "w-full rounded border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
 const labelClass = "mb-1 block text-sm font-medium";
+const hintClass = "text-xs text-neutral-500 dark:text-neutral-400";
 
 type Step = "url" | "form";
 
+// Why the description box is empty when a link was given; null when it holds the fetched text or was skipped.
+type MissingJd = { kind: "scrape"; reason: ScrapeFailureReason } | { kind: "fetch_failed" } | { kind: "not_a_jd" };
+
+const MISSING_JD_MESSAGE = (missing: MissingJd) =>
+  missing.kind === "scrape"
+    ? SCRAPE_FAILURE_MESSAGE[missing.reason]
+    : missing.kind === "fetch_failed"
+      ? "Couldn't fetch the job description automatically."
+      : "This posting didn't include a readable job description.";
+
 export interface AddJobFormProps {
-  onCreated: () => void;
+  // Sent by the bookmarklet from a job page: the form opens on it with the description already in.
+  posting?: SavedPosting | null;
+  // Handed the new job, so the caller can say where it landed.
+  onCreated: (job: CreatedJob) => void;
   // The attach outlives the form, so its failure needs somewhere to surface that also outlives it.
   onWarning: (message: string) => void;
 }
@@ -27,105 +45,146 @@ export interface AddJobFormProps {
 const ATTACH_FAILED =
   "Job created, but its description could not be attached. Open Job Details to paste it.";
 
-export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
+export default function AddJobForm({ posting, onCreated, onWarning }: AddJobFormProps) {
   const { aiConfigured } = useAuth();
-  const [step, setStep] = useState<Step>("url");
+  const [step, setStep] = useState<Step>(posting ? "form" : "url");
   const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState<string | null>(null);
-  const [scrapedRaw, setScrapedRaw] = useState("");
   const [useAi, setUseAi] = useState(true);
 
   const [company, setCompany] = useState("");
-  const [role, setRole] = useState("");
+  const [role, setRole] = useState(posting?.title ?? "");
   const [sourceCategory, setSourceCategory] = useState<SourceCategory>("SELF_APPLIED");
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(posting?.url ?? "");
   const [location, setLocation] = useState<Location | "">("");
+  const [city, setCity] = useState("");
   const [compMin, setCompMin] = useState("");
   const [compMax, setCompMax] = useState("");
   const [notes, setNotes] = useState("");
+  const [recruiterReachedOut, setRecruiterReachedOut] = useState(false);
+  // One description whichever way it arrived: fetched from the link, pasted, or corrected by hand.
+  const [jdText, setJdText] = useState(posting?.text ?? "");
+  const [missingJd, setMissingJd] = useState<MissingJd | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [pastedJdText, setPastedJdText] = useState("");
-  const [matching, setMatching] = useState(false);
-  // The pasted JD is the source for the fields below it, so they stay out of reach while it reads.
-  const [readingPastedJd, setReadingPastedJd] = useState(false);
-  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
-  // "skipped" (expected) vs "fetch_failed" (a problem) sets the manual-paste box's tone.
-  const [manualEntryReason, setManualEntryReason] = useState<"skipped" | "fetch_failed" | "insufficient_jd" | null>(null);
-  // Why the scrape came back empty, so the paste box can say it instead of a second banner repeating it.
-  const [scrapeReason, setScrapeReason] = useState<ScrapeFailureReason | null>(null);
+  const [filling, setFilling] = useState(false);
+  const [fillNote, setFillNote] = useState<string | null>(null);
 
-  async function runMatch(jobDescriptionText: string, fromPaste = false) {
+  const [matching, setMatching] = useState(false);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  // Bumped by each match and by each new job, so a slow answer for job A can't land on job B's form.
+  const matchRequestId = useRef(0);
+  // Null until known. The match call refuses without one anyway, but saying so up front beats after a fetch.
+  const [hasAnalyzedResume, setHasAnalyzedResume] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!aiConfigured) return;
+    let ignore = false;
+    listResumes()
+      .then(resumes => {
+        if (!ignore) setHasAnalyzedResume(resumes.some(resume => resume.analysisStatus === "ok" && !!resume.summary));
+      })
+      // Unknown, so the option stays on and the match call reports a missing resume itself.
+      .catch(() => {});
+    return () => { ignore = true; };
+  }, [aiConfigured]);
+
+  const canRecommend = aiConfigured && hasAnalyzedResume !== false;
+
+  // Reading the title, location, and pay costs nothing, so a saved posting gets it straight away. The
+  // recommendation waits for a press, since that one is billed.
+  const postingRead = useRef(!posting?.text);
+  useEffect(() => {
+    if (postingRead.current) return;
+    postingRead.current = true;
+    fillFromDescription();
+  });
+
+  async function runMatch(text: string) {
+    const id = ++matchRequestId.current;
     setMatching(true);
-    setReadingPastedJd(fromPaste);
     setMatchResult(null);
     try {
-      const result = await matchResumeToJob(jobDescriptionText);
-      // Scraped text isn't a real JD; prompt for manual paste instead of a "do not apply" verdict on garbage.
+      const result = await matchResumeToJob(text);
+      if (id !== matchRequestId.current) return;
+      // Scraped text isn't a real JD; ask for the posting instead of a "do not apply" verdict on garbage.
       if (result.status === "insufficient_jd") {
-        setManualEntryReason("insufficient_jd");
+        setMissingJd({ kind: "not_a_jd" });
         return;
       }
       setMatchResult(result);
+      // Only into empty fields, read at answer time, so nothing typed while it ran is overwritten.
+      if (result.status === "ok") {
+        setCompany(current => current.trim() ? current : result.company);
+        setRole(current => current.trim() ? current : result.role);
+      }
     } catch {
-      setMatchResult({ status: "unavailable" });
+      if (id === matchRequestId.current) setMatchResult({ status: "unavailable" });
     } finally {
-      setMatching(false);
-      setReadingPastedJd(false);
+      if (id === matchRequestId.current) setMatching(false);
     }
   }
 
   async function handleFetchDetails() {
     if (!url) return;
     setScraping(true);
-    setScrapeError(null);
-    setScrapeReason(null);
+    setMissingJd(null);
     setMatchResult(null);
-    let raw = "";
-    let reason: ScrapeFailureReason | undefined;
     try {
       const result = await scrapeJob(url);
-      setCompany(result.company);
-      setRole(result.role);
+      if (result.company) setCompany(result.company);
+      if (result.role) setRole(result.role);
       if (result.location) setLocation(result.location);
+      if (result.city) setCity(result.city);
       if (result.compMin != null) setCompMin(String(result.compMin));
       if (result.compMax != null) setCompMax(String(result.compMax));
-      setScrapedRaw(result.raw);
-      raw = result.raw;
-      // Held as a reason rather than an error banner: the paste box below states it once.
-      reason = result.reason;
-      setScrapeReason(result.reason ?? null);
-    } catch (err) {
-      setScrapeError(err instanceof Error ? err.message : "couldn't fetch details — fill in manually below");
-      setManualEntryReason("fetch_failed");
+      if (result.raw) setJdText(result.raw);
+      if (result.raw) {
+        if (canRecommend && useAi) runMatch(result.raw);
+      } else {
+        setMissingJd(result.reason ? { kind: "scrape", reason: result.reason } : { kind: "not_a_jd" });
+      }
+    } catch {
+      setMissingJd({ kind: "fetch_failed" });
     } finally {
       setScraping(false);
       setStep("form");
     }
-    if (raw) {
-      setManualEntryReason(null);
-      if (aiConfigured && useAi) runMatch(raw);
-    } else {
-      // Manual entry either way, but a page with no description isn't one we couldn't fetch.
-      setManualEntryReason(reason === "no_job_data" ? "insufficient_jd" : "fetch_failed");
+  }
+
+  // Fills only what's still empty when the answer lands, so nothing typed, even while it ran, is overwritten.
+  // The company comes from the recommendation.
+  async function fillFromDescription() {
+    setFilling(true);
+    setFillNote(null);
+    try {
+      const result = await readPastedJob(jdText);
+      if (result.role) setRole(current => current.trim() ? current : result.role!);
+      if (result.location) setLocation(current => current || result.location!);
+      if (result.compMin != null) setCompMin(current => current || String(result.compMin));
+      if (result.compMax != null) setCompMax(current => current || String(result.compMax));
+      if (!result.role && !result.location && result.compMin == null) {
+        setFillNote("No title, work model, or pay found in it.");
+      }
+    } catch (err) {
+      setFillNote(err instanceof Error ? err.message : "failed to read the description");
+    } finally {
+      setFilling(false);
     }
   }
 
-  function handleSkip() {
-    setScrapeError(null);
-    setScrapeReason(null);
+  function goToForm() {
+    setMissingJd(null);
     setMatchResult(null);
-    setManualEntryReason("skipped");
     setStep("form");
   }
 
-  // One message, in the paste box that acts on it, rather than a banner and a box saying the same thing.
-  const manualJdHeading = scrapeReason
-    ? `${SCRAPE_FAILURE_MESSAGE[scrapeReason]} Paste it below for a recommendation.`
-    : manualEntryReason === "insufficient_jd"
-      ? "This posting didn't include a readable job description. Paste it below for a recommendation."
-      : "Couldn't fetch the job description automatically — paste it below for a recommendation.";
+  // Back keeps what's typed, so a second Fetch only overwrites what the page actually provides.
+  function backToLink() {
+    matchRequestId.current++;
+    setMatching(false);
+    setStep("url");
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -136,6 +195,8 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
       return;
     }
     setSubmitting(true);
+    // Name only, so Job Details can show which resume was recommended.
+    const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
     try {
       const job = await createJob({
         company,
@@ -143,46 +204,25 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
         sourceCategory,
         url: url || undefined,
         location: location || undefined,
+        city: city.trim() || undefined,
         compMin: compMin ? Number(compMin) : undefined,
         compMax: compMax ? Number(compMax) : undefined,
         notes: notes || undefined,
+        startingStage: recruiterReachedOut ? "INTERVIEW_REQUEST" : undefined,
+        jdText: jdText.trim() || undefined,
+        recommendedResume,
       });
-      // Name only, so Job Details can show which resume was recommended.
-      const recommendedResume = matchResult && matchResult.status === "ok" ? matchResult.fileName : undefined;
-      // A pasted JD is the one we could not fetch, so it is the description this job has.
-      const jdText = scrapedRaw || pastedJdText;
-      if (jdText) {
-        // Seed the Job Detail JD text so nothing needs re-pasting later.
-        updateJobDetail(job.id, { jdText, interviewNotes: "", recommendedResume })
-          .catch(() => onWarning(ATTACH_FAILED));
-      } else if (url) {
-        // URL entered without a Fetch: background scrape to populate the JD text.
+      // A link typed without a Fetch: scrape it in the background, so adding the job doesn't wait on it.
+      if (!jdText.trim() && url) {
         scrapeJob(url)
           .then(result => {
-            if (result.raw || recommendedResume) {
-              return updateJobDetail(job.id, { jdText: result.raw ?? "", interviewNotes: "", recommendedResume });
-            }
+            // Only the field this sets: notes typed while the scrape ran must survive it.
+            if (result.raw) return updateJobDetail(job.id, { jdText: result.raw });
           })
           .catch(() => onWarning(ATTACH_FAILED));
-      } else if (recommendedResume) {
-        updateJobDetail(job.id, { jdText: "", interviewNotes: "", recommendedResume })
-          .catch(() => onWarning(ATTACH_FAILED));
       }
-      setStep("url");
-      setScrapeError(null);
-      setScrapeReason(null);
-      setScrapedRaw("");
-      setCompany("");
-      setRole("");
-      setUrl("");
-      setLocation("");
-      setCompMin("");
-      setCompMax("");
-      setNotes("");
-      setPastedJdText("");
-      setMatchResult(null);
-      setManualEntryReason(null);
-      onCreated();
+      // The nav closes its modal on this, which unmounts the form, so the next add starts empty.
+      onCreated(job);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to create job");
     } finally {
@@ -204,15 +244,17 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
             placeholder="https://..."
           />
         </div>
-        {aiConfigured ? (
+        {!aiConfigured ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            AI features are off: no AI provider is set up.
+          </p>
+        ) : !canRecommend ? (
+          <p className={hintClass}>Upload a resume on the Resumes page to get a fit recommendation for each job.</p>
+        ) : (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={useAi} onChange={e => setUseAi(e.target.checked)} />
             Use AI and get a recommendation
           </label>
-        ) : (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            AI features are disabled: no Anthropic API key found.
-          </p>
         )}
         <div className="flex items-center gap-3">
           <button
@@ -225,216 +267,164 @@ export default function AddJobForm({ onCreated, onWarning }: AddJobFormProps) {
           </button>
           <button
             type="button"
-            onClick={handleSkip}
+            onClick={goToForm}
             className="text-sm text-neutral-600 hover:underline dark:text-neutral-400"
           >
             Skip — enter manually
           </button>
         </div>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          No postable link (e.g. a LinkedIn message or email)? Skip and fill in what you know.
-        </p>
+        <p className={hintClass}>No postable link (e.g. a LinkedIn message or email)? Skip and fill in what you know.</p>
+        {!posting && (
+          <div className="space-y-2 border-t border-neutral-200 pt-3 dark:border-neutral-700">
+            <p className={hintClass}>
+              On LinkedIn or a site that needs you signed in, a pasted link gets nothing. Drag this to your bookmarks
+              bar once, then click it on any posting to open this form filled in:
+            </p>
+            <SaveToJobTrackerButton />
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {scrapeError && <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">{scrapeError}</p>}
-      {/* With AI on, the paste box states the reason; with it off there is no box, so say it here. */}
-      {!aiConfigured && scrapeReason && (
-        <p role="alert" className="text-sm text-amber-600 dark:text-amber-400">
-          {SCRAPE_FAILURE_MESSAGE[scrapeReason]}
-        </p>
-      )}
-
-      {aiConfigured && (
-        <RecommendationPanel
-          useAi={useAi}
-          manualEntryReason={manualEntryReason}
-          manualJdHeading={manualJdHeading}
-          hasScrapedRaw={!!scrapedRaw}
-          matching={matching}
-          matchResult={matchResult}
-          pastedJdText={pastedJdText}
-          onPastedJdTextChange={setPastedJdText}
-          onGetRecommendation={() => runMatch(pastedJdText, true)}
-          onGetRecommendationFromScrape={() => runMatch(scrapedRaw)}
-        />
-      )}
-
-      <fieldset disabled={readingPastedJd} className="relative space-y-4 border-0 p-0">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="company" className={labelClass}>Company</label>
-            <input id="company" className={inputClass} value={company} onChange={e => setCompany(e.target.value)} required />
-          </div>
-          <div>
-            <label htmlFor="role" className={labelClass}>Role</label>
-            <input id="role" className={inputClass} value={role} onChange={e => setRole(e.target.value)} required />
-          </div>
-          <div>
-            <label htmlFor="sourceCategory" className={labelClass}>Source</label>
-            <select
-              id="sourceCategory"
-              className={inputClass}
-              value={sourceCategory}
-              onChange={e => setSourceCategory(e.target.value as SourceCategory)}
-            >
-              {SOURCE_CATEGORIES.map(category => (
-                <option key={category} value={category}>{SOURCE_CATEGORY_LABELS[category]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="location" className={labelClass}>Location</label>
-            <select id="location" className={inputClass} value={location} onChange={e => setLocation(e.target.value as Location | "")}>
-              <option value="">Not set</option>
-              {LOCATIONS.map(loc => (
-                <option key={loc.value} value={loc.value}>{loc.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="col-span-2">
-            <label htmlFor="url-form" className={labelClass}>Job Posting Link</label>
-            <input id="url-form" className={inputClass} value={url} onChange={e => setUrl(e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="compMin" className={labelClass}>Comp min</label>
-            <input id="compMin" type="number" className={inputClass} value={compMin} onChange={e => setCompMin(e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="compMax" className={labelClass}>Comp max</label>
-            <input id="compMax" type="number" className={inputClass} value={compMax} onChange={e => setCompMax(e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <label htmlFor="notes" className={labelClass}>Notes</label>
-            <input id="notes" className={inputClass} value={notes} onChange={e => setNotes(e.target.value)} />
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? "Adding…" : "Add job"}
-          </button>
-        </div>
-        {readingPastedJd && (
-          <div
-            role="status"
-            className="absolute inset-0 flex items-start justify-center bg-white/70 pt-6 text-sm text-neutral-600 dark:bg-neutral-900/70 dark:text-neutral-300"
-          >
-            Reading the job description…
-          </div>
-        )}
-      </fieldset>
-    </form>
-  );
-}
-
-interface RecommendationPanelProps {
-  useAi: boolean;
-  manualEntryReason: "skipped" | "fetch_failed" | "insufficient_jd" | null;
-  manualJdHeading: string;
-  hasScrapedRaw: boolean;
-  matching: boolean;
-  matchResult: MatchResult | null;
-  pastedJdText: string;
-  onPastedJdTextChange: (value: string) => void;
-  onGetRecommendation: () => void;
-  onGetRecommendationFromScrape: () => void;
-}
-
-function RecommendationPanel({
-  useAi, manualEntryReason, manualJdHeading, hasScrapedRaw, matching, matchResult,
-  pastedJdText, onPastedJdTextChange, onGetRecommendation, onGetRecommendationFromScrape,
-}: RecommendationPanelProps) {
-  return (
-    <div className="space-y-2">
-      {(manualEntryReason === "fetch_failed" || manualEntryReason === "insufficient_jd") && (
-        <ManualJdBox
-          tone="warning"
-          heading={manualJdHeading}
-          pastedJdText={pastedJdText}
-          onPastedJdTextChange={onPastedJdTextChange}
-          onGetRecommendation={onGetRecommendation}
-          matching={matching}
-        />
-      )}
-
-      {manualEntryReason === "skipped" && (
-        <ManualJdBox
-          tone="suggestion"
-          heading="Want a job-fit recommendation? Paste the job description below."
-          pastedJdText={pastedJdText}
-          onPastedJdTextChange={onPastedJdTextChange}
-          onGetRecommendation={onGetRecommendation}
-          matching={matching}
-        />
-      )}
-
-      {manualEntryReason === null && useAi && matching && (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Getting a recommendation…</p>
-      )}
-
-      {manualEntryReason === null && !useAi && hasScrapedRaw && !matchResult && (
-        <button
-          type="button"
-          onClick={onGetRecommendationFromScrape}
-          disabled={matching}
-          className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
-        >
-          {matching ? "Getting recommendation…" : "Get AI recommendation"}
-        </button>
-      )}
-
-      {matchResult && <MatchResultBanner result={matchResult} />}
-    </div>
-  );
-}
-
-interface ManualJdBoxProps {
-  tone: "warning" | "suggestion";
-  heading: string;
-  pastedJdText: string;
-  onPastedJdTextChange: (value: string) => void;
-  onGetRecommendation: () => void;
-  matching: boolean;
-}
-
-function ManualJdBox({ tone, heading, pastedJdText, onPastedJdTextChange, onGetRecommendation, matching }: ManualJdBoxProps) {
-  const boxClass =
-    tone === "warning"
-      ? "rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
-      : "rounded border border-neutral-300 bg-neutral-50 p-3 text-sm dark:border-neutral-700 dark:bg-neutral-800";
-  const headingClass =
-    tone === "warning"
-      ? "mb-2 font-medium text-amber-800 dark:text-amber-300"
-      : "mb-2 font-medium text-neutral-700 dark:text-neutral-300";
-
-  return (
-    <div className={boxClass}>
-      <p className={headingClass}>{heading}</p>
-      <label htmlFor="pasted-jd" className={labelClass}>Paste the job description</label>
-      <textarea
-        id="pasted-jd"
-        rows={4}
-        className={inputClass}
-        value={pastedJdText}
-        onChange={e => onPastedJdTextChange(e.target.value)}
-      />
-      <button
-        type="button"
-        onClick={onGetRecommendation}
-        disabled={!pastedJdText.trim() || matching}
-        className="mt-2 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {matching ? "Getting recommendation…" : "Get recommendation"}
+      <button type="button" onClick={backToLink} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
+        ← Back to the link
       </button>
-    </div>
+      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      <div className="space-y-2">
+        {missingJd && (
+          <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">
+            {MISSING_JD_MESSAGE(missingJd)} Paste it below.
+          </p>
+        )}
+        <label htmlFor="jd-text" className={labelClass}>Job description</label>
+        <textarea
+          id="jd-text"
+          rows={4}
+          className={inputClass}
+          value={jdText}
+          onChange={e => setJdText(e.target.value)}
+          placeholder="Paste the posting's description. It's saved with the job."
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={fillFromDescription}
+            disabled={!jdText.trim() || filling}
+            className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+          >
+            {filling ? "Reading…" : "Fill in title, location and pay"}
+          </button>
+          {fillNote && <span className="text-xs text-amber-700 dark:text-amber-300">{fillNote}</span>}
+        </div>
+        {canRecommend ? (
+          <button
+            type="button"
+            onClick={() => runMatch(jdText)}
+            disabled={!jdText.trim() || matching}
+            className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
+          >
+            {matching ? "Getting recommendation…" : matchResult ? "Get recommendation again" : "Get recommendation"}
+          </button>
+        ) : (
+          <p className={hintClass}>
+            {aiConfigured
+              ? "Upload a resume on the Resumes page to get a recommendation from this."
+              : "AI is off, so there's no recommendation, but the description is still saved."}
+          </p>
+        )}
+        {matchResult && <MatchResultBanner result={matchResult} />}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="company" className={labelClass}>Company</label>
+          <input id="company" className={inputClass} value={company} onChange={e => setCompany(e.target.value)} required />
+        </div>
+        <div>
+          <label htmlFor="role" className={labelClass}>Role</label>
+          <input id="role" className={inputClass} value={role} onChange={e => setRole(e.target.value)} required />
+        </div>
+        <div>
+          <label htmlFor="sourceCategory" className={labelClass}>Source</label>
+          <select
+            id="sourceCategory"
+            className={inputClass}
+            value={sourceCategory}
+            onChange={e => setSourceCategory(e.target.value as SourceCategory)}
+          >
+            {SOURCE_CATEGORIES.map(category => (
+              <option key={category} value={category}>{SOURCE_CATEGORY_LABELS[category]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="location" className={labelClass}>Location</label>
+          <select id="location" className={inputClass} value={location} onChange={e => setLocation(e.target.value as Location | "")}>
+            <option value="">Not set</option>
+            {LOCATIONS.map(loc => (
+              <option key={loc.value} value={loc.value}>{loc.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="city" className={labelClass}>City</label>
+          <input id="city" className={inputClass} value={city} maxLength={100} onChange={e => setCity(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="url-form" className={labelClass}>Job Posting Link</label>
+          <input id="url-form" className={inputClass} value={url} onChange={e => setUrl(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="compMin" className={labelClass}>Comp min</label>
+          <input id="compMin" type="number" className={inputClass} value={compMin} onChange={e => setCompMin(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="compMax" className={labelClass}>Comp max</label>
+          <input id="compMax" type="number" className={inputClass} value={compMax} onChange={e => setCompMax(e.target.value)} />
+        </div>
+        <div className="col-span-2">
+          <label htmlFor="notes" className={labelClass}>Notes</label>
+          <input id="notes" className={inputClass} value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+        <fieldset className="col-span-2">
+          <legend className={labelClass}>Where is it now?</legend>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="starting-stage"
+                checked={!recruiterReachedOut}
+                onChange={() => setRecruiterReachedOut(false)}
+              />
+              Applied, waiting to hear back
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="starting-stage"
+                checked={recruiterReachedOut}
+                onChange={() => setRecruiterReachedOut(true)}
+              />
+              A recruiter reached out
+            </label>
+          </div>
+        </fieldset>
+      </div>
+      {aiConfigured && company.trim() && <CompanyBriefPanel company={company} role={role} />}
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {submitting ? "Adding…" : "Add job"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -449,8 +439,22 @@ function MatchResultBanner({ result }: { result: MatchResult }) {
             : "rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
         }
       >
-        {isApply ? "✓ You should apply" : "⚠ You should not apply"} — best fit:{" "}
-        <strong>{result.fileName}</strong>. {result.reasoning}
+        <p className="font-medium">
+          {isApply
+            ? `✓ I'd recommend this job, based on ${result.strengths.join(", ")}.`
+            : `⚠ I wouldn't apply: ${result.gaps.join(", ")}.`}
+        </p>
+        {isApply && result.gaps.length > 0 && <p>Gaps: {result.gaps.join(", ")}.</p>}
+        {!isApply && result.strengths.length > 0 && <p>In your favor: {result.strengths.join(", ")}.</p>}
+        <p>
+          {isApply ? "Use" : "Closest resume"}: <strong>{result.fileName}</strong>
+        </p>
+        {/* A verdict over some of your resumes must say so, or it reads as if all were weighed. */}
+        {result.skippedResumes ? (
+          <p className="mt-1 text-xs opacity-80">
+            {result.skippedResumes} of your resumes couldn't be read and weren't considered.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -459,7 +463,7 @@ function MatchResultBanner({ result }: { result: MatchResult }) {
     result.status === "no_resumes"
       ? "No analyzed resumes yet — upload one on the Resumes page."
       : result.status === "not_configured"
-        ? "Connect an Anthropic API key to get recommendations."
+        ? "Set up an AI provider to get recommendations."
         : "Recommendation unavailable right now — try again.";
 
   return (

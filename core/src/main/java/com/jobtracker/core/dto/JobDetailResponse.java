@@ -16,6 +16,7 @@ public record JobDetailResponse(
         Outcome outcome,
         String url,
         Location location,
+        String city,
         Integer compMin,
         Integer compMax,
         Instant createdAt,

@@ -23,7 +23,9 @@ function pastedName(original: string): string {
 export default function JobImageAttachments({ jobId }: JobImageAttachmentsProps) {
   const [images, setImages] = useState<JobImage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // A count, not a flag: with two pastes in flight, the first to finish must not report the second done.
+  const [inFlight, setInFlight] = useState(0);
+  const busy = inFlight > 0;
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +47,7 @@ export default function JobImageAttachments({ jobId }: JobImageAttachmentsProps)
 
   const upload = useCallback(
     async (file: File) => {
-      setBusy(true);
+      setInFlight(n => n + 1);
       setError(null);
       try {
         const uploaded = await uploadJobImage(jobId, file);
@@ -53,7 +55,7 @@ export default function JobImageAttachments({ jobId }: JobImageAttachmentsProps)
       } catch (err) {
         setError(err instanceof Error ? err.message : "failed to upload attachment");
       } finally {
-        setBusy(false);
+        setInFlight(n => n - 1);
       }
     },
     [jobId],
@@ -77,7 +79,7 @@ export default function JobImageAttachments({ jobId }: JobImageAttachmentsProps)
   }, [upload]);
 
   async function handleDelete(imageId: string) {
-    setBusy(true);
+    setInFlight(n => n + 1);
     setError(null);
     try {
       await deleteJobImage(jobId, imageId);
@@ -85,7 +87,7 @@ export default function JobImageAttachments({ jobId }: JobImageAttachmentsProps)
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to delete attachment");
     } finally {
-      setBusy(false);
+      setInFlight(n => n - 1);
     }
   }
 

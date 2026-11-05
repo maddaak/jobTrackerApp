@@ -1,0 +1,5 @@
+# The image runs npm ci itself; a host node_modules would overwrite Linux binaries with the host's.
+node_modules
+dist
+coverage
+.env*

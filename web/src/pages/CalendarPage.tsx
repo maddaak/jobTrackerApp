@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import CalendarGrid from "../components/CalendarGrid";
 import InterviewFormModal, { type InterviewFormMode } from "../components/InterviewFormModal";
 import { listInterviews, type Interview } from "../api/interviewsApi";
+import { downloadIcs } from "../calendarFile";
+import { useJobsContext } from "../hooks/useJobsContext";
 
 export default function CalendarPage() {
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [month, setMonth] = useState(() => new Date());
   const [formMode, setFormMode] = useState<InterviewFormMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { refresh: refreshJobs } = useJobsContext();
   // Tag each refresh so a slower earlier load can't overwrite newer data.
   const reqId = useRef(0);
 
@@ -30,15 +33,22 @@ export default function CalendarPage() {
     }
   }
 
+  // A new round can move its job forward, so the shared list must refresh too, or the next action
+  // elsewhere PATCHes the job back from a stale copy.
   function handleSaved() {
     setFormMode(null);
     refresh();
+    refreshJobs();
   }
 
   function handleDeleted() {
     setFormMode(null);
     refresh();
+    refreshJobs();
   }
+
+  const upcoming = interviews.filter(round =>
+    new Date(round.interviewEndDateTime ?? round.interviewDateTime).getTime() > Date.now());
 
   function goToPrevMonth() {
     setMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -50,8 +60,17 @@ export default function CalendarPage() {
 
   return (
     <div className="min-w-0 p-6">
-      <div className="mb-6 flex items-center justify-center">
+      <div className="mb-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">Interview Schedule</h1>
+        <button
+          type="button"
+          disabled={upcoming.length === 0}
+          title="Download a file your calendar app opens, with every round still to come"
+          onClick={() => downloadIcs("upcoming-interviews.ics", upcoming)}
+          className="rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+        >
+          Add upcoming rounds to my calendar
+        </button>
       </div>
 
       {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}

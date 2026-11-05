@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in Job Tracker doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repo is public. Leave out anything from your own job search: company names, salaries,
+        notes, or your `.env`. Made-up names are fine.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to see it
+      placeholder: |
+        1. Open a job from the board
+        2. Click ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The top heading in CHANGELOG.md, or `IMAGE_TAG` in your `.env` if you pinned one.
+      placeholder: V4.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run it
+      options:
+        - Pre-built images (docker-compose.images.yml)
+        - Built from source (docker compose up --build)
+        - Hosted on my own server
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Computer and browser
+      placeholder: macOS 15, Chrome 141
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        If a page shows an error, `docker compose ps` and `docker compose logs --tail=100 bff core`
+        usually say why. Check them for anything personal before pasting.
+      render: text

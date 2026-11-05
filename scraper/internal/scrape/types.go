@@ -9,12 +9,20 @@ type response struct {
 	Company  string `json:"company"`
 	Role     string `json:"role"`
 	Location string `json:"location"`
+	City     string `json:"city"`
 	CompMin  *int   `json:"compMin"`
 	CompMax  *int   `json:"compMax"`
 	Raw      string `json:"raw"`
 	// Lets the caller tell a blocked host from a dead link from a page with no job data.
 	Fetched bool   `json:"fetched"`
 	Reason  string `json:"reason,omitempty"`
+}
+
+type textFields struct {
+	Role     string `json:"role"`
+	Location string `json:"location"`
+	CompMin  *int   `json:"compMin"`
+	CompMax  *int   `json:"compMax"`
 }
 
 // Reasons a scrape produced nothing; the client maps these to a specific message.

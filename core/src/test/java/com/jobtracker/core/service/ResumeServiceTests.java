@@ -4,6 +4,7 @@ import com.jobtracker.core.dto.ApplyResumeAnalysisRequest;
 import com.jobtracker.core.dto.CreateResumeResponse;
 import com.jobtracker.core.dto.ResumeSummaryResponse;
 import com.jobtracker.core.exception.ResumeNotFoundException;
+import com.jobtracker.core.exception.TooManyResumesException;
 import com.jobtracker.core.model.Resume;
 import com.jobtracker.core.repository.ResumeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,16 @@ class ResumeServiceTests {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         resumeService = new ResumeService(resumeRepository, extractor, new ResumeAnalysisParser(new ObjectMapper()));
+    }
+
+    @Test
+    void anAccountAtTheResumeLimitCantAddAnotherUntilOneIsDeleted() {
+        when(resumeRepository.countByOwnerId(1L)).thenReturn((long) ResumeService.MAX_RESUMES_PER_ACCOUNT);
+        MockMultipartFile file = new MockMultipartFile("file", "resume.txt", "text/plain", "hello world".getBytes());
+
+        assertThatThrownBy(() -> resumeService.createResume(1L, file)).isInstanceOf(TooManyResumesException.class);
+        verify(resumeRepository, never()).save(any());
+        verifyNoInteractions(extractor);
     }
 
     @Test

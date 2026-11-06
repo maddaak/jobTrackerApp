@@ -31,22 +31,23 @@ export async function upload(req: AuthedRequest, res: Response) {
 export async function download(req: AuthedRequest, res: Response) {
   const result = await downloadJobImage(
     req.userId!, req.params.id as string, req.params.imageId as string);
-  if (!result.ok || !result.body) {
+  const { file } = result;
+  if (!file) {
     // Only a real 404 is a missing image; a core outage or timeout must not read as data loss.
-    const status = result.status === 200 ? 502 : result.status;
+    const status = result.status;
     const error = status >= 500 ? "internal error" : status === 404 ? "image not found" : "failed to load attachment";
     res.status(status).json({ error });
     return;
   }
   // nosniff matters here specifically: this is user-uploaded content served from our own origin.
-  res.setHeader("Content-Type", result.contentType!);
+  res.setHeader("Content-Type", file.contentType);
   res.setHeader("X-Content-Type-Options", "nosniff");
-  if (result.contentDisposition) {
-    res.setHeader("Content-Disposition", result.contentDisposition);
+  if (file.contentDisposition) {
+    res.setHeader("Content-Disposition", file.contentDisposition);
   }
   // Immutable: an image is never edited in place, only added or deleted.
   res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
-  res.send(result.body);
+  res.send(file.body);
 }
 
 export async function remove(req: AuthedRequest, res: Response) {

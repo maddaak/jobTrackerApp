@@ -1,9 +1,22 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import AddJobForm from "../../src/components/AddJobForm";
-import { useAuth } from "../../src/context/AuthContext";
+import { useAuth } from "../../src/hooks/useAuth";
+import { listResumes, type ResumeSummary } from "../../src/api/resumesApi";
 
-vi.mock("../../src/context/AuthContext", () => ({ useAuth: vi.fn() }));
+vi.mock("../../src/hooks/useAuth", () => ({ useAuth: vi.fn() }));
+// Mocked apart from fetch, so the form's resume check doesn't shift the ordered fetch replies below.
+vi.mock("../../src/api/resumesApi", async importOriginal => ({
+  ...(await importOriginal<typeof import("../../src/api/resumesApi")>()),
+  listResumes: vi.fn(),
+}));
+
+function resume(analysisStatus: ResumeSummary["analysisStatus"], summary: string | null): ResumeSummary {
+  return {
+    id: "r1", fileName: "resume.pdf", uploadedAt: "2026-01-01T00:00:00Z", analysisStatus,
+    analysisSource: "ai", summary, skills: null, seniority: null, roles: null,
+  };
+}
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -14,18 +27,117 @@ const scrapeSuccess = {
   compMin: 120000, compMax: 150000, raw: "job description text",
 };
 
+const applyVerdict = {
+  status: "ok", fileName: "resume.pdf", recommendation: "APPLY",
+  company: "", role: "", strengths: ["6 years of Go", "payments"], gaps: [],
+};
+
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
   vi.mocked(useAuth).mockReturnValue({ aiConfigured: true } as ReturnType<typeof useAuth>);
+  vi.mocked(listResumes).mockResolvedValue([resume("ok", "Backend engineer")]);
+});
+
+describe("AddJobForm without a resume to match against", () => {
+  it("says to upload one instead of offering a recommendation it can't give", async () => {
+    vi.mocked(listResumes).mockResolvedValue([]);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+
+    expect(await screen.findByText(/Upload a resume on the Resumes page/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Use AI and get a recommendation")).not.toBeInTheDocument();
+  });
+
+  it("counts a resume whose analysis failed as no resume", async () => {
+    vi.mocked(listResumes).mockResolvedValue([resume("unavailable", null)]);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+
+    expect(await screen.findByText(/Upload a resume on the Resumes page/)).toBeInTheDocument();
+  });
+
+  it("fetches the posting without calling the match API", async () => {
+    vi.mocked(listResumes).mockResolvedValue([]);
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    await screen.findByText(/Upload a resume on the Resumes page/);
+
+    fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.example/jobs/1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+    expect(await screen.findByLabelText("Company")).toHaveValue("Acme");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Paste the job description/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the option when the resume check itself fails, leaving the match call to say", async () => {
+    vi.mocked(listResumes).mockRejectedValue(new Error("down"));
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+
+    await waitFor(() => expect(listResumes).toHaveBeenCalled());
+    expect(screen.getByLabelText("Use AI and get a recommendation")).toBeChecked();
+  });
 });
 
 describe("AddJobForm", () => {
-  it("hides the AI option and shows a disclaimer when no Anthropic key is configured", () => {
+  it("hides the AI option and shows a disclaimer when no AI provider is set up", () => {
     vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
     render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
     expect(screen.queryByText("Use AI and get a recommendation")).not.toBeInTheDocument();
-    expect(screen.getByText(/AI features are disabled/)).toBeInTheDocument();
+    expect(screen.getByText(/AI features are off/)).toBeInTheDocument();
+  });
+
+  // The link step is where a pasted link fails, so the button that works around it is offered there.
+  it("offers the Save to Job Tracker button beside the link box", () => {
+    vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+
+    expect(screen.getByText("Save to Job Tracker").getAttribute("href")).toMatch(/^javascript:/);
+  });
+
+  // Skipping the link must still leave somewhere to put the description, AI or no AI.
+  it("keeps the description box on a manual add with no AI, and saves what's pasted", async () => {
+    vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+
+    fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "We need a backend engineer." } });
+    expect(screen.getByText(/AI is off/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Get recommendation/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Engineer" } });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { id: 7 }));
+    fireEvent.click(screen.getByRole("button", { name: "Add job" }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body).jdText).toBe("We need a backend engineer.");
+  });
+
+  it("goes back from the form to the link, keeping what was typed", () => {
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+    fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "← Back to the link" }));
+    expect(screen.getByRole("button", { name: "Fetch details" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+    expect(screen.getByLabelText("Company")).toHaveValue("Acme");
+  });
+
+  // A second Fetch overwrites only what the page provides, so a company it doesn't name stays as typed.
+  it("keeps a typed company when a later fetch finds none", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { ...scrapeSuccess, company: "" }));
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText("Use AI and get a recommendation"));
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+    fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
+    fireEvent.click(screen.getByRole("button", { name: "← Back to the link" }));
+
+    fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Role")).toHaveValue("Engineer"));
+    expect(screen.getByLabelText("Company")).toHaveValue("Acme");
   });
 
   it("opens on the url-only step with both Fetch and Skip visible, and no other fields", () => {
@@ -132,7 +244,7 @@ describe("AddJobForm", () => {
   });
 
   describe("AI recommendation", () => {
-    it("unchecking Use AI still scrapes and fills the form but never calls the match API or shows a panel", async () => {
+    it("unchecking Use AI still scrapes and fills the form, description included, but never calls the match API", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
 
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
@@ -142,42 +254,54 @@ describe("AddJobForm", () => {
 
       await waitFor(() => expect(screen.getByLabelText("Company")).toHaveValue("Acme"));
       expect(fetch).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(/best fit/)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Paste the job description")).not.toBeInTheDocument();
+      expect(screen.queryByText(/I'd recommend/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Job description")).toHaveValue(scrapeSuccess.raw);
     });
 
     it("shows an APPLY banner after a successful scrape and match", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Strong match." }),
-      );
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { ...applyVerdict, gaps: ["Kafka"] }));
 
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
-      expect(await screen.findByText(/You should apply/)).toBeInTheDocument();
+      expect(await screen.findByText("✓ I'd recommend this job, based on 6 years of Go, payments.")).toBeInTheDocument();
+      expect(screen.getByText("Gaps: Kafka.")).toBeInTheDocument();
       expect(screen.getByText("resume.pdf")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Add job" })).toBeEnabled();
+      expect(screen.queryByText(/couldn't be read/)).not.toBeInTheDocument();
+    });
+
+    it("says when the verdict skipped resumes it couldn't read", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { ...applyVerdict, skippedResumes: 2 }));
+
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
+      fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
+
+      expect(await screen.findByText("2 of your resumes couldn't be read and weren't considered.")).toBeInTheDocument();
     });
 
     it("shows a DO_NOT_APPLY banner but still leaves Add job clickable", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "DO_NOT_APPLY", reasoning: "Skills mismatch." }),
+        fakeResponse(200, { ...applyVerdict, recommendation: "DO_NOT_APPLY", gaps: ["needs a clearance"] }),
       );
 
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Job Posting Link"), { target: { value: "https://acme.com/jobs/1" } });
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
-      expect(await screen.findByText(/You should not apply/)).toBeInTheDocument();
+      expect(await screen.findByText("⚠ I wouldn't apply: needs a clearance.")).toBeInTheDocument();
+      expect(screen.getByText("In your favor: 6 years of Go, payments.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Add job" })).toBeEnabled();
     });
 
     it.each([
       ["no_resumes", "No analyzed resumes yet — upload one on the Resumes page."],
-      ["not_configured", "Connect an Anthropic API key to get recommendations."],
+      ["not_configured", "Set up an AI provider to get recommendations."],
       ["unavailable", "Recommendation unavailable right now — try again."],
     ])("shows the right disclaimer for status %s", async (status, message) => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
@@ -190,7 +314,7 @@ describe("AddJobForm", () => {
       expect(await screen.findByText(message)).toBeInTheDocument();
     });
 
-    it("unchecking Use AI still offers a manual 'Get AI recommendation' button after a successful scrape", async () => {
+    it("unchecking Use AI still offers a recommendation on request after a successful scrape", async () => {
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, scrapeSuccess));
 
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
@@ -200,15 +324,14 @@ describe("AddJobForm", () => {
 
       await waitFor(() => expect(screen.getByLabelText("Company")).toHaveValue("Acme"));
       expect(fetch).toHaveBeenCalledTimes(1);
-      const getRecButton = screen.getByRole("button", { name: "Get AI recommendation" });
+      const getRecButton = screen.getByRole("button", { name: "Get recommendation" });
 
-      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Strong match." }),
-      );
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, applyVerdict));
       fireEvent.click(getRecButton);
 
-      expect(await screen.findByText(/You should apply/)).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Get AI recommendation" })).not.toBeInTheDocument();
+      expect(await screen.findByText(/I'd recommend/)).toBeInTheDocument();
+      // Kept, so an edited description can be weighed again.
+      expect(screen.getByRole("button", { name: "Get recommendation again" })).toBeInTheDocument();
     });
 
     it("shows the paste-real-JD box (not a do-not-apply banner) when the match comes back insufficient_jd", async () => {
@@ -220,8 +343,8 @@ describe("AddJobForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
       expect(await screen.findByText(/didn't include a readable job description/)).toBeInTheDocument();
-      expect(screen.getByLabelText("Paste the job description")).toBeInTheDocument();
-      expect(screen.queryByText(/You should not apply/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Job description")).toBeInTheDocument();
+      expect(screen.queryByText(/I wouldn't apply/)).not.toBeInTheDocument();
     });
 
     it("shows a manual paste box when the scrape succeeds but comes back empty (e.g. a 404 page)", async () => {
@@ -235,7 +358,7 @@ describe("AddJobForm", () => {
 
       // The paste box states the reason itself, so a 404 doesn't read as a generic fetch failure.
       expect(await screen.findByText(/That page returned an error/)).toBeInTheDocument();
-      expect(screen.getByLabelText("Paste the job description")).toBeInTheDocument();
+      expect(screen.getByLabelText("Job description")).toBeInTheDocument();
     });
 
     it("reports an unreachable link specifically, not as a generic fetch failure", async () => {
@@ -307,21 +430,41 @@ describe("AddJobForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Fetch details" }));
 
       expect(await screen.findByText(/Couldn't fetch the job description automatically/)).toBeInTheDocument();
-      const textarea = screen.getByLabelText("Paste the job description");
+      const textarea = screen.getByLabelText("Job description");
       fireEvent.change(textarea, { target: { value: "We need a backend engineer." } });
 
       (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Good fit." }),
+        fakeResponse(200, { ...applyVerdict, company: "Acme", role: "Backend Engineer" }),
       );
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
 
-      expect(await screen.findByText(/You should apply/)).toBeInTheDocument();
+      expect(await screen.findByText(/I'd recommend/)).toBeInTheDocument();
+      // A pasted description has no page to name the company, so the recommendation does.
+      expect(screen.getByLabelText("Company")).toHaveValue("Acme");
+      expect(screen.getByLabelText("Role")).toHaveValue("Backend Engineer");
+    });
+
+    it("leaves a company and role already typed when the recommendation names them differently", async () => {
+      render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+      fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Typed Co" } });
+      fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Typed role" } });
+      fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "We need a backend engineer." } });
+
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+        fakeResponse(200, { ...applyVerdict, company: "Acme", role: "Backend Engineer" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
+
+      await screen.findByText(/I'd recommend/);
+      expect(screen.getByLabelText("Company")).toHaveValue("Typed Co");
+      expect(screen.getByLabelText("Role")).toHaveValue("Typed role");
     });
 
     it("saves the pasted job description with the job, not just the recommendation it fed", async () => {
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
-      fireEvent.change(screen.getByLabelText("Paste the job description"), {
+      fireEvent.change(screen.getByLabelText("Job description"), {
         target: { value: "We need a backend engineer." },
       });
       fireEvent.change(screen.getByLabelText("Company"), { target: { value: "Acme" } });
@@ -331,18 +474,20 @@ describe("AddJobForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Add job" }));
 
       // Without this the user pastes the whole description and the job is created with none of it.
+      // It rides on the create itself, so there is no second request to race or fail.
       await waitFor(() => {
-        const detailCall = (fetch as ReturnType<typeof vi.fn>).mock.calls
-          .find(([url]) => url === "/jobs/7/detail");
-        expect(detailCall).toBeDefined();
-        expect(JSON.parse(detailCall![1].body).jdText).toBe("We need a backend engineer.");
+        const createCall = (fetch as ReturnType<typeof vi.fn>).mock.calls
+          .find(([url, init]) => url === "/jobs" && init?.method === "POST");
+        expect(JSON.parse(createCall![1].body).jdText).toBe("We need a backend engineer.");
       });
+      expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => url === "/jobs/7/detail")).toBe(false);
     });
 
-    it("locks the fields while the pasted job description is being read, and frees them after", async () => {
+    // It fills only empty fields, at answer time, so nothing should block typing while it runs.
+    it("leaves the fields editable while a pasted description is weighed", async () => {
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
       fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
-      fireEvent.change(screen.getByLabelText("Paste the job description"), {
+      fireEvent.change(screen.getByLabelText("Job description"), {
         target: { value: "We need a backend engineer." },
       });
 
@@ -350,15 +495,12 @@ describe("AddJobForm", () => {
       (fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
 
-      // The JD is what fills these, so typing into them mid-read would be typing over the answer.
-      expect(await screen.findByText("Reading the job description…")).toBeInTheDocument();
-      expect(screen.getByLabelText("Company")).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Add job" })).toBeDisabled();
+      expect(await screen.findByRole("button", { name: "Getting recommendation…" })).toBeDisabled();
+      expect(screen.getByLabelText("Company")).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Add job" })).toBeEnabled();
 
-      release(fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Good fit." }));
-
-      await waitFor(() => expect(screen.getByLabelText("Company")).toBeEnabled());
-      expect(screen.queryByText("Reading the job description…")).not.toBeInTheDocument();
+      release(fakeResponse(200, applyVerdict));
+      await screen.findByText(/I'd recommend/);
     });
 
     it("leaves the fields editable while a recommendation runs on scraped text", async () => {
@@ -374,18 +516,90 @@ describe("AddJobForm", () => {
       await waitFor(() => expect(screen.getByLabelText("Company")).toHaveValue("Acme"));
       expect(screen.getByLabelText("Company")).toBeEnabled();
 
-      release(fakeResponse(200, { status: "ok", fileName: "resume.pdf", recommendation: "APPLY", reasoning: "Good fit." }));
-      await screen.findByText(/You should apply/);
+      release(fakeResponse(200, applyVerdict));
+      await screen.findByText(/I'd recommend/);
     });
 
-    it("shows the manual paste box on Skip with neutral suggestion copy, not a failure warning", () => {
+    it("offers the description box on Skip with no failure warning, since nothing failed", () => {
       render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
 
       fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
 
-      expect(screen.getByLabelText("Paste the job description")).toBeInTheDocument();
-      expect(screen.getByText(/Want a job-fit recommendation\?/)).toBeInTheDocument();
-      expect(screen.queryByText(/couldn't be fetched/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Job description")).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Get recommendation" })).toBeDisabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("AddJobForm filling fields from a pasted description", () => {
+  function pasteAndFill(reply: unknown) {
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(url === "/scrape/text" ? fakeResponse(200, reply) : fakeResponse(200, { result: null })));
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+    fireEvent.change(screen.getByLabelText("Comp max"), { target: { value: "200000" } });
+    fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "Engineer\nRemote. $150k-$190k." } });
+    fireEvent.click(screen.getByRole("button", { name: "Fill in title, location and pay" }));
+  }
+
+  it("fills only the fields still empty, so nothing typed is overwritten", async () => {
+    pasteAndFill({ role: "Engineer", location: "REMOTE", compMin: 150000, compMax: 190000 });
+
+    await waitFor(() => expect(screen.getByLabelText("Role")).toHaveValue("Engineer"));
+    expect(screen.getByLabelText("Location")).toHaveValue("REMOTE");
+    expect(screen.getByLabelText("Comp min")).toHaveValue(150000);
+    expect(screen.getByLabelText("Comp max")).toHaveValue(200000);
+    expect(screen.getByLabelText("Company")).toHaveValue("");
+  });
+
+  // Empty is judged when the answer lands, not at the click, so a title typed while it ran stays.
+  it("keeps what's typed while the description is being read", async () => {
+    let answer: (reply: unknown) => void = () => {};
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => url === "/scrape/text"
+      ? new Promise(resolve => { answer = reply => resolve(fakeResponse(200, reply)); })
+      : Promise.resolve(fakeResponse(200, { result: null })));
+    render(<AddJobForm onCreated={vi.fn()} onWarning={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip — enter manually" }));
+    fireEvent.change(screen.getByLabelText("Job description"), { target: { value: "Engineer\nRemote." } });
+    fireEvent.click(screen.getByRole("button", { name: "Fill in title, location and pay" }));
+
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Staff Engineer" } });
+    answer({ role: "Engineer", location: "REMOTE", compMin: null, compMax: null });
+
+    await waitFor(() => expect(screen.getByLabelText("Location")).toHaveValue("REMOTE"));
+    expect(screen.getByLabelText("Role")).toHaveValue("Staff Engineer");
+  });
+
+  it("says when the text gave nothing to fill", async () => {
+    pasteAndFill({ role: "", location: "", compMin: null, compMax: null });
+
+    expect(await screen.findByText("No title, work model, or pay found in it.")).toBeInTheDocument();
+  });
+
+  // The free reading runs by itself; the billed recommendation still waits for a press.
+  it("opens on a posting saved from another site, already read", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve(url === "/scrape/text"
+        ? fakeResponse(200, { role: "Staff Engineer", location: "HYBRID", compMin: 180000, compMax: 220000 })
+        : fakeResponse(200, { result: null })));
+
+    render(<AddJobForm posting={{ url: "https://jobs.example/123", text: "Staff Engineer\nHybrid", title: "" }}
+      onCreated={vi.fn()} onWarning={vi.fn()} />);
+
+    expect(screen.getByLabelText("Job description")).toHaveValue("Staff Engineer\nHybrid");
+    expect(screen.getByLabelText("Job Posting Link")).toHaveValue("https://jobs.example/123");
+    await waitFor(() => expect(screen.getByLabelText("Role")).toHaveValue("Staff Engineer"));
+    expect(screen.getByLabelText("Location")).toHaveValue("HYBRID");
+    const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => url);
+    expect(calls.filter(url => url === "/scrape/text")).toHaveLength(1);
+    expect(calls.some(url => String(url).includes("match"))).toBe(false);
+  });
+
+  it("works with the AI off, since it reads the text alone", async () => {
+    vi.mocked(useAuth).mockReturnValue({ aiConfigured: false } as ReturnType<typeof useAuth>);
+    pasteAndFill({ role: "Engineer", location: "", compMin: null, compMax: null });
+
+    await waitFor(() => expect(screen.getByLabelText("Role")).toHaveValue("Engineer"));
   });
 });

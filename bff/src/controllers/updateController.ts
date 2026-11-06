@@ -1,7 +1,6 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { getUpdateStatus } from "../services/updateClient.js";
-import type { AuthedRequest } from "../middleware/requireAuth.js";
 
-export async function get(_req: AuthedRequest, res: Response) {
+export async function get(_req: Request, res: Response) {
   res.json(await getUpdateStatus());
 }

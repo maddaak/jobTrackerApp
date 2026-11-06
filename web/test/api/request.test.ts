@@ -63,7 +63,7 @@ describe("request", () => {
   });
 });
 
-// F72: a body missing stageEvents put undefined into state and crashed the modal a render later.
+// A body missing stageEvents put undefined into state and crashed the modal a render later.
 describe("getJobStages", () => {
   it("fails when the response has no stageEvents rather than returning undefined", async () => {
     const { getJobStages } = await import("../../src/api/jobsApi");

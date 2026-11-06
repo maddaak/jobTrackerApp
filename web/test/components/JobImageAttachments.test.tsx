@@ -68,6 +68,28 @@ describe("JobImageAttachments", () => {
     expect(await screen.findByRole("link", { name: /system-design\.png/ })).toBeInTheDocument();
   });
 
+  it("keeps showing Uploading until the last of two quick pastes lands", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
+    render(<JobImageAttachments jobId={5} />);
+    await screen.findByText(/Paste a screenshot/);
+
+    let finishSecond: (value: unknown) => void = () => {};
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeResponse(200, diagram))
+      .mockReturnValueOnce(new Promise(resolve => { finishSecond = resolve; }));
+    for (let i = 0; i < 2; i++) {
+      const paste = new Event("paste") as Event & { clipboardData: unknown };
+      paste.clipboardData = { files: [pngFile()] };
+      fireEvent(window, paste);
+    }
+
+    await screen.findByRole("link", { name: /system-design\.png/ });
+    expect(screen.getByText(/Uploading/)).toBeInTheDocument();
+
+    finishSecond(fakeResponse(200, { ...diagram, id: "b2c3d4e5f6a1b2c3d4e5f6a1", fileName: "second.png" }));
+    expect(await screen.findByText(/Paste a screenshot/)).toBeInTheDocument();
+  });
+
   it("leaves a paste into a text field alone even when the clipboard carries an image", async () => {
     // Copying from a spreadsheet puts text and an image on the clipboard; the text is what was meant.
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));

@@ -1,6 +1,8 @@
 package com.jobtracker.core.controller;
 
 import com.jobtracker.core.dto.MetricsResponse;
+import com.jobtracker.core.dto.SeasonStats;
+import java.util.List;
 import com.jobtracker.core.service.MetricsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -20,5 +22,10 @@ public class MetricsController {
     @GetMapping
     public MetricsResponse get(@RequestHeader("X-User-Id") Long ownerId) {
         return metricsService.getMetrics(ownerId);
+    }
+
+    @GetMapping("/seasons")
+    public List<SeasonStats> seasons(@RequestHeader("X-User-Id") Long ownerId) {
+        return metricsService.seasonStats(ownerId);
     }
 }

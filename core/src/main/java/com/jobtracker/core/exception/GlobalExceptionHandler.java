@@ -1,6 +1,11 @@
 package com.jobtracker.core.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -15,15 +20,38 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.io.UncheckedIOException;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(UsernameTakenException.class)
     public ResponseEntity<Map<String, String>> handleUsernameTaken(UsernameTakenException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(RegistrationClosedException.class)
+    public ResponseEntity<Map<String, String>> handleRegistrationClosed(RegistrationClosedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidBackupException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidBackup(InvalidBackupException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler({RestoreRefusedException.class, SampleDataRefusedException.class, SeasonInUseException.class})
+    public ResponseEntity<Map<String, String>> handleRestoreRefused(RuntimeException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidResetTokenException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidResetToken(InvalidResetTokenException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
     @ExceptionHandler(InvalidPasswordException.class)
@@ -36,13 +64,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<Map<String, String>> handleTooManyLoginAttempts(TooManyLoginAttemptsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AiDailyLimitException.class)
+    public ResponseEntity<Map<String, String>> handleAiDailyLimit(AiDailyLimitException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("error", ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<Map<String, String>> handleInvalidCredentials(InvalidCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", ex.getMessage()));
     }
 
-    @ExceptionHandler(JobNotFoundException.class)
-    public ResponseEntity<Map<String, String>> handleJobNotFound(JobNotFoundException ex) {
+    @ExceptionHandler({JobNotFoundException.class, SeasonNotFoundException.class})
+    public ResponseEntity<Map<String, String>> handleJobNotFound(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
     }
 
@@ -56,13 +96,54 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
+    @ExceptionHandler(InvalidInterviewTimeException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidInterviewTime(InvalidInterviewTimeException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidStageHistoryException.class)
     public ResponseEntity<Map<String, String>> handleInvalidStageHistory(InvalidStageHistoryException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
-    @ExceptionHandler(UnsupportedImageTypeException.class)
-    public ResponseEntity<Map<String, String>> handleUnsupportedImageType(UnsupportedImageTypeException ex) {
+    // 409: the request is fine, the job's state is what refuses it.
+    @ExceptionHandler(NoOfferException.class)
+    public ResponseEntity<Map<String, String>> handleNoOffer(NoOfferException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AiResultNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleAiResultNotFound(AiResultNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidAiResultException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidAiResult(InvalidAiResultException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidOfferException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidOffer(InvalidOfferException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidReminderSettingsException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidReminderSettings(InvalidReminderSettingsException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(EmailNotConfiguredException.class)
+    public ResponseEntity<Map<String, String>> handleEmailNotConfigured(EmailNotConfiguredException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(EmailSendFailedException.class)
+    public ResponseEntity<Map<String, String>> handleEmailSendFailed(EmailSendFailedException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidImageException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidImage(InvalidImageException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
@@ -79,6 +160,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UnsupportedResumeTypeException.class)
     public ResponseEntity<Map<String, String>> handleUnsupportedResumeType(UnsupportedResumeTypeException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(TooManyResumesException.class)
+    public ResponseEntity<Map<String, String>> handleTooManyResumes(TooManyResumesException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
@@ -151,9 +237,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(Map.of("error", "unsupported content type"));
     }
 
-    // Last resort: clean 500 so no stack trace or internal message leaks to the client.
+    // A save based on a copy someone else changed meanwhile: refused so neither change is silently lost.
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, String>> handleStaleSave(OptimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "this job changed while you were editing it; reload it and try again"));
+    }
+
+    // Without this the catch-all below turned every unknown route into a 500.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNoRoute(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not found"));
+    }
+
+    // Last resort: clean 500 so no stack trace or internal message leaks to the client. Logged here,
+    // since the response says nothing and this is otherwise the only trace a failure leaves.
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+    public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex, HttpServletRequest request) {
+        log.error("unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "an unexpected error occurred"));
     }

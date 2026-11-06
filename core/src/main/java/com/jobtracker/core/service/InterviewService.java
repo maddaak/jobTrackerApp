@@ -15,12 +15,14 @@ import com.jobtracker.core.model.Stage;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
 import org.springframework.stereotype.Service;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Service
@@ -30,23 +32,30 @@ public class InterviewService {
 
     private final JobRepository jobs;
     private final JobDetailRepository jobDetails;
+    private final SeasonService seasons;
+    private final Clock clock;
 
-    public InterviewService(JobRepository jobs, JobDetailRepository jobDetails) {
+    public InterviewService(JobRepository jobs, JobDetailRepository jobDetails, SeasonService seasons, Clock clock) {
         this.jobs = jobs;
         this.jobDetails = jobDetails;
+        this.seasons = seasons;
+        this.clock = clock;
     }
 
     public InterviewResponse createInterview(Long ownerId, CreateInterviewRequest request) {
         Job job = jobs.findByIdAndOwnerId(request.jobId(), ownerId).orElseThrow(JobNotFoundException::new);
+        // A job whose document was never written still takes a round, as it takes notes and links.
         JobDetail detail = jobDetails.findByJobIdAndOwnerId(job.getId(), ownerId)
-                .orElseThrow(JobNotFoundException::new);
+                .orElseGet(() -> new JobDetail(job.getId(), ownerId));
 
-        InterviewRound round = new InterviewRound(request.interviewDateTime(), request.interviewType(),
-                request.meetingLink(), request.location(), toInterviewers(request.interviewers()));
+        InterviewRound round = new InterviewRound(request.interviewDateTime(), request.interviewEndDateTime(),
+                request.interviewType(), request.meetingLink(), request.location(),
+                toInterviewers(request.interviewers()));
         detail.addInterview(round);
 
         // Postgres first: a failed second write costs a history entry, not a wrong stage in the grid.
-        advanceStage(job, detail, request.stage());
+        // Only ever forward, so a round logged while waiting on results leaves the job waiting.
+        advanceStage(job, detail, Stage.INTERVIEW_STAGE);
         jobDetails.save(detail);
 
         return toResponse(round, job);
@@ -57,8 +66,8 @@ public class InterviewService {
                 .orElseThrow(JobNotFoundException::new);
 
         InterviewRound round = detail.findInterview(roundId);
-        round.apply(request.interviewDateTime(), request.interviewType(), request.meetingLink(),
-                request.location(), toInterviewers(request.interviewers()));
+        round.apply(request.interviewDateTime(), request.interviewEndDateTime(), request.interviewType(),
+                request.meetingLink(), request.location(), toInterviewers(request.interviewers()));
         jobDetails.save(detail);
 
         Job job = jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).orElseThrow(JobNotFoundException::new);
@@ -66,14 +75,18 @@ public class InterviewService {
     }
 
     public List<InterviewResponse> listInterviews(Long ownerId) {
-        return roundsWithJobs(ownerId);
+        return roundsWithJobs(ownerId, job -> true);
     }
 
+    // A closed job's leftover round isn't one to prepare for, and a round stays upcoming until it ends.
     public List<InterviewResponse> listUpcomingInterviews(Long ownerId) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant until = now.plus(UPCOMING_WINDOW);
-        return roundsWithJobs(ownerId).stream()
-                .filter(r -> !r.interviewDateTime().isBefore(now) && !r.interviewDateTime().isAfter(until))
+        return roundsWithJobs(ownerId, job -> !job.getOutcome().closesPipeline()).stream()
+                .filter(r -> {
+                    Instant over = r.interviewEndDateTime() != null ? r.interviewEndDateTime() : r.interviewDateTime();
+                    return !over.isBefore(now) && !r.interviewDateTime().isAfter(until);
+                })
                 .sorted(Comparator.comparing(InterviewResponse::interviewDateTime))
                 .toList();
     }
@@ -88,8 +101,10 @@ public class InterviewService {
     }
 
     // One projected Mongo read for the rounds, one Postgres read for the company/role they display.
-    private List<InterviewResponse> roundsWithJobs(Long ownerId) {
+    private List<InterviewResponse> roundsWithJobs(Long ownerId, Predicate<Job> include) {
         Map<Long, Job> jobsById = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId).stream()
+                .filter(seasons.inView(ownerId))
+                .filter(include)
                 .collect(Collectors.toMap(Job::getId, Function.identity()));
         return jobDetails.findJourneysByOwnerId(ownerId).stream()
                 // A document whose job is gone has nothing to render a company or role from.
@@ -105,15 +120,16 @@ public class InterviewService {
         job.advanceStageIfFurther(stage);
         jobs.save(job);
         if (job.getCurrentStage() != previous) {
-            detail.recordStage(job.getCurrentStage(), Instant.now(), null);
+            detail.recordStage(job.getCurrentStage(), clock.instant(), null);
         }
     }
 
     private InterviewResponse toResponse(InterviewRound round, Job job) {
         return new InterviewResponse(
                 round.getRoundId(), job.getId(), job.getCompany(), job.getRole(), job.getCurrentStage(),
-                round.getInterviewDateTime(), round.getInterviewType(), round.getMeetingLink(),
-                round.getLocation(), toInterviewerResponses(round.getInterviewers()));
+                round.getInterviewDateTime(), round.getInterviewEndDateTime(), round.getInterviewType(),
+                round.getMeetingLink(),
+                round.getLocation(), toInterviewerResponses(round.getInterviewers()), round.getAiResults());
     }
 
     private List<Interviewer> toInterviewers(List<InterviewerRequest> requests) {

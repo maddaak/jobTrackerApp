@@ -81,8 +81,11 @@ func TestScrapeHybridFromDescriptionWithStructuredLocation(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("expected 200, got %d", status)
 	}
-	if resp.Location != "NYC_HYBRID" {
-		t.Errorf("expected NYC_HYBRID classified from description, got %q", resp.Location)
+	if resp.Location != "HYBRID" {
+		t.Errorf("expected HYBRID classified from description, got %q", resp.Location)
+	}
+	if resp.City != "San Francisco, CA" {
+		t.Errorf("expected the structured place as the city, got %q", resp.City)
 	}
 }
 
@@ -166,7 +169,7 @@ func TestScrapeUnreachableHostReturnsBlanksNotError(t *testing.T) {
 	}
 }
 
-// SSRF guard rejects literal private/metadata IPs; no doScrape so blocking stays on, fetch skipped, 200 blank.
+// Calls Handler directly rather than doScrape, which turns the SSRF guard off.
 func TestScrapeBlocksInternalAddresses(t *testing.T) {
 	for _, target := range []string{
 		"http://169.254.169.254/latest/meta-data/",
@@ -195,7 +198,6 @@ func TestScrapeBlocksInternalAddresses(t *testing.T) {
 	}
 }
 
-// An oversized request body is rejected with 400 by the MaxBytesReader cap, not read into memory.
 func TestScrapeRejectsOversizedRequestBody(t *testing.T) {
 	huge := bytes.Repeat([]byte("a"), httpx.MaxBodyBytes+1)
 	req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewReader(huge))
@@ -242,7 +244,7 @@ func TestScrapeIgnoresNon2xxResponseBody(t *testing.T) {
 	}
 }
 
-// F57: every failure mode used to be one blank 200, so a dead link read the same as a page with no job data.
+// Every failure mode used to be one blank 200, so a dead link read the same as a page with no job data.
 func TestScrapeReportsWhyItFoundNothing(t *testing.T) {
 	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "nope", http.StatusNotFound)
@@ -272,7 +274,6 @@ func TestScrapeReportsWhyItFoundNothing(t *testing.T) {
 		t.Fatalf("expected fetched=true reason=%s, got fetched=%v reason=%q", reasonNoJobData, resp.Fetched, resp.Reason)
 	}
 
-	// An unreachable host is distinguishable too.
 	code, resp = doScrape(t, "http://127.0.0.1:1/gone")
 	if code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", code)
@@ -298,5 +299,24 @@ func TestScrapeSuccessHasNoReason(t *testing.T) {
 	}
 	if !resp.Fetched || resp.Reason != "" {
 		t.Fatalf("expected fetched=true with no reason, got fetched=%v reason=%q", resp.Fetched, resp.Reason)
+	}
+}
+
+func TestTextHandlerFillsTitleLocationAndPay(t *testing.T) {
+	body, _ := json.Marshal(map[string]string{"text": "Senior Backend Engineer\nFully remote. Pay: $150,000 - $190,000."})
+	w := httptest.NewRecorder()
+	TextHandler(w, httptest.NewRequest(http.MethodPost, "/scrape-text", bytes.NewReader(body)))
+
+	var fields textFields
+	_ = json.NewDecoder(w.Body).Decode(&fields)
+	if w.Code != http.StatusOK || fields.Role != "Senior Backend Engineer" || fields.Location != "REMOTE" ||
+		fields.CompMin == nil || *fields.CompMin != 150000 || *fields.CompMax != 190000 {
+		t.Fatalf("unexpected result %d: %+v", w.Code, fields)
+	}
+
+	w = httptest.NewRecorder()
+	TextHandler(w, httptest.NewRequest(http.MethodPost, "/scrape-text", bytes.NewReader([]byte(`{"text":"  "}`))))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty text, got %d", w.Code)
 	}
 }

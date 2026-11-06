@@ -2,6 +2,7 @@ package com.jobtracker.core.dto;
 
 import com.jobtracker.core.model.InterviewType;
 import com.jobtracker.core.model.Resume;
+import com.jobtracker.core.model.SourceCategory;
 import com.jobtracker.core.model.Stage;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -26,35 +27,23 @@ class RequestConstraintTests {
         }
     }
 
-    private CreateInterviewRequest interviewAt(Stage stage) {
-        return new CreateInterviewRequest(1L, stage, Instant.parse("2026-08-01T18:00:00Z"),
-                InterviewType.SYSTEM_DESIGN, null, null, List.of());
-    }
-
     @Test
-    void interviewStageAcceptsOnlyTheThreeInterviewStages() {
-        for (Stage allowed : List.of(Stage.INTERVIEW_REQUEST, Stage.INTERVIEW_STAGE, Stage.WAITING_INTERVIEW_RESULTS)) {
-            assertThat(validator.validate(interviewAt(allowed))).isEmpty();
-        }
-    }
-
-    @Test
-    void interviewStageRejectsStagesThatWouldJumpThePipeline() {
-        // createInterview calls advanceStageIfFurther, so these would move the job without an interview.
-        for (Stage rejected : List.of(Stage.RESUME_CHECK, Stage.OFFER_STAGE, Stage.FINALIZED)) {
-            assertThat(validator.validate(interviewAt(rejected)))
-                    .as("stage %s", rejected)
-                    .isNotEmpty();
+    void aNewJobCanOnlyStartAsAppliedOrContacted() {
+        for (Stage stage : Stage.values()) {
+            var request = new CreateJobRequest("Acme", "Engineer", SourceCategory.SELF_APPLIED,
+                    null, null, null, null, null, null, stage, null, null);
+            boolean allowed = stage == Stage.RESUME_CHECK || stage == Stage.INTERVIEW_REQUEST;
+            assertThat(validator.validate(request).isEmpty()).as("stage %s", stage).isEqualTo(allowed);
         }
     }
 
     @Test
     void interviewTypeIsRequiredOnCreateAndUpdate() {
-        var create = new CreateInterviewRequest(1L, Stage.INTERVIEW_STAGE,
-                Instant.parse("2026-08-01T18:00:00Z"), null, null, null, List.of());
+        var create = new CreateInterviewRequest(1L,
+                Instant.parse("2026-08-01T18:00:00Z"), null, null, null, null, List.of());
         assertThat(validator.validate(create)).isNotEmpty();
 
-        var update = new UpdateInterviewRequest(Instant.parse("2026-08-01T18:00:00Z"), null, null, null, List.of());
+        var update = new UpdateInterviewRequest(Instant.parse("2026-08-01T18:00:00Z"), null, null, null, null, List.of());
         assertThat(validator.validate(update)).isNotEmpty();
     }
 

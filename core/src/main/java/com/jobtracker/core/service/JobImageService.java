@@ -4,7 +4,7 @@ import com.jobtracker.core.dto.JobImageResponse;
 import com.jobtracker.core.exception.ImageNotFoundException;
 import com.jobtracker.core.exception.ImageTooLargeException;
 import com.jobtracker.core.exception.JobNotFoundException;
-import com.jobtracker.core.exception.UnsupportedImageTypeException;
+import com.jobtracker.core.exception.InvalidImageException;
 import com.jobtracker.core.model.ImageType;
 import com.jobtracker.core.model.JobImage;
 import com.jobtracker.core.repository.JobImageRepository;
@@ -41,21 +41,27 @@ public class JobImageService {
 
     public JobImageResponse upload(Long ownerId, Long jobId, String fileName, byte[] data) {
         requireOwnedJob(ownerId, jobId);
+        if (images.countByJobId(jobId) >= MAX_IMAGES_PER_JOB) {
+            throw new InvalidImageException("a job can hold at most " + MAX_IMAGES_PER_JOB + " images");
+        }
+        return toResponse(images.save(checked(ownerId, jobId, fileName, data)));
+    }
+
+    // Uploads and restored backups both come through here: a backup is a file anyone could have written, and
+    // its image is served inline from the app like an upload is.
+    JobImage checked(Long ownerId, Long jobId, String fileName, byte[] data) {
         if (data == null || data.length == 0) {
-            throw new UnsupportedImageTypeException("the uploaded file is empty");
+            throw new InvalidImageException("the uploaded file is empty");
         }
         if (data.length > MAX_IMAGE_BYTES) {
             throw new ImageTooLargeException("images must be 10MB or smaller");
         }
-        if (images.countByJobId(jobId) >= MAX_IMAGES_PER_JOB) {
-            throw new UnsupportedImageTypeException("a job can hold at most " + MAX_IMAGES_PER_JOB + " images");
-        }
         // Trusting the declared type here is what would let an SVG through as image/png.
         ImageType type = ImageType.detect(data);
         if (type == null) {
-            throw new UnsupportedImageTypeException("only PNG, JPEG, and WebP images are supported");
+            throw new InvalidImageException("only PNG, JPEG, and WebP images are supported");
         }
-        return toResponse(images.save(new JobImage(jobId, ownerId, safeName(fileName), type, data)));
+        return new JobImage(jobId, ownerId, safeName(fileName), type, data);
     }
 
     // The document, not a DTO: the controller needs the bytes and the stored type together.

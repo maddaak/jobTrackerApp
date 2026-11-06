@@ -8,5 +8,7 @@ import java.util.Optional;
 public interface ResumeRepository extends MongoRepository<Resume, String> {
     List<Resume> findByOwnerId(Long ownerId);
 
+    long countByOwnerId(Long ownerId);
+
     Optional<Resume> findByIdAndOwnerId(String id, Long ownerId);
 }

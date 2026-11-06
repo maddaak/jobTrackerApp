@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi } from "vitest";
+import { JobsProvider } from "../../src/context/JobsContext";
 import CalendarPage from "../../src/pages/CalendarPage";
 
 function fakeResponse(status: number, body: unknown) {
@@ -15,7 +16,9 @@ function dateInCurrentMonth(day: number) {
 function renderCalendarPage() {
   return render(
     <MemoryRouter>
-      <CalendarPage />
+      <JobsProvider>
+        <CalendarPage />
+      </JobsProvider>
     </MemoryRouter>,
   );
 }
@@ -43,6 +46,7 @@ describe("CalendarPage", () => {
             ]),
           );
         }
+        if (url === "/jobs") return Promise.resolve(fakeResponse(200, []));
         throw new Error(`unexpected fetch to ${url}`);
       }),
     );
@@ -86,6 +90,7 @@ describe("CalendarPage", () => {
             ]),
           );
         }
+        if (url === "/jobs") return Promise.resolve(fakeResponse(200, []));
         throw new Error(`unexpected fetch to ${url}`);
       }),
     );

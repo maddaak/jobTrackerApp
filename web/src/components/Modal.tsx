@@ -6,14 +6,16 @@ export interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  // A job's card holds rounds, history, and notes side by side, which a form-width dialog cramps.
+  wide?: boolean;
 }
 
-export default function Modal({ open, onClose, title, children }: ModalProps) {
+export default function Modal({ open, onClose, title, children, wide = false }: ModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={isOpen => !isOpen && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900">
+        <Dialog.Content className={`fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-full ${wide ? "max-w-3xl" : "max-w-lg"} -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900`}>
           <Dialog.Close asChild>
             <button
               type="button"

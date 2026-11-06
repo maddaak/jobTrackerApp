@@ -17,5 +17,8 @@ public interface JobImageRepository extends MongoRepository<JobImage, String> {
 
     long countByJobId(Long jobId);
 
+    // With the image bytes, unlike the metadata finder: a backup needs the files themselves.
+    List<JobImage> findByOwnerId(Long ownerId);
+
     void deleteByJobId(Long jobId);
 }

@@ -17,10 +17,8 @@ import (
 	"jobtracker/scraper/internal/textutil"
 )
 
-// greenhouseEmbedForPattern pulls the board token from a Greenhouse embed script src (?for=...).
 var greenhouseEmbedForPattern = regexp.MustCompile(`[?&]for=([a-zA-Z0-9_-]+)`)
 
-// greenhouseJobIDPattern constrains the job id pulled from the page URL to digits only.
 var greenhouseJobIDPattern = regexp.MustCompile(`^\d+$`)
 
 // greenhouseBoardsAPIBaseURL is a package var so tests can point it at a local server.
@@ -35,7 +33,7 @@ type greenhouseJobResponse struct {
 	} `json:"location"`
 }
 
-// extractFromGreenhouseEmbed handles pages that only embed Greenhouse's widget by calling its jobs API with the board token and URL job id (gh_jid or id).
+// A page that only embeds Greenhouse's widget carries no job data itself, so it comes from Greenhouse's API.
 func extractFromGreenhouseEmbed(ctx context.Context, doc *goquery.Document, requestURL string, result *response) bool {
 	boardToken := ""
 	doc.Find(`script[src*="boards.greenhouse.io/embed/job_board"]`).EachWithBreak(func(_ int, s *goquery.Selection) bool {
@@ -88,14 +86,11 @@ func extractFromGreenhouseEmbed(ctx context.Context, doc *goquery.Document, requ
 		result.Raw = textutil.Truncate(contentText, rawTextLimit)
 	}
 	if result.Location == "" {
-		lower := strings.ToLower(contentText)
-		if strings.Contains(lower, "hybrid") || strings.Contains(lower, "remote") ||
-			strings.Contains(lower, "onsite") || strings.Contains(lower, "on-site") {
-			// Classify here rather than park a whole document in a location-typed field.
-			result.Location = classifyLocation(contentText)
-		} else {
-			result.Location = job.Location.Name
-		}
+		// A place or "Remote"; extract's last pass reads the content first and turns either into a work model.
+		result.Location = job.Location.Name
+	}
+	if result.City == "" && classifyLocation(job.Location.Name) != "REMOTE" {
+		result.City = strings.TrimSpace(job.Location.Name)
 	}
 	if result.CompMin == nil && result.CompMax == nil {
 		if min, max, ok := extractCompRange(contentText); ok {

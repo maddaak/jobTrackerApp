@@ -97,7 +97,7 @@ public class JobLinkService {
 
     private void writeEdge(Long ownerId, Long jobId, Long otherJobId, JobRelation relation) {
         JobDetail detail = jobDetails.findByJobId(jobId)
-                .orElseGet(() -> new JobDetail(jobId, ownerId, Gzip.compress(""), ""));
+                .orElseGet(() -> new JobDetail(jobId, ownerId));
         detail.linkTo(otherJobId, relation);
         jobDetails.save(detail);
     }

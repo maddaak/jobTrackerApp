@@ -13,6 +13,8 @@ export interface ScrapeResult {
   company: string;
   role: string;
   location: Location | "";
+  // The place the posting names; blank when it names none.
+  city: string;
   compMin: number | null;
   compMax: number | null;
   raw: string;
@@ -25,11 +27,22 @@ export interface ScrapeResult {
 export const SCRAPE_FAILURE_MESSAGE: Record<ScrapeFailureReason, string> = {
   blocked_host: "That address can't be fetched. Paste the description below instead.",
   request_failed: "That URL couldn't be used. Check it and try again, or paste the description below.",
-  unreachable: "Couldn't reach that page — it may be down or the link may be wrong.",
+  unreachable: "Couldn't reach that page. It may be down or the link may be wrong.",
   http_error: "That page returned an error, so it may have been taken down or need a login.",
   unreadable: "That page couldn't be read as HTML.",
   no_job_data: "That page loaded but didn't contain a readable job description.",
 };
+
+export type TextFields = Pick<ScrapeResult, "role" | "location" | "compMin" | "compMax">;
+
+// No AI involved, so it works and costs nothing whether or not one is set up.
+export async function readPastedJob(text: string): Promise<TextFields> {
+  return request<TextFields>("/scrape/text", "failed to read the description", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
 
 export async function scrapeJob(url: string): Promise<ScrapeResult> {
   return request<ScrapeResult>("/scrape", "failed to fetch job details", {

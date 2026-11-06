@@ -1,7 +1,11 @@
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import JobDetailModal from "../../src/components/JobDetailModal";
-import type { JobSummary } from "../../src/api/jobsApi";
+import { OUTCOMES, type JobSummary } from "../../src/api/jobsApi";
+
+// AI off: the AI panels have their own tests.
+vi.mock("../../src/hooks/useAuth", () => ({ useAuth: () => ({ aiConfigured: false }) }));
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -17,6 +21,8 @@ const baseJob: JobSummary = {
   role: "Backend Engineer",
   sourceCategory: "SELF_APPLIED",
   currentStage: "RESUME_CHECK",
+  interviewPhase: null,
+  boardPhase: null,
   outcome: "ACTIVE",
   url: null,
   location: null,
@@ -24,7 +30,10 @@ const baseJob: JobSummary = {
   compMax: null,
   createdAt: "2026-01-01T00:00:00Z",
   latestInterview: null,
+  needsScheduling: false,
   links: [],
+  city: null,
+  seasonId: 1,
 };
 
 describe("JobDetailModal", () => {
@@ -33,7 +42,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "asked leetcode", notes: "great team" }),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByLabelText("Job description")).toHaveValue("we are hiring");
     expect(screen.getByLabelText("Interview notes")).toHaveValue("asked leetcode");
@@ -47,7 +56,7 @@ describe("JobDetailModal", () => {
     );
     const jobWithUrl = { ...baseJob, url: "https://acme.com/jobs/1" };
 
-    render(<JobDetailModal job={jobWithUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={jobWithUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("Job Description Details Unavailable")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Open original posting/ });
@@ -60,7 +69,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByLabelText("Job description");
     expect(screen.queryByText("Job Description Details Unavailable")).not.toBeInTheDocument();
@@ -71,7 +80,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "" }),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByLabelText("Job description");
     expect(screen.getByLabelText("Rejected reason")).toBeDisabled();
@@ -83,7 +92,7 @@ describe("JobDetailModal", () => {
       fakeResponse(200, { jobId: 5, jdText: "", interviewNotes: "", rejectedReason: "low experience" }),
     );
 
-    render(<JobDetailModal job={rejectedJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={rejectedJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByLabelText("Job description");
     expect(screen.getByLabelText("Rejected reason")).toBeEnabled();
@@ -96,7 +105,7 @@ describe("JobDetailModal", () => {
     );
     const onClose = vi.fn();
     const onSaved = vi.fn();
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={onClose} onSaved={onSaved} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={onClose} onSaved={onSaved} />, { wrapper: MemoryRouter });
 
     await screen.findByLabelText("Job description");
     fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "updated notes" } });
@@ -132,18 +141,20 @@ describe("JobDetailModal", () => {
         {
           roundId: "round-11", jobId: 5, company: "Acme", role: "Backend",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-01T18:00:00.000Z",
+          interviewEndDateTime: "2026-08-01T19:00:00.000Z",
           interviewType: "SYSTEM_DESIGN", meetingLink: null, location: null,
           interviewers: [{ name: "Jane Doe", linkedInUrl: null }],
         },
         {
           roundId: "round-22", jobId: 99, company: "Other", role: "X",
           stage: "INTERVIEW_STAGE", interviewDateTime: "2026-08-02T18:00:00.000Z",
+          interviewEndDateTime: null,
           interviewType: "BEHAVIOR", meetingLink: null, location: null, interviewers: [],
         },
       ]),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText(/Round 1:/)).toBeInTheDocument();
     expect(screen.getByText(/System Design/)).toBeInTheDocument();
@@ -159,7 +170,7 @@ describe("JobDetailModal", () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { stageEvents: [] }));
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("Recommended resume:")).toBeInTheDocument();
     expect(screen.getByText("Akhilesh_Backend.pdf")).toBeInTheDocument();
@@ -180,11 +191,12 @@ describe("JobDetailModal", () => {
       }),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("Stage history")).toBeInTheDocument();
-    expect(screen.getByText("Resume Check")).toBeInTheDocument();
-    expect(screen.getByText("Interview Request")).toBeInTheDocument();
+    // History rows only: the Stage picker names its options the same way.
+    expect(screen.getByText("Resume Check", { selector: "li span" })).toBeInTheDocument();
+    expect(screen.getByText("Interview Request", { selector: "li span" })).toBeInTheDocument();
   });
 
   it("collapses consecutive duplicate stages in the history", async () => {
@@ -202,7 +214,7 @@ describe("JobDetailModal", () => {
       }),
     );
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("Stage history")).toBeInTheDocument();
     // The two back-to-back Interview Stage entries collapse into one.
@@ -215,32 +227,9 @@ describe("JobDetailModal", () => {
     );
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     expect(await screen.findByText("No interview rounds yet.")).toBeInTheDocument();
-  });
-
-  it("does not request a resume recommendation from the job detail view", async () => {
-    // Answered per URL: one body for every call masked a real crash in the stage-history load.
-    (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (url === "/jobs/5/detail") {
-        return Promise.resolve(fakeResponse(200, { jobId: 5, jdText: "we are hiring", interviewNotes: "" }));
-      }
-      if (url === "/jobs/5") {
-        return Promise.resolve(fakeResponse(200, { id: 5, stageEvents: [] }));
-      }
-      return Promise.resolve(fakeResponse(200, []));
-    });
-
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
-
-    await screen.findByLabelText("Job description");
-    expect(screen.queryByText(/Rule-based:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/AI \(Claude\):/)).not.toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalledWith(
-      "/jobs/5/resume-recommendation",
-      expect.anything(),
-    );
   });
 
   it("does not overwrite a newer job's detail with a stale response from a previous job", async () => {
@@ -253,7 +242,7 @@ describe("JobDetailModal", () => {
     const jobA = baseJob; // id 5
     const jobB = { ...baseJob, id: 7, company: "Beta", role: "Frontend Engineer", notes: "B notes" };
 
-    const { rerender } = render(<JobDetailModal job={jobA} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const { rerender } = render(<JobDetailModal job={jobA} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
     // Switch to B before A's slow load comes back.
     rerender(<JobDetailModal job={jobB} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
 
@@ -276,14 +265,14 @@ describe("JobDetailModal", () => {
     );
     const jobWithJsUrl = { ...baseJob, url: "javascript:alert(1)" };
 
-    render(<JobDetailModal job={jobWithJsUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={jobWithJsUrl} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("Job Description Details Unavailable");
     expect(screen.queryByRole("link", { name: /Open original posting/ })).not.toBeInTheDocument();
   });
 
   it("does not render form fields when no job is selected", () => {
-    render(<JobDetailModal job={null} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={null} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
     expect(screen.queryByLabelText("Job description")).not.toBeInTheDocument();
   });
 });
@@ -303,7 +292,7 @@ describe("JobDetailModal linked jobs", () => {
   it("lists an existing link with the relation read from this job's side", async () => {
     stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     // Re-query: the stage-history fetch re-renders the list under us.
     await screen.findByText("Linked jobs");
@@ -315,7 +304,7 @@ describe("JobDetailModal linked jobs", () => {
     stubLoad([]);
     const onSaved = vi.fn();
 
-    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={onSaved} />);
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={onSaved} />, { wrapper: MemoryRouter });
 
     await screen.findByText("No linked jobs yet.");
     fireEvent.change(screen.getByLabelText("Relation"), { target: { value: "REPLACED_BY" } });
@@ -342,7 +331,7 @@ describe("JobDetailModal linked jobs", () => {
   it("keeps the picked job selected when the link fails", async () => {
     stubLoad([]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("No linked jobs yet.");
     fireEvent.change(screen.getByLabelText("Job to link"), { target: { value: "9" } });
@@ -358,7 +347,7 @@ describe("JobDetailModal linked jobs", () => {
   it("does not offer a job that is already linked", async () => {
     stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "RELATED" }]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("related to");
     expect(screen.queryByLabelText("Job to link")).not.toBeInTheDocument();
@@ -367,7 +356,7 @@ describe("JobDetailModal linked jobs", () => {
   it("unlinks a job and drops it from the list", async () => {
     stubLoad([{ jobId: 9, company: "Globex", role: "Security Engineer II", relation: "REPLACED_BY" }]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[baseJob, otherJob]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("replaced by");
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, []));
@@ -401,7 +390,7 @@ describe("JobDetailModal stage history deletion", () => {
     stubLoad(misclickedHistory);
     const onSaved = vi.fn();
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />, { wrapper: MemoryRouter });
 
     await screen.findByText("Interview Stage");
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
@@ -428,9 +417,9 @@ describe("JobDetailModal stage history deletion", () => {
     ];
     stubLoad(withARepeat);
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
-    await screen.findByText("Interview Request");
+    await screen.findByText("Interview Request", { selector: "li span" });
     (fetch as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(fakeResponse(200, withARepeat.slice(0, 2)))
       .mockResolvedValueOnce(fakeResponse(200, [withARepeat[0]]));
@@ -446,7 +435,7 @@ describe("JobDetailModal stage history deletion", () => {
       "/jobs/5/stages?enteredAt=2026-08-26T20%3A25%3A00.000Z&stage=INTERVIEW_REQUEST",
       expect.objectContaining({ method: "DELETE" }),
     );
-    expect(screen.queryByText("Interview Request")).not.toBeInTheDocument();
+    expect(screen.queryByText("Interview Request", { selector: "li span" })).not.toBeInTheDocument();
   });
 
   it("offers no delete control when the whole history is one collapsed row", async () => {
@@ -455,7 +444,7 @@ describe("JobDetailModal stage history deletion", () => {
       { stage: "RESUME_CHECK", enteredAt: "2026-08-25T23:05:00.000Z", note: null },
     ]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("Resume Check");
     expect(screen.queryByLabelText(/history entry/)).not.toBeInTheDocument();
@@ -464,9 +453,134 @@ describe("JobDetailModal stage history deletion", () => {
   it("offers no delete control when the history has a single entry to lose", async () => {
     stubLoad([misclickedHistory[0]]);
 
-    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
 
     await screen.findByText("Resume Check");
     expect(screen.queryByLabelText(/history entry/)).not.toBeInTheDocument();
+  });
+});
+
+describe("JobDetailModal board controls", () => {
+  // Routed by URL, not call order: each section loads its own data, in an order the test shouldn't pin.
+  function stubCard(onPatch?: (body: unknown) => void) {
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => {
+      if (url === "/jobs/5/detail") return Promise.resolve(fakeResponse(200, { jobId: 5, jdText: "jd", interviewNotes: "", links: [] }));
+      if (url === "/interviews") return Promise.resolve(fakeResponse(200, []));
+      if (url === "/jobs/5" && options?.method === "PATCH") {
+        onPatch?.(JSON.parse(options.body as string));
+        return Promise.resolve(fakeResponse(200, {}));
+      }
+      if (url === "/jobs/5") return Promise.resolve(fakeResponse(200, { stageEvents: [] }));
+      throw new Error(`unexpected fetch to ${url}`);
+    }));
+  }
+
+  it("moves the job to the column picked, with the phase that column stands for", async () => {
+    const patches: unknown[] = [];
+    stubCard(body => patches.push(body));
+    const onSaved = vi.fn();
+    const contacted = { ...baseJob, currentStage: "INTERVIEW_REQUEST" as const };
+
+    render(<JobDetailModal job={contacted} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />, { wrapper: MemoryRouter });
+
+    fireEvent.change(await screen.findByLabelText("Stage"), { target: { value: "PANEL" } });
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(patches).toEqual([expect.objectContaining({ currentStage: "INTERVIEW_STAGE", interviewPhase: "PANEL" })]);
+  });
+
+  it("marks an interviewing job as waiting on results without moving its column", async () => {
+    const patches: unknown[] = [];
+    stubCard(body => patches.push(body));
+    const interviewing = {
+      ...baseJob, currentStage: "INTERVIEW_STAGE" as const, interviewPhase: "MID_ROUNDS" as const, boardPhase: "MID_ROUNDS" as const,
+    };
+
+    render(<JobDetailModal job={interviewing} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
+
+    fireEvent.click(await screen.findByLabelText("Waiting on results"));
+
+    await waitFor(() => expect(patches).toEqual([
+      expect.objectContaining({ currentStage: "WAITING_INTERVIEW_RESULTS", interviewPhase: "MID_ROUNDS" }),
+    ]));
+  });
+
+  it("adds a round for this job without asking which job it is for", async () => {
+    stubCard();
+
+    render(<JobDetailModal job={baseJob} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
+
+    fireEvent.click(await screen.findByRole("button", { name: "+ Add round" }));
+
+    expect(await screen.findByRole("dialog", { name: "Add interview" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Job")).not.toBeInTheDocument();
+  });
+
+  it("moves a job to the offer stage from the column picker, and shows it there afterwards", async () => {
+    const patches: unknown[] = [];
+    stubCard(body => patches.push(body));
+    const onSaved = vi.fn();
+    const panel = { ...baseJob, currentStage: "INTERVIEW_STAGE" as const, interviewPhase: "PANEL" as const, boardPhase: "PANEL" as const };
+
+    const { rerender } = render(
+      <JobDetailModal job={panel} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />,
+      { wrapper: MemoryRouter },
+    );
+    fireEvent.change(await screen.findByLabelText("Stage"), { target: { value: "OFFER" } });
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(patches).toEqual([expect.objectContaining({ currentStage: "OFFER_STAGE" })]);
+
+    rerender(<JobDetailModal job={{ ...panel, currentStage: "OFFER_STAGE" }} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />);
+    expect(screen.getByLabelText("Stage")).toHaveValue("OFFER");
+  });
+
+  it("pauses a job from the status picker without moving it, and keeps its column to resume into", async () => {
+    const patches: unknown[] = [];
+    stubCard(body => patches.push(body));
+    const onSaved = vi.fn();
+    const midRounds = {
+      ...baseJob, currentStage: "INTERVIEW_STAGE" as const, interviewPhase: "MID_ROUNDS" as const, boardPhase: "MID_ROUNDS" as const,
+    };
+
+    const { rerender } = render(
+      <JobDetailModal job={midRounds} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />,
+      { wrapper: MemoryRouter },
+    );
+    fireEvent.change(await screen.findByLabelText("Status"), { target: { value: "PAUSED" } });
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(patches).toEqual([
+      expect.objectContaining({ outcome: "PAUSED", currentStage: "INTERVIEW_STAGE", interviewPhase: "MID_ROUNDS" }),
+    ]);
+
+    rerender(<JobDetailModal job={{ ...midRounds, outcome: "PAUSED" }} allJobs={[]} onClose={vi.fn()} onSaved={onSaved} />);
+    expect(screen.getByLabelText("Stage")).toHaveValue("MID_ROUNDS");
+  });
+
+  it("offers every status the table does, so a closed job can be reopened from its card", async () => {
+    const patches: unknown[] = [];
+    stubCard(body => patches.push(body));
+    const rejected = { ...baseJob, outcome: "REJECTED" as const, currentStage: "FINALIZED" as const };
+
+    render(<JobDetailModal job={rejected} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
+
+    const status = await screen.findByLabelText("Status");
+    expect(Array.from((status as HTMLSelectElement).options).map(option => option.value)).toEqual(OUTCOMES);
+    // A closed job has no column to show until it is reopened.
+    expect(screen.queryByLabelText("Stage")).not.toBeInTheDocument();
+
+    fireEvent.change(status, { target: { value: "ACTIVE" } });
+    await waitFor(() => expect(patches).toEqual([expect.objectContaining({ outcome: "ACTIVE" })]));
+  });
+
+  it("asks for a stage when a reopened job is still at Finalized", async () => {
+    stubCard();
+    const reopened = { ...baseJob, outcome: "ACTIVE" as const, currentStage: "FINALIZED" as const };
+
+    render(<JobDetailModal job={reopened} allJobs={[]} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper: MemoryRouter });
+
+    expect(await screen.findByLabelText("Stage")).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Choose a stage" })).toBeInTheDocument();
   });
 });

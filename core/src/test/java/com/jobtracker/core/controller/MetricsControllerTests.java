@@ -8,6 +8,8 @@ import com.jobtracker.core.repository.UserRepository;
 import com.jobtracker.core.support.InMemoryMongo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +27,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Transactional
 class MetricsControllerTests {
+
+    private static final int NON_PANEL_TYPES =
+            (int) Arrays.stream(InterviewType.values()).filter(type -> !type.isPanel()).count();
 
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String INTERNAL_TOKEN_VALUE = "test-internal-token";
@@ -79,7 +84,8 @@ class MetricsControllerTests {
             .andExpect(jsonPath("$.funnel[0].count").value(1))
             // Every outcome but ACTIVE.
             .andExpect(jsonPath("$.outcomeCounts", hasSize(Outcome.values().length - 1)))
-            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(InterviewType.values().length)))
+            // A row per non-panel type, plus one for panels, which count as a whole.
+            .andExpect(jsonPath("$.interviewRoundCounts", hasSize(NON_PANEL_TYPES + 1)))
             // A fresh active job at Resume Check terminates at IN_PROGRESS.
             .andExpect(jsonPath("$.sankeyLinks", hasSize(1)))
             .andExpect(jsonPath("$.sankeyLinks[0].source").value("RESUME_CHECK"))

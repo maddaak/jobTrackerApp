@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import request from "supertest";
+import { request } from "../testServer.js";
 import jwt from "jsonwebtoken";
-import { app } from "../../src/app.js";
 
 const JWT_SECRET = "test-secret-not-for-production-use-only-in-tests-hs512-min-64-bytes";
 
@@ -20,12 +19,12 @@ beforeEach(() => {
 
 describe("POST /resumes", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/resumes");
+    const res = await request().post("/resumes");
     expect(res.status).toBe(401);
   });
 
   it("returns 400 when no file is attached", async () => {
-    const res = await request(app).post("/resumes").set("Cookie", authCookie());
+    const res = await request().post("/resumes").set("Cookie", authCookie());
     expect(res.status).toBe(400);
   });
 
@@ -33,7 +32,7 @@ describe("POST /resumes", () => {
     const created = { id: "abc", fileName: "resume.txt", extractedText: "Backend engineer.", uploadedAt: "2026-01-01" };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, created));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes")
       .set("Cookie", authCookie("42"))
       .attach("file", Buffer.from("Backend engineer."), "resume.txt");
@@ -43,11 +42,21 @@ describe("POST /resumes", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/resumes"), expect.objectContaining({ method: "POST" }));
   });
+
+  // The name is what a job's recommended and sent resume point at, so it must reach core as typed.
+  it("keeps an accented file name as the browser sent it", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, {}));
+
+    await request().post("/resumes").set("Cookie", authCookie("42")).attach("file", Buffer.from("Text."), "Résumé.pdf");
+
+    const sent = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as FormData;
+    expect((sent.get("file") as File).name).toBe("Résumé.pdf");
+  });
 });
 
 describe("POST /resumes/:id/summarize", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/resumes/abc/summarize");
+    const res = await request().post("/resumes/abc/summarize");
     expect(res.status).toBe(401);
   });
 
@@ -60,7 +69,7 @@ describe("POST /resumes/:id/summarize", () => {
       .mockResolvedValueOnce(fakeResponse(200, analysis))
       .mockResolvedValueOnce(fakeResponse(200, patched));
 
-    const res = await request(app).post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
+    const res = await request().post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(patched);
@@ -82,7 +91,7 @@ describe("POST /resumes/:id/summarize", () => {
       .mockResolvedValueOnce(fakeResponse(503, { error: "not_configured" }))
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", analysisStatus: "not_configured" }));
 
-    const res = await request(app).post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
+    const res = await request().post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(fetch).toHaveBeenNthCalledWith(
@@ -92,10 +101,23 @@ describe("POST /resumes/:id/summarize", () => {
     );
   });
 
+  // Nothing ran, so the resume keeps what it had and the user sees why, such as the day's limit.
+  it("passes a refusal's reason back and stores nothing", async () => {
+    (fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "" }))
+      .mockResolvedValueOnce(fakeResponse(400, { error: "text is required" }));
+
+    const res = await request().post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "text is required" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("proxies core's 404 through unchanged when the resume isn't the caller's", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(404, { error: "resume not found" }));
 
-    const res = await request(app).post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
+    const res = await request().post("/resumes/abc/summarize").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(404);
   });
@@ -103,12 +125,12 @@ describe("POST /resumes/:id/summarize", () => {
 
 describe("POST /resumes/:id/custom-summary", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/resumes/abc/custom-summary").send({ summary: "x" });
+    const res = await request().post("/resumes/abc/custom-summary").send({ summary: "x" });
     expect(res.status).toBe(401);
   });
 
   it("returns 400 without a summary", async () => {
-    const res = await request(app).post("/resumes/abc/custom-summary").set("Cookie", authCookie()).send({});
+    const res = await request().post("/resumes/abc/custom-summary").set("Cookie", authCookie()).send({});
     expect(res.status).toBe(400);
   });
 
@@ -116,7 +138,7 @@ describe("POST /resumes/:id/custom-summary", () => {
     const patched = { id: "abc", fileName: "resume.txt", analysisStatus: "ok", analysisSource: "custom", summary: "Wrote this myself." };
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, patched));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/abc/custom-summary")
       .set("Cookie", authCookie("42"))
       .send({ summary: "Wrote this myself." });
@@ -140,7 +162,7 @@ describe("POST /resumes/:id/custom-summary", () => {
 
 describe("GET /resumes", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).get("/resumes");
+    const res = await request().get("/resumes");
     expect(res.status).toBe(401);
   });
 
@@ -148,7 +170,7 @@ describe("GET /resumes", () => {
     const resumes = [{ id: "abc", fileName: "resume.txt" }];
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, resumes));
 
-    const res = await request(app).get("/resumes").set("Cookie", authCookie("42"));
+    const res = await request().get("/resumes").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(resumes);
@@ -157,12 +179,12 @@ describe("GET /resumes", () => {
 
 describe("DELETE /resumes/:id", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).delete("/resumes/abc");
+    const res = await request().delete("/resumes/abc");
     expect(res.status).toBe(401);
   });
 
   it("returns 400 for a malformed id without calling core", async () => {
-    const res = await request(app).delete("/resumes/bad%2Fid").set("Cookie", authCookie());
+    const res = await request().delete("/resumes/bad%2Fid").set("Cookie", authCookie());
     expect(res.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -170,7 +192,7 @@ describe("DELETE /resumes/:id", () => {
   it("proxies the delete", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { deleted: true }));
 
-    const res = await request(app).delete("/resumes/abc").set("Cookie", authCookie("42"));
+    const res = await request().delete("/resumes/abc").set("Cookie", authCookie("42"));
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ deleted: true });
@@ -179,19 +201,19 @@ describe("DELETE /resumes/:id", () => {
 
 describe("POST /resumes/match", () => {
   it("returns 401 with no auth cookie", async () => {
-    const res = await request(app).post("/resumes/match").send({ jobDescriptionText: "a job" });
+    const res = await request().post("/resumes/match").send({ jobDescriptionText: "a job" });
     expect(res.status).toBe(401);
   });
 
   it("returns 400 without jobDescriptionText", async () => {
-    const res = await request(app).post("/resumes/match").set("Cookie", authCookie()).send({});
+    const res = await request().post("/resumes/match").set("Cookie", authCookie()).send({});
     expect(res.status).toBe(400);
   });
 
   it("proxies core's error status instead of crashing when the resumes list call fails", async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(401, { error: "missing or invalid internal token" }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -205,7 +227,7 @@ describe("POST /resumes/match", () => {
       fakeResponse(200, [{ id: "abc", fileName: "resume.txt", analysisStatus: "pending", summary: null }]),
     );
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -223,9 +245,9 @@ describe("POST /resumes/match", () => {
       ]))
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Real resume text." }))
       .mockResolvedValueOnce(fakeResponse(500, { error: "boom" }))
-      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "abc", recommendation: "APPLY", reasoning: "Strong." }));
+      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "abc", recommendation: "APPLY", strengths: ["Go"], gaps: [] }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -248,7 +270,7 @@ describe("POST /resumes/match", () => {
       ]))
       .mockResolvedValueOnce(fakeResponse(500, { error: "boom" }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -263,9 +285,9 @@ describe("POST /resumes/match", () => {
         { id: "abc", fileName: "resume.txt", analysisStatus: "ok", summary: "Backend engineer" },
       ]))
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Real resume text." }))
-      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "", recommendation: "APPLY", reasoning: "Strong." }));
+      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "", recommendation: "APPLY", strengths: ["Go"], gaps: [] }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -280,15 +302,19 @@ describe("POST /resumes/match", () => {
         { id: "abc", fileName: "resume.txt", analysisStatus: "ok", summary: "Backend engineer", skills: ["Go"], seniority: "senior", roles: ["Backend"] },
       ]))
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Full resume text with more detail." }))
-      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "abc", recommendation: "APPLY", reasoning: "Strong match." }));
+      .mockResolvedValueOnce(fakeResponse(200, {
+        bestResumeId: "abc", recommendation: "APPLY", company: "Acme", role: "Backend Engineer", strengths: ["Go"], gaps: ["Kafka"],
+      }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok", fileName: "resume.txt", recommendation: "APPLY", reasoning: "Strong match." });
+    expect(res.body).toEqual({
+      status: "ok", fileName: "resume.txt", recommendation: "APPLY", company: "Acme", role: "Backend Engineer", strengths: ["Go"], gaps: ["Kafka"],
+    });
     expect(fetch).toHaveBeenNthCalledWith(2, expect.stringContaining("/resumes/abc/text"), expect.anything());
     expect(fetch).toHaveBeenNthCalledWith(
       3,
@@ -308,9 +334,9 @@ describe("POST /resumes/match", () => {
         { id: "abc", fileName: "resume.txt", analysisStatus: "ok", summary: "Backend engineer", skills: [], seniority: "senior", roles: [] },
       ]))
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Full resume text." }))
-      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "", recommendation: "INSUFFICIENT_JD", reasoning: "Nav markup, not a job description." }));
+      .mockResolvedValueOnce(fakeResponse(200, { bestResumeId: "", recommendation: "INSUFFICIENT_JD", strengths: [], gaps: [] }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "Home About Careers Accept cookies" });
@@ -327,7 +353,7 @@ describe("POST /resumes/match", () => {
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Full resume text." }))
       .mockResolvedValueOnce(fakeResponse(503, { error: "not_configured" }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
@@ -336,8 +362,7 @@ describe("POST /resumes/match", () => {
     expect(res.body).toEqual({ status: "not_configured" });
   });
 
-  it("returns unavailable when the scraper's AI call fails", async () => {
-    // 502 is transient so callScraperAi retries; mock every attempt.
+  it("returns unavailable when the scraper's AI call fails, without retrying a billed call", async () => {
     (fetch as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(fakeResponse(200, [
         { id: "abc", fileName: "resume.txt", analysisStatus: "ok", summary: "Backend engineer", skills: [], seniority: "senior", roles: [] },
@@ -345,12 +370,15 @@ describe("POST /resumes/match", () => {
       .mockResolvedValueOnce(fakeResponse(200, { id: "abc", extractedText: "Full resume text." }))
       .mockResolvedValue(fakeResponse(502, { error: "unavailable" }));
 
-    const res = await request(app)
+    const res = await request()
       .post("/resumes/match")
       .set("Cookie", authCookie())
       .send({ jobDescriptionText: "We need a backend engineer." });
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: "unavailable" });
+    // The scraper retries what's safe to; the bff calling it again would multiply those attempts.
+    const scraperCalls = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => String(url).includes("/match-resume"));
+    expect(scraperCalls).toHaveLength(1);
   });
 });

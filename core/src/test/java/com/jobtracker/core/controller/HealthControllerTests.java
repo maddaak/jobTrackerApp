@@ -1,6 +1,8 @@
 package com.jobtracker.core.controller;
 
+import com.jobtracker.core.repository.UserRepository;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.web.servlet.MockMvc;
@@ -14,6 +16,10 @@ class HealthControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    // The session filter loads with every web slice and reads accounts; this slice has no database.
+    @MockitoBean
+    private UserRepository users;
 
     @Test
     void healthReturnsOkStatusForCoreService() throws Exception {

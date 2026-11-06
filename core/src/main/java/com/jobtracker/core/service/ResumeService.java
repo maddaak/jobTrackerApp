@@ -6,6 +6,7 @@ import com.jobtracker.core.dto.ResumeAnalysis;
 import com.jobtracker.core.dto.ResumeSummaryResponse;
 import com.jobtracker.core.dto.ResumeTextResponse;
 import com.jobtracker.core.exception.ResumeNotFoundException;
+import com.jobtracker.core.exception.TooManyResumesException;
 import com.jobtracker.core.model.Resume;
 import com.jobtracker.core.repository.ResumeRepository;
 import org.slf4j.Logger;
@@ -21,6 +22,8 @@ import java.util.List;
 public class ResumeService {
 
     private static final Logger log = LoggerFactory.getLogger(ResumeService.class);
+    // Far more variants than anyone keeps, short of letting one account fill the database.
+    static final int MAX_RESUMES_PER_ACCOUNT = 50;
 
     private final ResumeRepository resumes;
     private final ResumeTextExtractor extractor;
@@ -34,6 +37,9 @@ public class ResumeService {
 
     // Persist before analysis so the file survives a failed analysis call; stored compressed.
     public CreateResumeResponse createResume(Long ownerId, MultipartFile file) {
+        if (resumes.countByOwnerId(ownerId) >= MAX_RESUMES_PER_ACCOUNT) {
+            throw new TooManyResumesException(MAX_RESUMES_PER_ACCOUNT);
+        }
         byte[] bytes;
         try {
             bytes = file.getBytes();

@@ -16,11 +16,13 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -79,6 +81,55 @@ class JobControllerTests {
             .andExpect(jsonPath("$.outcome").value("ACTIVE"))
             .andExpect(jsonPath("$.stageEvents", hasSize(1)))
             .andExpect(jsonPath("$.stageEvents[0].stage").value("RESUME_CHECK"));
+    }
+
+    // Past the column's width, so without a cap the database refused it and the page read it as a conflict.
+    @Test
+    void aCompanyOrRoleLongerThanTheColumnIsABadRequestOnCreateAndEdit() throws Exception {
+        Long ownerId = createUser("job_long");
+        Long jobId = createJobFor(ownerId, "Acme");
+        String tooLong = "x".repeat(256);
+
+        for (String body : new String[] {
+                "{\"company\":\"" + tooLong + "\",\"role\":\"Engineer\",\"sourceCategory\":\"SELF_APPLIED\"}",
+                "{\"company\":\"Acme\",\"role\":\"" + tooLong + "\",\"sourceCategory\":\"SELF_APPLIED\"}"}) {
+            mockMvc.perform(post("/jobs")
+                    .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
+                    .header("X-User-Id", ownerId)
+                    .contentType("application/json")
+                    .content(body))
+                .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(patch("/jobs/" + jobId)
+                .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
+                .header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content("{\"company\":\"" + tooLong + "\",\"role\":\"Engineer\",\"sourceCategory\":\"SELF_APPLIED\","
+                        + "\"currentStage\":\"RESUME_CHECK\",\"outcome\":\"ACTIVE\"}"))
+            .andExpect(status().isBadRequest());
+    }
+
+    // The add-job form checks this too, but table edits, imports, and direct calls reach core without it.
+    @Test
+    void aSalaryRangeWithItsMinimumAboveItsMaximumIsRefusedOnCreateEditAndImport() throws Exception {
+        Long ownerId = createUser("job_range");
+        Long jobId = createJobFor(ownerId, "Acme");
+        String range = "\"compMin\":190000,\"compMax\":150000";
+
+        mockMvc.perform(post("/jobs").header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE).header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content("{\"company\":\"Acme\",\"role\":\"Engineer\",\"sourceCategory\":\"SELF_APPLIED\"," + range + "}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", containsString("minimum is above its maximum")));
+        mockMvc.perform(patch("/jobs/" + jobId).header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE).header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content("{\"company\":\"Acme\",\"role\":\"Engineer\",\"sourceCategory\":\"SELF_APPLIED\","
+                        + "\"currentStage\":\"RESUME_CHECK\",\"outcome\":\"ACTIVE\"," + range + "}"))
+            .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/jobs/import").header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE).header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content("{\"jobs\":[{\"company\":\"Globex\",\"role\":\"Engineer\"," + range + "}]}"))
+            .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -318,6 +369,60 @@ class JobControllerTests {
             .andExpect(status().isUnauthorized());
         mockMvc.perform(delete("/jobs/1").header("X-User-Id", 1L))
             .andExpect(status().isUnauthorized());
+    }
+
+    // Sent as the whole list, so an edit replaces it and leaving contacts out of a save keeps them.
+    @Test
+    void contactsAreSavedWithTheJobAndCheckedOnTheWay() throws Exception {
+        Long ownerId = createUser("job_rosa");
+        Long jobId = createJobFor(ownerId, "Acme");
+
+        putDetail(ownerId, jobId, """
+                {"contacts":[{"name":" Dana Kim ","role":"RECRUITER","email":"dana@example.com",
+                  "linkedInUrl":"https://www.linkedin.com/in/example","lastContactedOn":"2026-10-01","notes":""}]}
+                """)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contacts[0].name").value("Dana Kim"))
+            .andExpect(jsonPath("$.contacts[0].lastContactedOn").value("2026-10-01"))
+            .andExpect(jsonPath("$.contacts[0].notes").doesNotExist());
+        putDetail(ownerId, jobId, "{\"notes\":\"unrelated edit\"}").andExpect(jsonPath("$.contacts", hasSize(1)));
+
+        putDetail(ownerId, jobId, "{\"contacts\":[{\"name\":\"\",\"role\":\"RECRUITER\"}]}")
+            .andExpect(status().isBadRequest());
+        putDetail(ownerId, jobId, "{\"contacts\":[{\"name\":\"Dana\",\"role\":\"RECRUITER\",\"email\":\"not an email\"}]}")
+            .andExpect(status().isBadRequest());
+        putDetail(ownerId, jobId, "{\"contacts\":[{\"name\":\"Dana\",\"role\":\"RECRUITER\",\"linkedInUrl\":\"javascript:alert(1)\"}]}")
+            .andExpect(status().isBadRequest());
+
+        putDetail(ownerId, jobId, "{\"contacts\":[]}").andExpect(jsonPath("$.contacts", hasSize(0)));
+    }
+
+    // The resume actually sent feeds Insights' replies-by-resume, and clearing it takes the job back out.
+    @Test
+    void theResumeSentIsSavedAndCountedOnInsights() throws Exception {
+        Long ownerId = createUser("job_sent_resume");
+        Long jobId = createJobFor(ownerId, "Acme");
+
+        putDetail(ownerId, jobId, "{\"sentResume\":\" backend.pdf \"}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.sentResume").value("backend.pdf"));
+        mockMvc.perform(get("/metrics").header("X-Internal-Token", "test-internal-token").header("X-User-Id", ownerId))
+            .andExpect(jsonPath("$.resumeResponses[0].resume").value("backend.pdf"))
+            .andExpect(jsonPath("$.resumeResponses[0].applications").value(1))
+            .andExpect(jsonPath("$.resumeResponses[0].responses").value(0));
+
+        putDetail(ownerId, jobId, "{\"sentResume\":\"\"}").andExpect(jsonPath("$.sentResume").doesNotExist());
+        mockMvc.perform(get("/metrics").header("X-Internal-Token", "test-internal-token").header("X-User-Id", ownerId))
+            .andExpect(jsonPath("$.resumeResponses", hasSize(0)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions putDetail(Long ownerId, Long jobId, String body)
+            throws Exception {
+        return mockMvc.perform(put("/jobs/" + jobId + "/detail")
+                .header(INTERNAL_TOKEN_HEADER, INTERNAL_TOKEN_VALUE)
+                .header("X-User-Id", ownerId)
+                .contentType("application/json")
+                .content(body));
     }
 
     private Long createJobFor(Long ownerId, String company) throws Exception {

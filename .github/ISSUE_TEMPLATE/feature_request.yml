@@ -1,0 +1,23 @@
+name: Feature idea
+description: Something that would make your job search easier to track.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What gets in your way
+      description: The part of your search this is about, and what's awkward about it today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like it to work. Rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: instead
+    attributes:
+      label: What you do instead now
+      description: A spreadsheet column, another app, a calendar note.

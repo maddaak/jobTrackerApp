@@ -22,11 +22,34 @@ export interface UploadedResume {
 }
 
 export type MatchResult =
-  | { status: "ok"; fileName: string; recommendation: "APPLY" | "DO_NOT_APPLY"; reasoning: string }
+  | {
+    status: "ok";
+    fileName: string;
+    recommendation: "APPLY" | "DO_NOT_APPLY";
+    // As the posting names them; empty when it doesn't say.
+    company: string;
+    role: string;
+    strengths: string[];
+    gaps: string[];
+    // Resumes that couldn't be read and so weren't weighed; absent when every resume was.
+    skippedResumes?: number;
+  }
   | { status: "no_resumes" }
   | { status: "not_configured" }
   | { status: "unavailable" }
   | { status: "insufficient_jd" };
+
+// accept only constrains the browse picker; a drag-drop can hand over any file, so check before uploading.
+const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+export function resumeFileProblem(file: File): string | null {
+  if (!ALLOWED_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))) {
+    return "Unsupported file type: upload a PDF, DOCX, or TXT.";
+  }
+  if (file.size > MAX_FILE_BYTES) return "File is too large: the maximum is 10 MB.";
+  return null;
+}
 
 export async function uploadResume(file: File): Promise<UploadedResume> {
   const form = new FormData();

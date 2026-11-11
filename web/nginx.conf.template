@@ -1,28 +1,46 @@
-server {
-    listen 443 ssl;
-    server_name ${SERVER_NAME};
+# A load balancer that ends TLS in front of plain-http nginx says so here, so the login cookie stays secure.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
 
-    ssl_certificate     /etc/nginx/certs/localhost.pem;
-    ssl_certificate_key /etc/nginx/certs/localhost-key.pem;
+server {
+    # https with a certificate in certs/, plain http without one; written at startup by 15-choose-https.sh.
+    include /etc/nginx/listen.conf;
+    server_name ${SERVER_NAME};
+    server_tokens off;
+    include /etc/nginx/security-headers.conf;
 
     # Default 1MB limit would reject resume uploads. Above the 10MB file limit on core/BFF, so a
     # 10MB file plus its multipart framing is refused there with a real message, not by nginx.
     client_max_body_size 11M;
 
-    # Opening an attachment is a browser navigation, so it sends Accept: text/html and the SPA
-    # rewrite below would answer with the app shell instead of the file. No client route lives
-    # under /jobs, so there is nothing here for that rewrite to serve. Must stay above it: nginx
-    # takes the first matching regex location.
+    # Outlasts the bff's longest wait (120s: an AI call or a backup), so the bff's own answer reaches the page.
+    proxy_read_timeout 130s;
+
+    # Opening an attachment sends Accept: text/html, which the SPA rewrite below would answer with the
+    # app shell. Must stay above it: nginx takes the first matching regex location.
     location ~ ^/jobs/[0-9]+/images {
         proxy_pass http://bff:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
-    location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|ai-status|update-status) {
-        # Client routes (/metrics, /resumes) collide with API paths; a browser refresh sends Accept: text/html, so serve the SPA for those.
+    # A backup download is a browser navigation (Accept: text/html), and a restore carries every image, so
+    # both skip the SPA rewrite and get the bff's 200MB backup cap.
+    location ~ ^/account/(export|restore)$ {
+        client_max_body_size 200M;
+        proxy_pass http://bff:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    location ~ ^/(auth|health|jobs|interviews|metrics|scrape|resumes|offers|reminders|account|seasons|ai/|ai-status|update-status) {
+        # Client routes (/metrics, /resumes, /offers, /reminders, /seasons) collide with API paths; a browser refresh sends Accept: text/html, so serve the SPA for those.
         if ($http_accept ~* text/html) {
             rewrite ^ /index.html last;
         }
@@ -30,18 +48,24 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     # Never cache index.html: it points at the current hashed bundle, so a stale copy hides deploys.
     location = /index.html {
         root /usr/share/nginx/html;
         add_header Cache-Control "no-cache";
+        include /etc/nginx/security-headers.conf;
     }
 
+    # The app's own scripts and styles shrink to about a third. Not the API: compressing private data beside
+    # text a visitor controls can leak it (BREACH), and its answers are small.
     location /assets/ {
+        gzip on;
+        gzip_types text/css application/javascript image/svg+xml;
         root /usr/share/nginx/html;
         add_header Cache-Control "public, max-age=31536000, immutable";
+        include /etc/nginx/security-headers.conf;
     }
 
     location / {

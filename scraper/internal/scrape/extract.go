@@ -11,13 +11,14 @@ import (
 
 const rawTextLimit = 8000
 
-// extract runs the strategies in reliability order, then fills whatever they missed from body text.
+// extract runs the strategies in reliability order, each filling only what the ones before it left
+// blank, then fills whatever they all missed from body text.
 func extract(ctx context.Context, doc *goquery.Document, result *response, requestURL string) {
-	if extractFromJSONLD(doc, result) {
-		// JSON-LD filled structured fields; the fallbacks below still fill anything it missed.
-	} else if !extractFromGreenhouseEmbed(ctx, doc, requestURL, result) {
-		extractFromMetaAndTitle(doc, result)
+	if !extractFromJSONLD(doc, result) {
+		extractFromGreenhouseEmbed(ctx, doc, requestURL, result)
 	}
+	// Even after JSON-LD: a posting that names its employer by @id reference leaves the company blank.
+	extractFromMetaAndTitle(doc, result)
 
 	// Skip the full DOM walk unless a text fallback actually needs it.
 	var bodyText string
@@ -39,6 +40,8 @@ func extract(ctx context.Context, doc *goquery.Document, result *response, reque
 	} else if result.Location != "" {
 		result.Location = classifyLocation(result.Location)
 	}
+	// Core caps a city at 100 characters.
+	result.City = textutil.Truncate(result.City, 100)
 }
 
 // jobContentSignalWords gate the whole-body fallback so nav/footer boilerplate isn't accepted as a JD.

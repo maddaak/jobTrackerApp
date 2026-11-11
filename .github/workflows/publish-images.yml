@@ -15,8 +15,9 @@ concurrency:
 
 jobs:
   check:
-    # Only for a successful CI run that was a push to main, or a manual run.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    # Only for a successful CI run that was a push to main, or a manual run from main: a dispatch from
+    # another branch would otherwise publish that branch as `latest`.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

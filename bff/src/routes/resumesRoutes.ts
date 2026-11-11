@@ -1,34 +1,29 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router } from "express";
 import multer from "multer";
 import { create, list, remove, match, summarize, setCustomSummary } from "../controllers/resumesController.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { keepSession, requireAuth } from "../middleware/requireAuth.js";
+import { uploadErrors } from "../middleware/uploadErrors.js";
 import { validateRouteId, RESUME_ID } from "../middleware/validateRouteId.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } });
+// Browsers send file names as UTF-8; multer's latin1 default garbles "Résumé.pdf", and the name is what
+// a job's recommended and sent resume point at.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_BYTES },
+  defParamCharset: "utf8",
+});
 
 const router = Router();
 
 router.use(requireAuth);
 router.param("id", validateRouteId(RESUME_ID, "invalid resume id"));
-router.post("/", upload.single("file"), create);
+router.post("/", keepSession(upload.single("file")), create);
 router.get("/", list);
 router.delete("/:id", remove);
 router.post("/match", match);
 router.post("/:id/summarize", summarize);
 router.post("/:id/custom-summary", setCustomSummary);
-
-// Multer reports a rejected upload through next(err), which would otherwise surface as a 500.
-router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ error: "file exceeds the 10MB size limit" });
-      return;
-    }
-    res.status(400).json({ error: "invalid file upload" });
-    return;
-  }
-  next(err);
-});
+router.use(uploadErrors("file exceeds the 10MB size limit"));
 
 export default router;

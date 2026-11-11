@@ -21,15 +21,20 @@ public class Resume {
     // Gzipped at rest; resume text is large, same as JobDetail.jdTextCompressed.
     private byte[] extractedTextCompressed;
 
-    // Raw cached Claude output; null unless analysisStatus is OK.
+    // Raw cached AI output; null unless analysisStatus is OK.
     private String analysisJson;
 
     private String analysisStatus;
 
-    // AI vs CUSTOM: drives the UI badge and how ResumeRecommenderService derives emphasis keywords.
+    // AI vs CUSTOM: drives the UI badge, so a summary you wrote isn't shown as the model's.
     private String analysisSource;
 
     private Instant uploadedAt;
+
+    public void restoreAs(Long newOwnerId) {
+        this.id = null;
+        this.ownerId = newOwnerId;
+    }
 
     protected Resume() {
     }

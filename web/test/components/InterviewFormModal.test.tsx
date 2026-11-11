@@ -20,10 +20,12 @@ const interviewWithLinkedIn: Interview = {
   role: "Backend Engineer",
   stage: "INTERVIEW_STAGE",
   interviewDateTime: "2026-08-01T18:00:00.000Z",
+  interviewEndDateTime: null,
   interviewType: "SYSTEM_DESIGN",
   meetingLink: "https://meet.example/abc",
   location: null,
   interviewers: [{ name: "Jordan Lee", linkedInUrl: "https://linkedin.com/in/jordanlee" }],
+  aiResults: {},
 };
 
 describe("InterviewFormModal", () => {
@@ -100,6 +102,114 @@ describe("InterviewFormModal", () => {
       expect(fetch).toHaveBeenCalledWith("/interviews", expect.objectContaining({ method: "POST" })),
     );
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("offers an end time defaulted to an hour after the start, and sends it", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, [{ id: 1, company: "Acme", role: "Engineer" }]),
+    );
+
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "create", date: new Date(2026, 7, 10, 14, 0) }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Acme — Engineer");
+    expect(screen.getByLabelText("Ends at")).toHaveValue("2026-08-10T15:00");
+
+    fireEvent.change(screen.getByLabelText("Job"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "SYSTEM_DESIGN" } });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add interview" }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/interviews", expect.objectContaining({ method: "POST" })));
+    const body = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1].body);
+    expect(body.interviewEndDateTime).toBe(new Date("2026-08-10T15:00").toISOString());
+  });
+
+  // Opened from a job (table, job dialog): nothing to pick, and no guessed time, since "now" is never it.
+  it("adding to a known job starts blank and fills the end once the start is typed", async () => {
+    render(
+      <MemoryRouter>
+        <InterviewFormModal mode={{ kind: "create", jobId: 7 }} onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByLabelText("Job")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Date and time")).toHaveValue("");
+    expect(screen.getByLabelText("Ends at")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-08-20T14:00" } });
+    expect(screen.getByLabelText("Ends at")).toHaveValue("2026-08-20T15:00");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("links an in-person location to a map and sends it", async () => {
+    render(
+      <MemoryRouter>
+        <InterviewFormModal mode={{ kind: "create", jobId: 7 }} onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-08-20T14:00" } });
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "SYSTEM_DESIGN" } });
+    fireEvent.change(screen.getByLabelText("Location (if in person)"), { target: { value: "123 Main St, NYC" } });
+    expect(screen.getByText("Open in Google Maps ↗")).toHaveAttribute(
+      "href",
+      "https://www.google.com/maps/search/?api=1&query=123%20Main%20St%2C%20NYC",
+    );
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeResponse(200, { roundId: "round-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add interview" }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body)).toMatchObject({
+      jobId: 7,
+      location: "123 Main St, NYC",
+    });
+  });
+
+  it("drags the end along when the start moves, so it never ends up before the start", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      fakeResponse(200, [{ id: 1, company: "Acme", role: "Engineer" }]),
+    );
+
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "create", date: new Date(2026, 7, 10, 14, 0) }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Acme — Engineer");
+    fireEvent.change(screen.getByLabelText("Ends at"), { target: { value: "2026-08-10T14:30" } });
+    fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-08-10T16:00" } });
+
+    // The 30-minute length is kept rather than reset to the default hour.
+    expect(screen.getByLabelText("Ends at")).toHaveValue("2026-08-10T16:30");
+  });
+
+  it("edit mode leaves the end blank for a round saved without one", () => {
+    render(
+      <MemoryRouter>
+        <InterviewFormModal
+          mode={{ kind: "edit", interview: interviewWithLinkedIn }}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByLabelText("Ends at")).toHaveValue("");
   });
 
   it("edit mode prefills interviewers from the passed interview, including the LinkedIn link", () => {

@@ -48,10 +48,11 @@ describe("ProtectedRoute", () => {
     renderApp();
 
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    for (const label of ["Jobs", "Calendar", "Metrics", "Resumes"]) {
-      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    // Prefix match: list links carry a live count after their label.
+    for (const label of ["Board", "Calendar", "Insights", "Offers", "Submitted", "Paused", "Closed", "All jobs", "Resumes"]) {
+      expect(within(nav).getByRole("link", { name: new RegExp(`^${label}`) })).toBeInTheDocument();
     }
-    expect(within(nav).getByRole("link", { name: "Jobs" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Board" })).toHaveAttribute("aria-current", "page");
     expect(within(nav).getByRole("button", { name: "Log out" })).toBeInTheDocument();
   });
 

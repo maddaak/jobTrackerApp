@@ -1,17 +1,21 @@
 package com.jobtracker.core.security;
 
+import com.jobtracker.core.config.PlaceholderSecrets;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
+// First, so nothing behind it, the session check included, runs for a caller without the token.
 @Component
+@Order(1)
 public class InternalTokenFilter extends OncePerRequestFilter {
 
     private final String internalToken;
@@ -21,6 +25,7 @@ public class InternalTokenFilter extends OncePerRequestFilter {
         if (internalToken == null || internalToken.isBlank()) {
             throw new IllegalStateException("app.internal-token must be configured and non-blank");
         }
+        PlaceholderSecrets.refuse("INTERNAL_TOKEN", internalToken);
         this.internalToken = internalToken;
     }
 

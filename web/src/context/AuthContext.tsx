@@ -1,18 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { UNAUTHORIZED_EVENT } from "../api/request";
 import { getAiConfigured } from "../api/config";
-
-interface AuthState {
-  username: string | null;
-  loading: boolean;
-  // When false, AI features are hidden entirely.
-  aiConfigured: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthState | null>(null);
+import { AuthContext, type NewAccount } from "../hooks/useAuth";
 
 async function postJson(path: string, body: unknown) {
   const res = await fetch(path, {
@@ -40,7 +29,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetch("/auth/me")
       .then(res => (res.ok ? res.json() : null))
       .then(data => setUsername(data?.username ?? null))
-      // Treat any failure (network, non-JSON body) as "not authenticated".
       .catch(() => setUsername(null))
       .finally(() => setLoading(false));
   }, []);
@@ -59,8 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUsername(data.username);
   }
 
-  async function register(usernameInput: string, password: string) {
-    const data = await postJson("/auth/register", { username: usernameInput, password });
+  async function register(account: NewAccount) {
+    const data = await postJson("/auth/register", account);
     setUsername(data.username);
   }
 
@@ -74,12 +62,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth(): AuthState {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return ctx;
 }

@@ -15,12 +15,13 @@ beforeEach(() => {
 
 const createInput: CreateInterviewInput = {
   jobId: 1,
-  stage: "INTERVIEW_STAGE",
   interviewDateTime: "2026-08-01T18:00:00.000Z",
+  interviewType: "SYSTEM_DESIGN",
 };
 
 const updateInput: UpdateInterviewInput = {
   interviewDateTime: "2026-08-05T15:30:00.000Z",
+  interviewEndDateTime: null,
   interviewType: "BEHAVIOR",
   meetingLink: null,
   location: null,

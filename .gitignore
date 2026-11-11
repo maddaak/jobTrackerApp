@@ -19,6 +19,12 @@ docker-compose.local.yml
 certs/
 # Migration backups are full dumps of real job data (companies, notes, rejected reasons, comp).
 core/migrations/backups/
+# The README's backups, made in this folder, hold the same.
+jobtracker-postgres.sql
+jobtracker-mongo.archive
+job-tracker-backup*.json
+# Each person's own Claude Code settings; .claude/settings.json is the shared one.
+.claude/settings.local.json
 node_modules/
 web/node_modules/
 bff/node_modules/

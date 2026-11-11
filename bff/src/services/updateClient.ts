@@ -12,7 +12,6 @@ export interface UpdateStatus {
   updateAvailable: boolean;
 }
 
-// Only "vN", "vN.N" and "vN.N.N" tags are releases; anything else on the repo is ignored.
 const RELEASE_TAG = /^v(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
 
 function parseVersion(tag: string): number[] | null {

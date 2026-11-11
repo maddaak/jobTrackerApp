@@ -3,9 +3,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o scraper-bin ./cmd/scraper
+# No debug symbols or build paths: a third smaller, and a crash's stack trace still names each function.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o scraper-bin ./cmd/scraper
 
-FROM alpine:3.20
+FROM alpine:3.24
 RUN adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=build /app/scraper-bin .

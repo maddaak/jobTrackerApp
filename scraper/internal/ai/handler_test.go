@@ -71,7 +71,7 @@ func TestAnalyzeResumeHandlerReturns503WhenNotConfigured(t *testing.T) {
 
 func TestAnalyzeResumeHandlerReturns502WhenAnthropicErrors(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	zeroClaudeBackoff(t)
+	zeroBackoff(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -137,23 +137,6 @@ func TestMatchResumeHandlerRejectsTooManyResumes(t *testing.T) {
 	}
 }
 
-func TestRecommendResumeVariantHandlerRejectsTooManyVariants(t *testing.T) {
-	var variants strings.Builder
-	variants.WriteString(`{"jobDescriptionText":"a real job description","variants":[`)
-	for i := 0; i <= maxResumeVariants; i++ {
-		if i > 0 {
-			variants.WriteString(",")
-		}
-		fmt.Fprintf(&variants, `{"id":"%d","displayName":"V","blurb":"b"}`, i)
-	}
-	variants.WriteString(`]}`)
-
-	w := doPost(t, RecommendResumeVariantHandler, variants.String())
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for more than maxResumeVariants variants, got %d", w.Code)
-	}
-}
-
 func TestMatchResumeHandlerReturns503WhenNotConfigured(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	body := `{"jobDescriptionText":"a real job description","resumes":[{"id":"1","fileName":"a.pdf","fullText":"resume text"}]}`
@@ -168,7 +151,7 @@ func TestMatchResumeHandlerReturns503WhenNotConfigured(t *testing.T) {
 
 func TestMatchResumeHandlerReturnsVerdict(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"bestResumeId":"1","recommendation":"APPLY","reasoning":"Strong skills match."}`)
+	server := fakeAnthropicServer(t, `{"bestResumeId":"1","recommendation":"APPLY","company":" Initech ","role":"Backend Engineer","strengths":["Go"]}`)
 	withAnthropicBaseURL(t, server.URL)
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
@@ -178,18 +161,22 @@ func TestMatchResumeHandlerReturnsVerdict(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	// A missing list must reach the form as [], not null.
+	if !strings.Contains(w.Body.String(), `"gaps":[]`) {
+		t.Errorf("expected an empty gaps list, got %s", w.Body.String())
+	}
 	var result matchResult
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if result.BestResumeID != "1" || result.Recommendation != "APPLY" {
+	if result.BestResumeID != "1" || result.Recommendation != "APPLY" || result.Company != "Initech" || result.Role != "Backend Engineer" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
 
 func TestMatchResumeHandlerPassesThroughInsufficientJD(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"bestResumeId":"","recommendation":"INSUFFICIENT_JD","reasoning":"Text is website navigation markup, not a job description."}`)
+	server := fakeAnthropicServer(t, `{"bestResumeId":"","recommendation":"INSUFFICIENT_JD","strengths":[],"gaps":[]}`)
 	withAnthropicBaseURL(t, server.URL)
 
 	body := `{"jobDescriptionText":"Home About Careers Contact Accept cookies",` +
@@ -211,7 +198,7 @@ func TestMatchResumeHandlerPassesThroughInsufficientJD(t *testing.T) {
 func TestMatchResumeHandlerCoercesUnknownBestResumeID(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	// Claude returns id "99", which was never in the request; it must be coerced to "".
-	server := fakeAnthropicServer(t, `{"bestResumeId":"99","recommendation":"APPLY","reasoning":"x"}`)
+	server := fakeAnthropicServer(t, `{"bestResumeId":"99","recommendation":"APPLY","strengths":["x"]}`)
 	withAnthropicBaseURL(t, server.URL)
 
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
@@ -230,74 +217,7 @@ func TestMatchResumeHandlerCoercesUnknownBestResumeID(t *testing.T) {
 	}
 }
 
-func TestRecommendResumeVariantHandlerCoercesUnknownVariantID(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	// Claude returns a variant id that wasn't provided; it must be coerced to "".
-	server := fakeAnthropicServer(t, `{"variantId":"ghost","reason":"x"}`)
-	withAnthropicBaseURL(t, server.URL)
-
-	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.",` +
-		`"variants":[{"id":"base","displayName":"Base","blurb":"General backend."}]}`
-	w := doPost(t, RecommendResumeVariantHandler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var result recommendVariantResult
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if result.VariantID != "" {
-		t.Fatalf("expected phantom id coerced to empty, got %q", result.VariantID)
-	}
-}
-
-func TestRecommendResumeVariantHandlerRequiresJobTextAndVariants(t *testing.T) {
-	w := doPost(t, RecommendResumeVariantHandler, `{"jobDescriptionText":"a job", "variants":[]}`)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty variants, got %d", w.Code)
-	}
-
-	w2 := doPost(t, RecommendResumeVariantHandler, `{"jobDescriptionText":"", "variants":[{"id":"base"}]}`)
-	if w2.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty job text, got %d", w2.Code)
-	}
-}
-
-func TestRecommendResumeVariantHandlerReturns503WhenNotConfigured(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.","variants":[{"id":"base","displayName":"Base","blurb":"General backend."}]}`
-	w := doPost(t, RecommendResumeVariantHandler, body)
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d", w.Code)
-	}
-}
-
-func TestRecommendResumeVariantHandlerReturnsVerdict(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"variantId":"adobe","reason":"Job emphasizes CI/CD and platform tooling."}`)
-	withAnthropicBaseURL(t, server.URL)
-
-	body := `{"jobDescriptionText":"We need a CI/CD platform engineer.",` +
-		`"variants":[{"id":"base","displayName":"Base","blurb":"General backend."},` +
-		`{"id":"adobe","displayName":"Adobe Developer Productivity","blurb":"CI/CD and platform tooling."}]}`
-	w := doPost(t, RecommendResumeVariantHandler, body)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var result recommendVariantResult
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if result.VariantID != "adobe" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-}
-
-// F49: "{}" unmarshals cleanly into every one of these structs, so each handler must reject it.
+// "{}" unmarshals cleanly into every one of these structs, so each handler must reject it.
 
 func TestAnalyzeResumeHandlerRejectsEmptySummary(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
@@ -312,31 +232,21 @@ func TestAnalyzeResumeHandlerRejectsEmptySummary(t *testing.T) {
 	}
 }
 
-func TestMatchResumeHandlerRejectsUnknownRecommendation(t *testing.T) {
+func TestMatchResumeHandlerRejectsAVerdictItCannotShow(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"bestResumeId":"1","reasoning":"..."}`)
-	withAnthropicBaseURL(t, server.URL)
-
 	body := `{"jobDescriptionText":"We need a backend engineer.",` +
 		`"resumes":[{"id":"1","fileName":"resume.pdf","fullText":"Backend engineer with Go experience."}]}`
-	w := doPost(t, MatchResumeHandler, body)
 
-	// An empty recommendation rendered as "You should not apply" in the UI.
-	if w.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 for a missing recommendation, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestRecommendResumeVariantHandlerRejectsEmptyReason(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	server := fakeAnthropicServer(t, `{"variantId":"backend"}`)
-	withAnthropicBaseURL(t, server.URL)
-
-	body := `{"jobDescriptionText":"We need a backend engineer.",` +
-		`"variants":[{"id":"backend","displayName":"Backend","blurb":"Go and Java"}]}`
-	w := doPost(t, RecommendResumeVariantHandler, body)
-
-	if w.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 for an empty reason, got %d: %s", w.Code, w.Body.String())
+	// An empty recommendation rendered as "not recommended"; a verdict with nothing behind it can't be judged.
+	for _, reply := range []string{
+		`{"bestResumeId":"1","strengths":["Go"]}`,
+		`{"bestResumeId":"1","recommendation":"MAYBE","strengths":["Go"]}`,
+		`{"bestResumeId":"1","recommendation":"APPLY","gaps":["Rust"]}`,
+		`{"bestResumeId":"1","recommendation":"DO_NOT_APPLY","strengths":["Go"]}`,
+	} {
+		withAnthropicBaseURL(t, fakeAnthropicServer(t, reply).URL)
+		if w := doPost(t, MatchResumeHandler, body); w.Code != http.StatusBadGateway {
+			t.Errorf("reply %s: expected 502, got %d: %s", reply, w.Code, w.Body.String())
+		}
 	}
 }

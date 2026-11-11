@@ -1,30 +1,47 @@
 # Run from pre-built images: docker compose -f docker-compose.images.yml up -d
 # Override IMAGE_PREFIX / IMAGE_TAG in .env to use a fork or pin a version.
+# Keep in step with docker-compose.yml: everything but `build`/`image` must match, which CI checks.
 services:
   web:
+    restart: unless-stopped
     image: ${IMAGE_PREFIX:-ghcr.io/maddaak}/jobtrackerapp-web:${IMAGE_TAG:-latest}
     environment:
       SERVER_NAME: ${SERVER_NAME:-localhost}
-    ports: ["5173:443"]
+      HSTS: ${HSTS:-false}
+    # This machine only, unless BIND_ADDRESS opens it to the network (0.0.0.0) for hosting.
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-5173}:443"]
     volumes: ["./certs:/etc/nginx/certs:ro"]
+    networks: [edge]
     depends_on: [bff]
 
   bff:
+    restart: unless-stopped
     image: ${IMAGE_PREFIX:-ghcr.io/maddaak}/jobtrackerapp-bff:${IMAGE_TAG:-latest}
+    # bff, core and scraper run as a non-root user and need no kernel capability, so they get none.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       PORT: "3000"
       CORE_URL: http://core:8080
       SCRAPER_URL: http://scraper:8081
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      SCRAPER_TOKEN: ${SCRAPER_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
       # Daily check for a newer release. Set UPDATE_CHECK=false to stop it calling out.
       UPDATE_CHECK: ${UPDATE_CHECK:-true}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-0}
+      REQUESTS_PER_MINUTE: ${REQUESTS_PER_MINUTE:-600}
+      AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-100}
     expose: ["3000"]
+    networks: [edge, api, scraping]
     depends_on: [core, scraper]
 
   core:
+    restart: unless-stopped
     image: ${IMAGE_PREFIX:-ghcr.io/maddaak}/jobtrackerapp-core:${IMAGE_TAG:-latest}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -33,19 +50,41 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      # The link in each email. http works with or without a certificate: with one, nginx redirects it to https.
+      APP_URL: ${APP_URL:-http://${SERVER_NAME:-localhost}:${WEB_PORT:-5173}}
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
     expose: ["8080"]
+    networks: [api, data]
     depends_on: [postgres, mongo]
 
   scraper:
+    restart: unless-stopped
     image: ${IMAGE_PREFIX:-ghcr.io/maddaak}/jobtrackerapp-scraper:${IMAGE_TAG:-latest}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
       PORT: "8081"
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+      # Not core's token, so the scraper can't call core. A .env without it keeps the shared one.
+      SCRAPER_TOKEN: ${SCRAPER_TOKEN:-${INTERNAL_TOKEN}}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      # Still read when AI_PROVIDER is anthropic, so a .env from before AI_* keeps working.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+    # Lets AI_BASE_URL reach a model server on this machine (Ollama, LM Studio) on Linux too.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     expose: ["8081"]
+    networks: [scraping]
 
   postgres:
+    restart: unless-stopped
     image: postgres:16
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -53,13 +92,25 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     expose: ["5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
+    networks: [data]
 
   mongo:
+    restart: unless-stopped
     image: mongo:7
     environment:
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
     expose: ["27017"]
     volumes: ["mongodata:/data/db"]
+    networks: [data]
+
+# Each service reaches only its neighbours, so the scraper, which reads untrusted pages, can't reach core or
+# the databases, and the databases can't reach the internet.
+networks:
+  edge:
+  api:
+  scraping:
+  data:
+    internal: true
 
 volumes:
   pgdata:

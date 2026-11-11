@@ -1,3 +1,4 @@
+import type { JobAiResults } from "./aiApi";
 import type { InterviewType, Interviewer } from "./interviewsApi";
 import { request } from "./request";
 
@@ -15,6 +16,17 @@ export type Stage =
   | "OFFER_STAGE"
   | "FINALIZED";
 
+// Where an interviewing job sits on the board; refines INTERVIEW_STAGE and WAITING_INTERVIEW_RESULTS.
+export type InterviewPhase = "INITIAL_SCREEN" | "MID_ROUNDS" | "PANEL";
+
+export const INTERVIEW_PHASES: InterviewPhase[] = ["INITIAL_SCREEN", "MID_ROUNDS", "PANEL"];
+
+export const INTERVIEW_PHASE_LABELS: Record<InterviewPhase, string> = {
+  INITIAL_SCREEN: "Initial Screen",
+  MID_ROUNDS: "Mid Rounds",
+  PANEL: "Panel",
+};
+
 export type Outcome =
   | "ACTIVE"
   | "OFFER_ACCEPTED"
@@ -22,11 +34,13 @@ export type Outcome =
   | "REJECTED"
   | "GHOSTED"
   | "WITHDRAWN"
-  | "POSITION_CLOSED";
+  | "POSITION_CLOSED"
+  | "PAUSED";
 
 export type JobRelation = "REPLACED_BY" | "REPLACES" | "RELATED";
 
-export type Location = "REMOTE" | "NYC_IN_PERSON" | "NYC_HYBRID";
+// The work model; where the office is goes in city.
+export type Location = "REMOTE" | "ON_SITE" | "HYBRID";
 
 export const SOURCE_CATEGORIES: SourceCategory[] = [
   "SELF_APPLIED",
@@ -44,8 +58,8 @@ export const SOURCE_CATEGORY_LABELS: Record<SourceCategory, string> = {
 
 export const LOCATIONS: { value: Location; label: string }[] = [
   { value: "REMOTE", label: "Remote" },
-  { value: "NYC_IN_PERSON", label: "NYC - In person" },
-  { value: "NYC_HYBRID", label: "NYC - Hybrid" },
+  { value: "HYBRID", label: "Hybrid" },
+  { value: "ON_SITE", label: "On-site" },
 ];
 
 export const STAGE_ORDER: Stage[] = [
@@ -65,6 +79,7 @@ export const OUTCOMES: Outcome[] = [
   "GHOSTED",
   "WITHDRAWN",
   "POSITION_CLOSED",
+  "PAUSED",
 ];
 
 // Mirrors Outcome.closesPipeline(); core is what enforces it.
@@ -96,11 +111,13 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
   GHOSTED: "Ghosted",
   WITHDRAWN: "Withdrawn",
   POSITION_CLOSED: "Position Closed",
+  PAUSED: "Paused",
 };
 
 export interface LatestInterviewSummary {
   roundId: string;
   interviewDateTime: string;
+  interviewEndDateTime: string | null;
   interviewType: InterviewType | null;
   roundCount: number;
   meetingLink: string | null;
@@ -121,14 +138,22 @@ export interface JobSummary {
   role: string;
   sourceCategory: SourceCategory;
   currentStage: Stage;
+  // Stored, null until the card is dragged: what a PATCH sends back, so an edit never freezes a guess.
+  interviewPhase: InterviewPhase | null;
+  // Where the card sits: the drag if any, else the furthest round logged. Display only, never sent back.
+  boardPhase: InterviewPhase | null;
   outcome: Outcome;
   url: string | null;
   location: Location | null;
+  city: string | null;
   compMin: number | null;
   compMax: number | null;
   createdAt: string;
   latestInterview: LatestInterviewSummary | null;
+  // Interviewing with nothing booked ahead; core decides, so the badge and the reminder digest agree.
+  needsScheduling: boolean;
   links: JobLink[];
+  seasonId: number;
 }
 
 export interface CreateJobInput {
@@ -137,17 +162,52 @@ export interface CreateJobInput {
   sourceCategory: SourceCategory;
   url?: string;
   location?: Location;
+  city?: string;
   compMin?: number;
   compMax?: number;
   notes?: string;
+  // Omitted means applied and waiting; a recruiter reaching out first puts the job straight on the board.
+  startingStage?: "RESUME_CHECK" | "INTERVIEW_REQUEST";
+  // Sent with the create, so a new job is one request rather than a create plus follow-up saves.
+  jdText?: string;
+  recommendedResume?: string;
+}
+
+// A spreadsheet row matched to fields. Core dates it, places it, and skips one already tracked.
+export interface ImportJobRow {
+  company: string;
+  role: string;
+  sourceCategory?: SourceCategory;
+  url?: string;
+  location?: Location;
+  city?: string;
+  compMin?: number;
+  compMax?: number;
+  notes?: string;
+  stage?: Exclude<Stage, "FINALIZED">;
+  outcome?: Outcome;
+  // yyyy-mm-dd
+  appliedOn?: string;
+  rejectedReason?: string;
+}
+
+export async function importJobs(jobs: ImportJobRow[]): Promise<{ imported: number; skipped: number }> {
+  return request("/jobs/import", "failed to import the spreadsheet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jobs }),
+  });
 }
 
 export async function listJobs(): Promise<JobSummary[]> {
   return request<JobSummary[]>("/jobs", "failed to load jobs");
 }
 
-export async function createJob(input: CreateJobInput): Promise<JobSummary> {
-  return request<JobSummary>("/jobs", "failed to create job", {
+// Core answers a create with the stored row only; the board fields arrive with the next list load.
+export type CreatedJob = Omit<JobSummary, "interviewPhase" | "boardPhase" | "latestInterview" | "links">;
+
+export async function createJob(input: CreateJobInput): Promise<CreatedJob> {
+  return request<CreatedJob>("/jobs", "failed to create job", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -160,9 +220,11 @@ export interface UpdateJobInput {
   sourceCategory: SourceCategory;
   url: string | null;
   location: Location | null;
+  city: string | null;
   compMin: number | null;
   compMax: number | null;
   currentStage: Stage;
+  interviewPhase: InterviewPhase | null;
   outcome: Outcome;
 }
 
@@ -173,9 +235,12 @@ export function toUpdateJobInput(job: JobSummary): UpdateJobInput {
     sourceCategory: job.sourceCategory,
     url: job.url,
     location: job.location,
+    city: job.city,
     compMin: job.compMin,
     compMax: job.compMax,
     currentStage: job.currentStage,
+    // The stored phase, not boardPhase: PATCH replaces, so this keeps a drag without storing a guess.
+    interviewPhase: job.interviewPhase,
     outcome: job.outcome,
   };
 }
@@ -186,11 +251,6 @@ export async function updateJob(id: number, input: UpdateJobInput): Promise<JobS
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-}
-
-// Fetch live data before a modal save; the opened-modal snapshot may be stale from table autosaves.
-export async function getJob(id: number): Promise<JobSummary> {
-  return request<JobSummary>(`/jobs/${id}`, "failed to load job");
 }
 
 export async function deleteJob(id: number): Promise<void> {
@@ -234,15 +294,49 @@ export interface JobDetail {
   notes: string | null;
   rejectedReason: string | null;
   links: JobLink[];
+  // Only the kinds that have been run.
+  aiResults: JobAiResults;
+  contacts: Contact[];
+  // The resume file actually sent; Insights compares replies by it.
+  sentResume: string | null;
 }
 
+export type ContactRole = "RECRUITER" | "HIRING_MANAGER" | "REFERRER" | "INTERVIEWER" | "OTHER";
+
+export const CONTACT_ROLES: ContactRole[] = ["RECRUITER", "HIRING_MANAGER", "REFERRER", "INTERVIEWER", "OTHER"];
+
+export const CONTACT_ROLE_LABELS: Record<ContactRole, string> = {
+  RECRUITER: "Recruiter",
+  HIRING_MANAGER: "Hiring manager",
+  REFERRER: "Referrer",
+  INTERVIEWER: "Interviewer",
+  OTHER: "Other",
+};
+
+export interface Contact {
+  name: string;
+  role: ContactRole;
+  email: string | null;
+  linkedInUrl: string | null;
+  // yyyy-mm-dd
+  lastContactedOn: string | null;
+  notes: string | null;
+  // yyyy-mm-dd; core clears it once lastContactedOn reaches it.
+  followUpOn: string | null;
+}
+
+// Every field optional: core leaves an omitted field alone and clears one sent as "".
 export interface UpdateJobDetailInput {
-  jdText: string;
-  interviewNotes: string;
+  jdText?: string;
+  interviewNotes?: string;
   // Set once from the Add Job recommendation; omitted on later edits to preserve it.
   recommendedResume?: string;
   notes?: string | null;
   rejectedReason?: string | null;
+  // The whole list, replacing what's saved.
+  contacts?: Contact[];
+  // A resume's file name; "" clears it.
+  sentResume?: string;
 }
 
 export async function getJobDetail(id: number): Promise<JobDetail> {
@@ -272,27 +366,6 @@ export async function unlinkJob(id: number, targetJobId: number): Promise<JobLin
     throw new Error("failed to unlink job");
   }
   return data;
-}
-
-export interface RulesResumeRecommendation {
-  recommendedVariantId: string;
-  recommendedDisplayName: string;
-  scores: Record<string, number>;
-  reason: string;
-}
-
-export type AiResumeRecommendation =
-  | { status: "ok"; recommendedVariantId: string; recommendedDisplayName: string; reason: string }
-  | { status: "not_configured" }
-  | { status: "unavailable" };
-
-export interface ResumeRecommendation {
-  rules: RulesResumeRecommendation;
-  ai: AiResumeRecommendation;
-}
-
-export async function getResumeRecommendation(id: number): Promise<ResumeRecommendation> {
-  return request<ResumeRecommendation>(`/jobs/${id}/resume-recommendation`, "failed to load resume recommendation");
 }
 
 export type RowColor = "red" | "green" | "yellow" | "sky" | "indigo";

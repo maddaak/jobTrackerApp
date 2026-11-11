@@ -3,9 +3,12 @@ package scrape
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -46,6 +49,20 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
+// TextHandler fills the Add Job fields a pasted description gives for free: title, work model, and pay.
+func TextHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, httpx.MaxBodyBytes)).Decode(&req); err != nil || strings.TrimSpace(req.Text) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	var fields textFields
+	fields.Role, fields.Location, fields.CompMin, fields.CompMax = FromText(req.Text)
+	httpx.WriteJSON(w, http.StatusOK, fields)
+}
+
 func fetchAndExtract(ctx context.Context, requestURL string) response {
 	result := response{}
 
@@ -65,7 +82,11 @@ func fetchAndExtract(ctx context.Context, requestURL string) response {
 
 	resp, fetchErr := userFetchClient().Do(httpReq)
 	if fetchErr != nil {
+		log.Printf("scrape fetch failed: %v", fetchErr)
 		result.Reason = reasonUnreachable
+		if errors.Is(fetchErr, errUnsafeHost) {
+			result.Reason = reasonBlockedHost
+		}
 		return result
 	}
 	defer resp.Body.Close()

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(**/.env)",
+      "Read(./certs/**)",
+      "Read(**/job-tracker-backup*.json)",
+      "Read(**/jobtracker-postgres.sql)",
+      "Read(**/jobtracker-mongo.archive)",
+      "Read(./core/migrations/backups/**)",
+      "Bash(cat .env)",
+      "Bash(cat ./.env)",
+      "Bash(head *.env)",
+      "Bash(tail *.env)",
+      "Bash(less *.env)",
+      "Bash(more *.env)",
+      "Bash(grep * .env)",
+      "Bash(grep * ./.env)",
+      "Bash(source .env*)",
+      "Bash(. ./.env*)",
+      "Bash(env)",
+      "Bash(printenv*)",
+      "Bash(docker compose config*)",
+      "Bash(docker compose -f * config*)",
+      "Bash(docker inspect*)",
+      "Bash(docker compose exec * env*)",
+      "Bash(docker compose exec * printenv*)"
+    ]
+  }
+}

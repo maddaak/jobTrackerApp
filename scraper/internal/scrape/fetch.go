@@ -2,10 +2,13 @@ package scrape
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,15 +17,15 @@ var httpClient = &http.Client{Timeout: 8 * time.Second}
 // SSRF guard on the user URL; a package var so tests can disable it for 127.0.0.1 fixtures.
 var blockInternalHosts = true
 
-// blockedIPNets are must-never-dial ranges Go's net.IP predicates miss: CGNAT, reserved, docs/test, 0.0.0.0/8.
+// Never-dial ranges Go's net.IP predicates miss: CGNAT, reserved, TEST-NET-1, benchmarking, "this network".
 var blockedIPNets = func() []*net.IPNet {
 	nets := make([]*net.IPNet, 0, 5)
 	for _, cidr := range []string{
-		"100.64.0.0/10", // CGNAT (RFC 6598)
-		"240.0.0.0/4",   // reserved / future use
-		"192.0.2.0/24",  // TEST-NET-1 documentation
-		"198.18.0.0/15", // benchmarking
-		"0.0.0.0/8",     // "this network"
+		"100.64.0.0/10",
+		"240.0.0.0/4",
+		"192.0.2.0/24",
+		"198.18.0.0/15",
+		"0.0.0.0/8",
 	} {
 		_, n, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -33,7 +36,6 @@ var blockedIPNets = func() []*net.IPNet {
 	return nets
 }()
 
-// isPublicIP reports whether ip is a routable public address safe to dial.
 func isPublicIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
@@ -47,7 +49,7 @@ func isPublicIP(ip net.IP) bool {
 	return true
 }
 
-// isSafeScrapeURL rejects a URL whose host (IP literal, or any resolved IP) isn't public, for SSRF.
+// Every resolved IP must be public, so a host with one internal record among public ones is refused.
 func isSafeScrapeURL(ctx context.Context, rawURL string) bool {
 	if !blockInternalHosts {
 		return true
@@ -63,6 +65,11 @@ func isSafeScrapeURL(ctx context.Context, rawURL string) bool {
 	if ip := net.ParseIP(host); ip != nil {
 		return isPublicIP(ip)
 	}
+	// No real top-level domain is numeric, so this is an IP spelling ParseIP won't read (octal, hex, short),
+	// which resolvers disagree on: macOS reads 0177.0.0.1 as 177.0.0.1, Linux refuses it.
+	if _, err := strconv.ParseUint(host[strings.LastIndex(host, ".")+1:], 0, 64); err == nil {
+		return false
+	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
 		return false
@@ -77,6 +84,9 @@ func isSafeScrapeURL(ctx context.Context, rawURL string) bool {
 
 var safeDialer = &net.Dialer{Timeout: 5 * time.Second}
 
+// Wrapped by every refusal past the first check, so a redirect or rebind reports blocked_host, not unreachable.
+var errUnsafeHost = errors.New("refusing to reach an internal address")
+
 // Dial only vetted public IPs so DNS rebinding can't slip a private IP past the pre-check.
 func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
@@ -85,7 +95,7 @@ func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if !isPublicIP(ip) {
-			return nil, fmt.Errorf("refusing to dial unsafe address %s", host)
+			return nil, fmt.Errorf("%w: %s", errUnsafeHost, host)
 		}
 		return safeDialer.DialContext(ctx, network, addr)
 	}
@@ -109,10 +119,11 @@ func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, fmt.Errorf("no safe public address for host %q", host)
+	return nil, fmt.Errorf("%w: no public address for %q", errUnsafeHost, host)
 }
 
-// safeFetchClient pins every dial and re-checks every redirect target so neither rebinding nor a redirect reaches an internal host.
+// Pins every dial and re-checks every redirect target, so neither rebinding nor a redirect reaches an
+// internal host.
 var safeFetchClient = &http.Client{
 	Timeout:   8 * time.Second,
 	Transport: &http.Transport{DialContext: safeDialContext},
@@ -121,13 +132,12 @@ var safeFetchClient = &http.Client{
 			return fmt.Errorf("stopped after 10 redirects")
 		}
 		if !isSafeScrapeURL(req.Context(), req.URL.String()) {
-			return fmt.Errorf("redirect to unsafe host blocked")
+			return fmt.Errorf("%w: redirect to %s", errUnsafeHost, req.URL.Hostname())
 		}
 		return nil
 	},
 }
 
-// userFetchClient returns the SSRF-pinned client when blocking is on, else the plain shared client.
 func userFetchClient() *http.Client {
 	if !blockInternalHosts {
 		return httpClient

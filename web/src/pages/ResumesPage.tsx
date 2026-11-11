@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
 import {
+  resumeFileProblem,
   uploadResume,
   summarizeResume,
   setCustomResumeSummary,
@@ -8,25 +8,19 @@ import {
   deleteResume,
   type ResumeSummary,
 } from "../api/resumesApi";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "",
-  not_configured: "Add an Anthropic API key to enable AI summaries",
+  not_configured: "Set up an AI provider to enable AI summaries",
   unavailable: "AI summary failed — try again or write your own below",
 };
 
 const SUMMARY_DISCLAIMER =
   "This summary is used to match your resume against job postings — generate it automatically with AI, or write your own for full control.";
 
-// accept only constrains the browse picker; a drag-drop can hand us any file, so validate here.
-const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
-
 export default function ResumesPage() {
   const { aiConfigured } = useAuth();
-  const [searchParams] = useSearchParams();
-  const onboarding = searchParams.get("onboarding") === "1";
 
   const [resumes, setResumes] = useState<ResumeSummary[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -59,13 +53,9 @@ export default function ResumesPage() {
   }
 
   async function handleFile(file: File) {
-    const hasAllowedExtension = ALLOWED_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext));
-    if (!hasAllowedExtension) {
-      setError("Unsupported file type — upload a PDF, DOCX, or TXT.");
-      return;
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setError("File is too large — the maximum is 10 MB.");
+    const problem = resumeFileProblem(file);
+    if (problem) {
+      setError(problem);
       return;
     }
     setUploading(true);
@@ -142,19 +132,6 @@ export default function ResumesPage() {
         <h1 className="text-2xl font-semibold">Resumes</h1>
       </div>
 
-      {onboarding && (
-        <div className="mb-6 flex items-center justify-between rounded border border-blue-300 bg-blue-50 px-4 py-3 text-sm dark:border-blue-800 dark:bg-blue-950/30">
-          <span>
-            {resumes.length > 0
-              ? "Resume(s) uploaded — you'll get job-fit recommendations when adding jobs."
-              : "Upload your resume(s) to get job-fit recommendations when adding jobs."}
-          </span>
-          <Link to="/" className="ml-4 shrink-0 text-blue-600 hover:underline dark:text-blue-400">
-            {resumes.length > 0 ? "Continue → Home" : "Skip for now → Home"}
-          </Link>
-        </div>
-      )}
-
       {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div
@@ -225,7 +202,7 @@ export default function ResumesPage() {
                 <div className="mt-2 rounded border border-dashed border-neutral-300 p-2 dark:border-neutral-700">
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {!aiConfigured
-                      ? "AI summaries are disabled: no Anthropic API key found. Write your own below."
+                      ? "AI summaries are off: no AI provider is set up. Write your own below."
                       : resume.analysisStatus === "not_configured"
                         ? STATUS_LABEL.not_configured
                         : resume.analysisStatus === "unavailable"

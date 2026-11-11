@@ -75,6 +75,21 @@ describe("PUT /jobs/:id/offer", () => {
   });
 });
 
+describe("PUT /jobs/:id/offer/acceptance", () => {
+  it("accepts the offer with its days, sending null for a day left blank", async () => {
+    fetchMock().mockResolvedValue(fakeResponse(200, { jobId: 7, outcome: "OFFER_ACCEPTED" }));
+
+    const res = await request().put("/jobs/7/offer/acceptance").set("Cookie", authCookie())
+      .send({ acceptedOn: "2026-10-20", startDate: "2026-11-16" });
+    await request().put("/jobs/7/offer/acceptance").set("Cookie", authCookie()).send({ acceptedOn: "2026-10-20" });
+
+    expect(res.status).toBe(200);
+    expect(fetchMock().mock.calls[0][0]).toMatch(/\/jobs\/7\/offer\/acceptance$/);
+    expect(JSON.parse(fetchMock().mock.calls[0][1].body)).toEqual({ acceptedOn: "2026-10-20", startDate: "2026-11-16" });
+    expect(JSON.parse(fetchMock().mock.calls[1][1].body)).toEqual({ acceptedOn: "2026-10-20", startDate: null });
+  });
+});
+
 describe("POST /jobs/:id/offer/market-check", () => {
   const check = {
     verdict: "below", typicalLow: 180000, typicalHigh: 220000, summary: "Surveys put it higher.",

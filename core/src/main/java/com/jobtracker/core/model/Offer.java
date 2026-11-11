@@ -25,6 +25,8 @@ public class Offer {
     private List<Integer> signOnByYear;
     private LocalDate startDate;
     private LocalDate decisionDeadline;
+    // The day it was accepted; the start date beside it is the day the job begins.
+    private LocalDate acceptedOn;
     private String notes;
     private MarketCheck marketCheck;
 
@@ -118,6 +120,20 @@ public class Offer {
 
     public String getNotes() {
         return notes;
+    }
+
+    public LocalDate getAcceptedOn() {
+        return acceptedOn;
+    }
+
+    public void accept(LocalDate acceptedOn, LocalDate startDate) {
+        this.acceptedOn = acceptedOn;
+        this.startDate = startDate;
+    }
+
+    // The form holds no accepted day, so an edit through it carries the old one over.
+    public void recordAcceptedOn(LocalDate acceptedOn) {
+        this.acceptedOn = acceptedOn;
     }
 
     public MarketCheck getMarketCheck() {

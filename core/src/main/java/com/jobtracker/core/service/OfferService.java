@@ -17,6 +17,7 @@ import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
 import org.springframework.stereotype.Service;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +84,7 @@ public class OfferService {
     // Enforced here, not in the UI, so a direct PUT can't attach an offer to a job still interviewing.
     public OfferResponse saveOffer(Long ownerId, Long jobId, OfferRequest request) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         if (!job.hasOffer()) {
             throw new NoOfferException();
         }
@@ -94,8 +96,30 @@ public class OfferService {
         // Kept, not dropped: the response says when the edit has left it out of date.
         if (detail.getOffer() != null) {
             offer.recordMarketCheck(detail.getOffer().getMarketCheck());
+            offer.recordAcceptedOn(detail.getOffer().getAcceptedOn());
         }
         detail.setOffer(offer);
+        jobDetails.save(detail);
+        return toResponse(ownerId, job, detail);
+    }
+
+    // Taking the offer: marks it accepted and keeps the day it was accepted and the day the job starts, which the
+    // season summary reads. An offer with no figures entered yet still takes them.
+    public OfferResponse accept(Long ownerId, Long jobId, LocalDate acceptedOn, LocalDate startDate) {
+        Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
+        if (!job.hasOffer()) {
+            throw new NoOfferException();
+        }
+        JobDetail detail = jobDetails.findByJobIdAndOwnerId(jobId, ownerId)
+                .orElseGet(() -> jobDetailService.createDetail(jobId, ownerId, null));
+        if (detail.getOffer() == null) {
+            detail.setOffer(new Offer(null, null, null, null, null, null, null, null, null, null));
+        }
+        detail.getOffer().accept(acceptedOn, startDate);
+        job.acceptOffer();
+        // Postgres first, as a job update does: a failed second write loses the dates, not the decision.
+        jobs.save(job);
         jobDetails.save(detail);
         return toResponse(ownerId, job, detail);
     }
@@ -124,6 +148,7 @@ public class OfferService {
     // empty offer to sit on rather than being refused.
     public OfferResponse saveMarketCheck(Long ownerId, Long jobId, MarketCheckRequest request) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         if (!job.hasOffer()) {
             throw new NoOfferException();
         }
@@ -142,6 +167,7 @@ public class OfferService {
 
     public OfferResponse clearMarketCheck(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         JobDetail detail = jobDetails.findByJobIdAndOwnerId(jobId, ownerId).orElse(null);
         if (detail == null || detail.getOffer() == null) {
             return toResponse(ownerId, job, detail);
@@ -158,7 +184,7 @@ public class OfferService {
             return new OfferResponse(job.getId(), job.getCompany(), job.getRole(), job.getLocation(), job.getCity(),
                     job.getOutcome(), null, null, null, null, null, null, null, null, null, null, null, null, List.of(),
                     List.of(), null, List.of(), List.of(), List.of(), null, null, years, List.of(), List.of(), null,
-                    null, null, null, false, draft);
+                    null, null, null, null, false, draft);
         }
         MarketCheck check = offer.getMarketCheck();
         EquityGrant equity = offer.getEquity();
@@ -172,7 +198,7 @@ public class OfferService {
                 offer.equityByYear(),
                 equity == null ? List.of() : equity.sharesByYear(), equity == null ? List.of() : equity.projectedByYear(),
                 offer.equityPerYear(), offer.averagePerYear(years), years, offer.compByYear(), offer.projectedCompByYear(),
-                offer.getStartDate(), offer.getDecisionDeadline(),
+                offer.getStartDate(), offer.getDecisionDeadline(), offer.getAcceptedOn(),
                 offer.getNotes(), check, check != null && check.staleFor(job, offer), draft);
     }
 }

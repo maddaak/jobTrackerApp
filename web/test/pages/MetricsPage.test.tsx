@@ -8,7 +8,7 @@ import { nodeLabel, toSankeyData } from "../../src/sankeyNodes";
 vi.mock("../../src/hooks/useAuth", () => ({ useAuth: () => ({ aiConfigured: false }) }));
 
 // Zeros, so no tile figure collides with a number a table test looks for.
-const SUMMARY = { totalJobs: 0, activeJobs: 0, inInterviews: 0, interviewsDone: 0, interviewsUpcoming: 0 };
+const SUMMARY = { totalJobs: 0, activeJobs: 0, inInterviews: 0, interviewsDone: 0, interviewsUpcoming: 0, acceptedCompany: null };
 
 function fakeResponse(status: number, body: unknown) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) };
@@ -81,7 +81,7 @@ describe("MetricsPage", () => {
       vi.fn(() =>
         Promise.resolve(
           fakeResponse(200, {
-            summary: { totalJobs: 40, activeJobs: 12, inInterviews: 5, interviewsDone: 18, interviewsUpcoming: 2 },
+            summary: { totalJobs: 40, activeJobs: 12, inInterviews: 5, interviewsDone: 18, interviewsUpcoming: 2, acceptedCompany: null },
             funnel: [
               { stage: "RESUME_CHECK", count: 40 },
               { stage: "INTERVIEW_REQUEST", count: 10 },
@@ -106,6 +106,55 @@ describe("MetricsPage", () => {
     expect(within(tile("Interviews")).getByText("2 upcoming")).toBeInTheDocument();
     // 3 passed of 4 decided; the fifth round is still open and counts neither way.
     expect(within(tile("Round pass rate")).getByText("75%")).toBeInTheDocument();
+    expect(within(tile("Offers")).getByText("3% of applications")).toBeInTheDocument();
+  });
+
+  // Once an offer is decided, the tile says how they went and which one was taken.
+  // Once an offer is decided, the tile says how they went and which one was taken, and opens that one.
+  it("splits decided offers into accepted and declined, and opens only the one taken", async () => {
+    const offer = (jobId: number, company: string, outcome: string, baseSalary: number) => ({
+      jobId, company, role: "Engineer", offerTitle: null, outcome, baseSalary, bonusPercent: null, annualBonus: null,
+      signOnBonus: null, signOnByYear: [], equityGrant: null, equityShares: null, vestingYears: null, compByYear: [],
+      projectedCompByYear: [], averagePerYear: baseSalary, averagedOverYears: 1, priceGrowthPercent: null,
+      decisionDeadline: null, startDate: null, acceptedOn: null, notes: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(url === "/offers"
+          ? fakeResponse(200, [
+            offer(1, "Initech", "OFFER_DECLINED", 140000),
+            { ...offer(2, "Globex", "OFFER_ACCEPTED", 180000), averagePerYear: 195000, acceptedOn: "2026-10-20", startDate: "2026-11-16" },
+            offer(3, "Hooli", "OFFER_DECLINED", 150000),
+          ])
+          : fakeResponse(200, {
+            summary: { ...SUMMARY, totalJobs: 20, acceptedCompany: "Globex" },
+            funnel: [{ stage: "OFFER_STAGE", count: 3 }],
+            outcomeCounts: [
+              { outcome: "OFFER_ACCEPTED", count: 1 },
+              { outcome: "OFFER_DECLINED", count: 2 },
+            ],
+            interviewRoundCounts: [],
+            sankeyLinks: [],
+          })),
+      ),
+    );
+
+    renderMetricsPage();
+
+    const tile = (await screen.findByText("Offers")).parentElement!;
+    expect(within(tile).getByText("3")).toBeInTheDocument();
+    expect(within(tile).getByText(/1 accepted/)).toHaveTextContent("1 accepted · 2 declined");
+    // Declined offers can be many, so they're a link to their section, not a modal.
+    expect(within(tile).getByRole("link", { name: "2 declined" })).toHaveAttribute("href", "/offers#declined");
+
+    fireEvent.click(within(tile).getByRole("button", { name: "Accepted Globex" }));
+    const dialog = await screen.findByRole("dialog", { name: "Offer accepted" });
+    await within(dialog).findByText("Globex");
+    expect(within(dialog).getByText("$195,000")).toBeInTheDocument();
+    expect(within(dialog).getByText("$180,000")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Accepted Oct 20/)).toBeInTheDocument();
+    expect(within(dialog).queryByText("Initech")).not.toBeInTheDocument();
   });
 
   it("keeps the pipeline flow as a secondary, collapsed section", async () => {

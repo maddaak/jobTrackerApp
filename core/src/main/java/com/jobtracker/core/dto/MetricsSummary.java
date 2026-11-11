@@ -7,5 +7,7 @@ public record MetricsSummary(
         // Active jobs on the board: contacted or interviewing, past waiting on an application.
         long inInterviews,
         long interviewsDone,
-        long interviewsUpcoming) {
+        long interviewsUpcoming,
+        // Newest accepted offer's company, or null; outcomeCounts has how many were taken or declined.
+        String acceptedCompany) {
 }

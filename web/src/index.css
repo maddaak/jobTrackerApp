@@ -8,6 +8,14 @@ body {
   margin: 0;
 }
 
+/* Tailwind v4 dropped the hand cursor on buttons, so a clickable number looked like plain text. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 #root {
   width: 100%;
   min-height: 100svh;

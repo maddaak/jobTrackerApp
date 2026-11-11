@@ -6,6 +6,7 @@ import com.jobtracker.core.exception.ImageTooLargeException;
 import com.jobtracker.core.exception.JobNotFoundException;
 import com.jobtracker.core.exception.InvalidImageException;
 import com.jobtracker.core.model.ImageType;
+import com.jobtracker.core.model.Job;
 import com.jobtracker.core.model.JobImage;
 import com.jobtracker.core.repository.JobImageRepository;
 import com.jobtracker.core.repository.JobRepository;
@@ -25,10 +26,12 @@ public class JobImageService {
 
     private final JobRepository jobs;
     private final JobImageRepository images;
+    private final SeasonService seasons;
 
-    public JobImageService(JobRepository jobs, JobImageRepository images) {
+    public JobImageService(JobRepository jobs, JobImageRepository images, SeasonService seasons) {
         this.jobs = jobs;
         this.images = images;
+        this.seasons = seasons;
     }
 
     public List<JobImageResponse> list(Long ownerId, Long jobId) {
@@ -40,7 +43,7 @@ public class JobImageService {
     }
 
     public JobImageResponse upload(Long ownerId, Long jobId, String fileName, byte[] data) {
-        requireOwnedJob(ownerId, jobId);
+        seasons.requireOpen(requireOwnedJob(ownerId, jobId).getSeasonId());
         if (images.countByJobId(jobId) >= MAX_IMAGES_PER_JOB) {
             throw new InvalidImageException("a job can hold at most " + MAX_IMAGES_PER_JOB + " images");
         }
@@ -70,7 +73,9 @@ public class JobImageService {
     }
 
     public void delete(Long ownerId, Long jobId, String imageId) {
-        images.delete(requireOwnedImage(ownerId, jobId, imageId));
+        JobImage image = requireOwnedImage(ownerId, jobId, imageId);
+        seasons.requireOpen(requireOwnedJob(ownerId, jobId).getSeasonId());
+        images.delete(image);
     }
 
     // Called from the job-delete cascade, where ownership is already verified.
@@ -92,8 +97,8 @@ public class JobImageService {
                 .orElseThrow(ImageNotFoundException::new);
     }
 
-    private void requireOwnedJob(Long ownerId, Long jobId) {
-        jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+    private Job requireOwnedJob(Long ownerId, Long jobId) {
+        return jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
     }
 
     private JobImageResponse toResponse(JobImage image) {

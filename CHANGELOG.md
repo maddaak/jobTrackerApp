@@ -4,6 +4,59 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V4.1.0
+
+A finished job hunt can be closed: it becomes read-only and gets a summary of the whole run, from the
+first application to the offer taken. Upgrading is a pull and a restart.
+
+### Upgrading
+- Automatic. On startup `core` adds the closing fields to the seasons table; every season stays open.
+
+### Offers
+- **Accepting an offer asks two days**: when you said yes (today, to start with) and when you start (the
+  offer's own start date, to start with), each with a calendar. They're kept on the offer, shown on its
+  card, and are what the season summary uses. Editing the offer's figures afterwards keeps them.
+- **The Offers tile on Insights** splits decided offers into accepted and declined, and names the company
+  of the offer you accepted. Clicking the accepted company shows that offer in full; the declined count
+  links to the Declined section of the Offers page.
+- **The Offers page groups offers** as Accepted, then Declined, then Pending decision. The AI comparison
+  sits with the pending ones, since those are the ones it weighs.
+
+### Seasons
+- **The season picker says when each hunt was.** Seasons are grouped under the year they started, newest
+  first, each with the months it ran ("Jan–Apr", or "Nov 2025–Feb 2026"). The dates come from the
+  applications, not from when the season was made, so the first season an upgrade created is dated by
+  the jobs in it. A closed hunt ends when it closed; an open one at its latest application.
+- **Close season**, on each season's card, ends a hunt. It asks which offer you accepted, if any, and
+  starts the two days from what the offer already holds; a change there is saved back to the offer, so
+  each has one accepted day and one start date. The offer picked is marked accepted.
+- **A closed season is read-only.** Its jobs, rounds, notes, offers, images, links, and saved AI answers
+  can't change, nothing can be added to it or moved in or out, and `core` refuses any attempt, not just
+  the page. A banner on every page says so while it's the season shown, and **+ Add job** is off.
+  **Edit**, on the banner or the season's card, reopens it; closing it again starts from the offer named
+  last time.
+- **The season summary**, opened from a closed season, shows:
+  - when the hunt started and closed, and how many applications it held;
+  - the average response time, from applying to being rejected, the role closing, or marking it
+    ghosted. It counts the closures that carry a date: a spreadsheet import records none, so those are
+    left out, and the summary says how many it measured;
+  - how many interview rounds you passed and didn't, by kind of round, with the companies behind each;
+  - the offer you accepted: applied, accepted (and how many days that took), and start date.
+- A role reposted and linked as replacing the last counts once throughout: it starts at its first
+  application and ends where its last posting did.
+- A backup carries each closed season and the offer taken (its days travel with the offer), and a
+  restore puts them back.
+
+### Reliability
+- **What each AI feature sends is now described accurately.** The Patterns panel said only counts were
+  sent; it sends your rejection reasons too, as you wrote them. The counter-offer panel now says it uses
+  the offer's notes and a market check only while it's current. The README's list of what goes to the
+  provider adds the company and role, interviewers' names, and rejection reasons.
+- The GitHub Actions the workflows use moved to their Node 24 versions, ending the deprecation warning
+  on every run.
+- Buttons show the hand cursor again, so the clickable counts on Insights (the interview rounds table's
+  passed and not passed) look clickable. They also highlight on hover and say what they open.
+
 ## V4.0.0
 
 A board replaces the table as home, with pages for submitted applications, offers, paused jobs, and

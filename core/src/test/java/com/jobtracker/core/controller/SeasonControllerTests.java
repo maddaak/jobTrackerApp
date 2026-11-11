@@ -111,6 +111,23 @@ class SeasonControllerTests {
                 .andExpect(jsonPath("$[?(@.active == true)]", hasSize(0)));
     }
 
+    // The season was made at upgrade, long after the hunt, so its dates come from the applications.
+    @Test
+    void aSeasonIsDatedByItsFirstAndLastApplicationAndAnEmptyOneIsNot() throws Exception {
+        Long owner = owner("season-dates");
+        as(owner, post("/jobs/import").contentType("application/json").content(
+                "{\"jobs\":[{\"company\":\"Later Co\",\"role\":\"Engineer\",\"appliedOn\":\"2025-04-20\"},"
+                        + "{\"company\":\"Early Co\",\"role\":\"Engineer\",\"appliedOn\":\"2025-01-06\"}]}"))
+                .andExpect(status().isOk());
+        newSeason(owner, "Empty");
+
+        as(owner, get("/seasons"))
+                .andExpect(jsonPath("$[0].firstApplied").value(org.hamcrest.Matchers.startsWith("2025-01-06")))
+                .andExpect(jsonPath("$[0].lastApplied").value(org.hamcrest.Matchers.startsWith("2025-04-20")))
+                .andExpect(jsonPath("$[1].firstApplied").isEmpty())
+                .andExpect(jsonPath("$[1].lastApplied").isEmpty());
+    }
+
     // With every season showing there is no "current" one, so a new job goes to the newest search.
     @Test
     void aJobAddedWhileViewingAllGoesIntoTheNewestSeason() throws Exception {

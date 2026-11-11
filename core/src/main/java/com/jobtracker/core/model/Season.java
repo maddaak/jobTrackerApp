@@ -23,6 +23,12 @@ public class Season {
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
+    // Set when the hunt is finished, which makes the season read-only until it's reopened.
+    private Instant closedAt;
+
+    // The offer taken, when the hunt ended in one. Its accepted and start days live on the offer itself.
+    private Long acceptedJobId;
+
     protected Season() {
     }
 
@@ -33,6 +39,28 @@ public class Season {
 
     public void rename(String name) {
         this.name = name.strip();
+    }
+
+    public void close(Instant at, Long acceptedJobId) {
+        this.closedAt = at;
+        this.acceptedJobId = acceptedJobId;
+    }
+
+    // The offer taken is kept, so closing it again starts from it.
+    public void reopen() {
+        this.closedAt = null;
+    }
+
+    public boolean isClosed() {
+        return closedAt != null;
+    }
+
+    public Instant getClosedAt() {
+        return closedAt;
+    }
+
+    public Long getAcceptedJobId() {
+        return acceptedJobId;
     }
 
     public Long getId() {

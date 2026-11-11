@@ -27,12 +27,15 @@ class JobDetailServiceTests {
     @Mock
     private JobDetailRepository jobDetails;
 
+    @Mock
+    private SeasonService seasons;
+
     private JobDetailService jobDetailService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobDetailService = new JobDetailService(jobs, jobDetails, new JobLinkService(jobs, jobDetails));
+        jobDetailService = new JobDetailService(jobs, jobDetails, new JobLinkService(jobs, jobDetails, seasons), seasons);
     }
 
     private Job newJob(User owner, SourceCategory source) {

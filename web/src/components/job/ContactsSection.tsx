@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { CONTACT_ROLE_LABELS, CONTACT_ROLES, updateJobDetail, type Contact, type ContactRole } from "../../api/jobsApi";
 import { safeHref } from "../../safeHref";
+import { today } from "../../localDate";
 
 export interface ContactsSectionProps {
   jobId: number;
@@ -22,12 +23,6 @@ function followUpLabel(date: string): { text: string; due: boolean } {
   if (date <= today()) return { text: "follow-up due", due: true };
   const day = new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return { text: `follow up by ${day}`, due: false };
-}
-
-// Local date, so "today" is the day the user is living in rather than UTC's.
-function today(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function lastSpoke(date: string): string {

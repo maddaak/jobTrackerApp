@@ -42,6 +42,7 @@ export interface MetricsSummaryData {
   inInterviews: number;
   interviewsDone: number;
   interviewsUpcoming: number;
+  acceptedCompany: string | null;
 }
 
 export interface MetricsData {
@@ -75,4 +76,37 @@ export interface SeasonStatsData {
 
 export function getSeasonStats(userId: string) {
   return callCore<SeasonStatsData[]>("/metrics/seasons", { userId });
+}
+
+export interface AcceptedOfferData {
+  jobId: number;
+  company: string;
+  role: string;
+  applied: string;
+  acceptedOn: string | null;
+  startsOn: string | null;
+  daysToAccept: number | null;
+}
+
+// A reposted role counts once, from its first application to its last posting's end.
+export interface SeasonSummaryData {
+  seasonId: number;
+  name: string;
+  closedAt: string | null;
+  firstApplied: string | null;
+  applications: number;
+  averageResponseDays: number | null;
+  responsesMeasured: number;
+  closedApplications: number;
+  roundsPassed: number;
+  roundsFailed: number;
+  rounds: InterviewRoundCountData[];
+  acceptedOffer: AcceptedOfferData | null;
+  // What closing the season can name as the offer taken.
+  offers: { jobId: number; company: string; role: string; accepted: boolean; acceptedOn: string | null;
+    startDate: string | null }[];
+}
+
+export function getSeasonSummary(userId: string, seasonId: string) {
+  return callCore<SeasonSummaryData>(`/metrics/seasons/${encodeURIComponent(seasonId)}/summary`, { userId });
 }

@@ -257,7 +257,8 @@ Where a user's data actually is, which is the most common question:
 
 - **Postgres** holds the accounts and the job rows behind the table page: company, role, posting
   URL, how they applied, location (the work model) and city, salary range, stage, outcome, and the
-  season (job hunt) each job belongs to. `seasons` lists each account's hunts, and
+  season (job hunt) each job belongs to. `seasons` lists each account's hunts, with how a finished one
+  ended (`closed_at` and the accepted job; that offer's accepted and start days are on the offer), and
   `users.active_season_id` is the one the board, calendar, offers, and Insights show (null shows all).
 - **Mongo** holds, per job, everything the details modal shows: the job description text, interview
   notes, free-text notes, rejected reason, the stage history, the interview rounds with their
@@ -335,6 +336,10 @@ Conventions worth knowing before changing anything:
   something only the modal shows is the mistake the design exists to prevent.
 - **Business rules belong in `core`'s service and model classes**, not in a React handler. A rule
   enforced only in the UI is bypassed by any direct API call.
+- **A closed season is read-only, enforced in `core`**: every write to a job, a round, or what hangs off
+  them calls `SeasonService.requireOpen` with the job's season first (new jobs go through
+  `seasonForNewJob`, which does). A new write endpoint goes in `SeasonClosingTests.everyWrite`, which
+  checks each is refused; one left out can change a closed season.
 - **A new BFF route prefix must be added to `web/nginx.conf.template`'s allowlist regex**, or it
   405s through the real proxy while every test still passes.
 - **A new interview type touches four places**: the enum in `core/.../model/InterviewType.java`

@@ -33,12 +33,15 @@ class JobImageServiceTests {
     @Mock
     private JobImageRepository images;
 
+    @Mock
+    private SeasonService seasons;
+
     private JobImageService jobImageService;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobImageService = new JobImageService(jobs, images);
+        jobImageService = new JobImageService(jobs, images, seasons);
 
         User owner = new User("alice", "hash");
         ReflectionTestUtils.setField(owner, "id", OWNER);

@@ -1,5 +1,6 @@
 package com.jobtracker.core.controller;
 
+import com.jobtracker.core.dto.AcceptOfferRequest;
 import com.jobtracker.core.dto.MarketCheckRequest;
 import com.jobtracker.core.dto.OfferRequest;
 import com.jobtracker.core.dto.OfferResponse;
@@ -33,6 +34,13 @@ public class OfferController {
             @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
             @Valid @RequestBody OfferRequest request) {
         return offerService.saveOffer(ownerId, id, request);
+    }
+
+    @PutMapping("/jobs/{id}/offer/acceptance")
+    public OfferResponse accept(
+            @RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
+            @RequestBody AcceptOfferRequest request) {
+        return offerService.accept(ownerId, id, request.acceptedOn(), request.startDate());
     }
 
     @PutMapping("/jobs/{id}/offer/market-check")

@@ -44,6 +44,7 @@ public class InterviewService {
 
     public InterviewResponse createInterview(Long ownerId, CreateInterviewRequest request) {
         Job job = jobs.findByIdAndOwnerId(request.jobId(), ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         // A job whose document was never written still takes a round, as it takes notes and links.
         JobDetail detail = jobDetails.findByJobIdAndOwnerId(job.getId(), ownerId)
                 .orElseGet(() -> new JobDetail(job.getId(), ownerId));
@@ -64,13 +65,13 @@ public class InterviewService {
     public InterviewResponse updateInterview(Long ownerId, String roundId, UpdateInterviewRequest request) {
         JobDetail detail = jobDetails.findByOwnerIdAndInterviewsRoundId(ownerId, roundId)
                 .orElseThrow(JobNotFoundException::new);
+        Job job = jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
 
         InterviewRound round = detail.findInterview(roundId);
         round.apply(request.interviewDateTime(), request.interviewEndDateTime(), request.interviewType(),
                 request.meetingLink(), request.location(), toInterviewers(request.interviewers()));
         jobDetails.save(detail);
-
-        Job job = jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).orElseThrow(JobNotFoundException::new);
         return toResponse(round, job);
     }
 
@@ -94,6 +95,7 @@ public class InterviewService {
     public void deleteInterview(Long ownerId, String roundId) {
         JobDetail detail = jobDetails.findByOwnerIdAndInterviewsRoundId(ownerId, roundId)
                 .orElseThrow(JobNotFoundException::new);
+        jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).ifPresent(job -> seasons.requireOpen(job.getSeasonId()));
 
         // No stage recompute: separate records now, and recomputing dropped closed jobs out of FINALIZED.
         detail.removeInterview(roundId);

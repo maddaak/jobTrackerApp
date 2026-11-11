@@ -159,6 +159,20 @@ class MetricsServiceTests {
         assertThat(summary.inInterviews()).isEqualTo(3);
         assertThat(summary.interviewsDone()).isEqualTo(2);
         assertThat(summary.interviewsUpcoming()).isEqualTo(2);
+        assertThat(summary.acceptedCompany()).isNull();
+    }
+
+    @Test
+    void summaryNamesTheNewestOfferAccepted() {
+        User owner = new User("alice", "hash");
+        SourceCategory source = SourceCategory.SELF_APPLIED;
+        when(jobs.findByOwnerIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(
+                newJob(owner, source, Stage.OFFER_STAGE, Outcome.OFFER_DECLINED, "Declined Co"),
+                newJob(owner, source, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED, "Newer Co"),
+                newJob(owner, source, Stage.OFFER_STAGE, Outcome.OFFER_ACCEPTED, "Older Co")));
+        when(jobDetails.findJourneysByOwnerId(1L)).thenReturn(List.of());
+
+        assertThat(metricsService.getMetrics(1L).summary().acceptedCompany()).isEqualTo("Newer Co");
     }
 
     @Test

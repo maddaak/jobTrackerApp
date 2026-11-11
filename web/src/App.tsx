@@ -19,6 +19,7 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const MetricsPage = lazy(() => import("./pages/MetricsPage"));
 const ResumesPage = lazy(() => import("./pages/ResumesPage"));
 const SeasonsPage = lazy(() => import("./pages/SeasonsPage"));
+const SeasonSummaryPage = lazy(() => import("./pages/SeasonSummaryPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
             {/* The page's old address, kept so bookmarks still land. */}
             <Route path="/metrics" element={<Navigate to="/insights" replace />} />
             <Route path="/seasons" element={<SeasonsPage />} />
+            <Route path="/seasons/:id/summary" element={<SeasonSummaryPage />} />
             <Route path="/resumes" element={<ResumesPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/welcome" element={<WelcomePage />} />

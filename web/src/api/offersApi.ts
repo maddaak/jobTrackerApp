@@ -48,6 +48,8 @@ export interface Offer {
   projectedCompByYear: number[];
   startDate: string | null;
   decisionDeadline: string | null;
+  // Set once accepted, beside the start date; the season summary reads both.
+  acceptedOn: string | null;
   notes: string | null;
   // The last market check, kept through edits; stale once the title, pay, or location it priced has changed.
   marketCheck: MarketCheck | null;
@@ -58,6 +60,13 @@ export interface Offer {
 
 // The outcomes an offer can be set to from its card; ACTIVE is still deciding.
 export type OfferDecision = "ACTIVE" | "OFFER_ACCEPTED" | "OFFER_DECLINED";
+
+// The Offers page's sections, in this order; anchor is what /offers#<anchor> scrolls to. A paused offer is in none.
+export const OFFER_SECTIONS: { outcome: OfferDecision; title: string; anchor: string }[] = [
+  { outcome: "OFFER_ACCEPTED", title: "Accepted", anchor: "accepted" },
+  { outcome: "OFFER_DECLINED", title: "Declined", anchor: "declined" },
+  { outcome: "ACTIVE", title: "Pending decision", anchor: "pending" },
+];
 
 export interface MarketCheck {
   verdict: "below" | "at" | "above" | "unclear";
@@ -125,6 +134,15 @@ export async function saveOffer(jobId: number, input: OfferInput): Promise<Offer
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+  });
+}
+
+// Marks the offer accepted and keeps the day it was and the start date (YYYY-MM-DD, either may be blank).
+export async function acceptOffer(jobId: number, days: { acceptedOn: string | null; startDate: string | null }): Promise<Offer> {
+  return request<Offer>(`/jobs/${jobId}/offer/acceptance`, "failed to accept the offer", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(days),
   });
 }
 

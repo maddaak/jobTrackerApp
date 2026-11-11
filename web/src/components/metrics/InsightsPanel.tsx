@@ -22,7 +22,7 @@ export default function InsightsPanel({ totalJobs }: { totalJobs: number }) {
   return (
     <AiPanel
       title="Patterns"
-      about="Reads your funnel, outcomes, round results, how you applied, and your rejection reasons, and says what stands out. Only counts are sent, never company names. Billed by your AI provider."
+      about="Reads your funnel, outcomes, round results, how you applied, and your rejection reasons, and says what stands out. Sends counts and your rejection reasons as you wrote them, never company names. Billed by your AI provider."
       runLabel="Find patterns in my search"
       busyLabel="Looking for patterns…"
       result={insights}

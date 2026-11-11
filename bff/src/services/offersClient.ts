@@ -44,6 +44,8 @@ export interface OfferData {
   projectedCompByYear: number[];
   startDate: string | null;
   decisionDeadline: string | null;
+  // Set once accepted, beside the start date.
+  acceptedOn: string | null;
   notes: string | null;
   marketCheck: (MarketCheckData & { checkedAt: string }) | null;
   marketCheckStale: boolean;
@@ -94,6 +96,13 @@ export function listOffers(userId: string) {
 export function saveOffer(userId: string, jobId: string, offer: OfferRequestData) {
   return callCore<OfferData>(`/jobs/${encodeURIComponent(jobId)}/offer`, {
     method: "PUT", userId, body: offer,
+  });
+}
+
+// Marks the offer accepted and keeps the day it was and the start date; either can be left blank.
+export function acceptOffer(userId: string, jobId: string, body: { acceptedOn?: unknown; startDate?: unknown }) {
+  return callCore<OfferData>(`/jobs/${encodeURIComponent(jobId)}/offer/acceptance`, {
+    method: "PUT", userId, body: { acceptedOn: body.acceptedOn ?? null, startDate: body.startDate ?? null },
   });
 }
 

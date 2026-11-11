@@ -1,10 +1,12 @@
 import type { Response } from "express";
 import {
+  closeSeason,
   createSeason,
   deleteSeason,
   listSeasons,
   moveJobToSeason,
   renameSeason,
+  reopenSeason,
   viewSeason,
 } from "../services/seasonsClient.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
@@ -28,6 +30,14 @@ export async function remove(req: AuthedRequest, res: Response) {
 
 export async function view(req: AuthedRequest, res: Response) {
   sendUpstream(res, await viewSeason(req.userId!, req.body?.seasonId));
+}
+
+export async function close(req: AuthedRequest, res: Response) {
+  sendUpstream(res, await closeSeason(req.userId!, req.params.id as string, req.body ?? {}));
+}
+
+export async function reopen(req: AuthedRequest, res: Response) {
+  sendUpstream(res, await reopenSeason(req.userId!, req.params.id as string));
 }
 
 export async function moveJob(req: AuthedRequest, res: Response) {

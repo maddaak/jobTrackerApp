@@ -80,9 +80,11 @@ export interface AppNavProps {
   onSeasonChanged: () => void;
   // Bumped when a season is renamed, so the picker reloads its names.
   seasonsVersion?: number;
+  // The season shown is closed, so a new job has nowhere to go until it's reopened.
+  readOnly?: boolean;
 }
 
-export default function AppNav({ onSeasonChanged, seasonsVersion = 0 }: AppNavProps) {
+export default function AppNav({ onSeasonChanged, seasonsVersion = 0, readOnly = false }: AppNavProps) {
   const { username, logout } = useAuth();
   const { jobs: allJobs, loaded, refresh } = useJobsContext();
   const jobs = loaded ? allJobs : null;
@@ -117,7 +119,7 @@ export default function AppNav({ onSeasonChanged, seasonsVersion = 0 }: AppNavPr
       }
       const key = e.key.toLowerCase();
       if (e.key === "/") setSearching(true);
-      else if (key === "n") setAdding(true);
+      else if (key === "n") { if (!readOnly) setAdding(true); }
       else if (e.key === "?") setShowingShortcuts(true);
       else if (key === "g") {
         goPending = true;
@@ -132,7 +134,7 @@ export default function AppNav({ onSeasonChanged, seasonsVersion = 0 }: AppNavPr
       window.removeEventListener("keydown", handleKey);
       clearTimeout(goTimer);
     };
-  }, [navigate]);
+  }, [navigate, readOnly]);
 
   useEffect(() => {
     // A convenience, not a feature of the app: if the check can't run, show nothing at all.
@@ -182,7 +184,9 @@ export default function AppNav({ onSeasonChanged, seasonsVersion = 0 }: AppNavPr
       <button
         type="button"
         onClick={() => setAdding(true)}
-        className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+        disabled={readOnly}
+        title={readOnly ? "This season is closed; press Edit on it to add jobs" : undefined}
+        className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         + Add job
       </button>

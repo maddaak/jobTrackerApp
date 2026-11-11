@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { clearMarketCheck, listOffers, saveOffer } from "../services/offersClient.js";
+import { acceptOffer, clearMarketCheck, listOffers, saveOffer } from "../services/offersClient.js";
 import { compareUndecidedOffers, savedComparison } from "../services/offerComparison.js";
 import { checkOfferMarket } from "../services/offerMarketCheck.js";
 import type { AuthedRequest } from "../middleware/requireAuth.js";
@@ -14,6 +14,10 @@ export async function list(req: AuthedRequest, res: Response) {
 
 export async function save(req: AuthedRequest, res: Response) {
   sendUpstream(res, await saveOffer(req.userId!, req.params.id as string, req.body ?? {}));
+}
+
+export async function accept(req: AuthedRequest, res: Response) {
+  sendUpstream(res, await acceptOffer(req.userId!, req.params.id as string, req.body ?? {}));
 }
 
 export async function compare(req: AuthedRequest, res: Response) {

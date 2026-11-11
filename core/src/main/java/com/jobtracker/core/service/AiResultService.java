@@ -47,6 +47,7 @@ public class AiResultService {
         AiKind kind = kindIn(kindKey, AiKind.Scope.JOB);
         String key = jobKey(kind, interviewType);
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         JobDetail detail = details.findByJobIdAndOwnerId(jobId, ownerId)
                 .orElseGet(() -> jobDetailService.createDetail(jobId, ownerId, null));
         // Here rather than in the page, so a direct call can't keep a draft for a job it doesn't fit.
@@ -64,7 +65,7 @@ public class AiResultService {
 
     public void clearForJob(Long ownerId, Long jobId, String kindKey, String interviewType) {
         String key = jobKey(kindIn(kindKey, AiKind.Scope.JOB), interviewType);
-        jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new).getSeasonId());
         details.findByJobIdAndOwnerId(jobId, ownerId).ifPresent(detail -> {
             if (detail.getAiResults().remove(key) != null) {
                 details.save(detail);
@@ -76,6 +77,7 @@ public class AiResultService {
         AiKind kind = kindIn(kindKey, AiKind.Scope.ROUND);
         JobDetail detail = details.findByOwnerIdAndInterviewsRoundId(ownerId, roundId)
                 .orElseThrow(JobNotFoundException::new);
+        requireRoundOpen(ownerId, detail);
         AiResult result = new AiResult(content, clock.instant());
         detail.findInterview(roundId).getAiResults().put(kind.key(), result);
         details.save(detail);
@@ -86,10 +88,15 @@ public class AiResultService {
         AiKind kind = kindIn(kindKey, AiKind.Scope.ROUND);
         JobDetail detail = details.findByOwnerIdAndInterviewsRoundId(ownerId, roundId)
                 .orElseThrow(JobNotFoundException::new);
+        requireRoundOpen(ownerId, detail);
         InterviewRound round = detail.findInterview(roundId);
         if (round.getAiResults().remove(kind.key()) != null) {
             details.save(detail);
         }
+    }
+
+    private void requireRoundOpen(Long ownerId, JobDetail detail) {
+        jobs.findByIdAndOwnerId(detail.getJobId(), ownerId).ifPresent(job -> seasons.requireOpen(job.getSeasonId()));
     }
 
     public AiResult getForAccount(Long ownerId, String kindKey, String company) {

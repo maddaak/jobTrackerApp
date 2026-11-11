@@ -3,6 +3,8 @@ package com.jobtracker.core.service;
 import com.jobtracker.core.dto.SeasonResponse;
 import com.jobtracker.core.exception.InvalidCredentialsException;
 import com.jobtracker.core.exception.JobNotFoundException;
+import com.jobtracker.core.exception.NoOfferException;
+import com.jobtracker.core.exception.SeasonClosedException;
 import com.jobtracker.core.exception.SeasonInUseException;
 import com.jobtracker.core.exception.SeasonNotFoundException;
 import com.jobtracker.core.model.Job;
@@ -13,6 +15,8 @@ import com.jobtracker.core.repository.SeasonRepository;
 import com.jobtracker.core.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,19 +29,21 @@ public class SeasonService {
     private final SeasonRepository seasons;
     private final JobRepository jobs;
     private final UserRepository users;
+    private final Clock clock;
 
-    public SeasonService(SeasonRepository seasons, JobRepository jobs, UserRepository users) {
+    public SeasonService(SeasonRepository seasons, JobRepository jobs, UserRepository users, Clock clock) {
         this.seasons = seasons;
         this.jobs = jobs;
         this.users = users;
+        this.clock = clock;
     }
 
     public List<SeasonResponse> list(Long ownerId) {
         User owner = owner(ownerId);
-        Map<Long, Long> jobCounts = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId).stream()
-                .collect(Collectors.groupingBy(Job::getSeasonId, Collectors.counting()));
+        Map<Long, List<Job>> jobsBySeason = jobs.findByOwnerIdOrderByCreatedAtDesc(ownerId).stream()
+                .collect(Collectors.groupingBy(Job::getSeasonId));
         return seasons.findByOwnerIdOrderByCreatedAtAsc(ownerId).stream()
-                .map(season -> toResponse(season, jobCounts.getOrDefault(season.getId(), 0L), owner))
+                .map(season -> toResponse(season, jobsBySeason.getOrDefault(season.getId(), List.of()), owner))
                 .toList();
     }
 
@@ -48,7 +54,7 @@ public class SeasonService {
         Season season = seasons.save(new Season(ownerId, name));
         owner.viewSeason(season.getId());
         users.save(owner);
-        return toResponse(season, 0, owner);
+        return toResponse(season, List.of(), owner);
     }
 
     @Transactional
@@ -56,7 +62,7 @@ public class SeasonService {
         Season season = find(ownerId, seasonId);
         season.rename(name);
         seasons.save(season);
-        return toResponse(season, jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId).size(),
+        return toResponse(season, jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId),
                 owner(ownerId));
     }
 
@@ -92,8 +98,63 @@ public class SeasonService {
     @Transactional
     public void moveJob(Long ownerId, Long jobId, Long seasonId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
-        job.moveToSeason(find(ownerId, seasonId).getId());
+        requireOpen(job.getSeasonId());
+        requireOpen(find(ownerId, seasonId).getId());
+        job.moveToSeason(seasonId);
         jobs.save(job);
+    }
+
+    // The offer taken, when there is one, is marked accepted here, so the summary and the Offers page agree.
+    // Its days are set on the offer before this, by the same call the Offers page makes.
+    @Transactional
+    public SeasonResponse close(Long ownerId, Long seasonId, Long acceptedJobId) {
+        Season season = find(ownerId, seasonId);
+        if (acceptedJobId != null) {
+            Job accepted = jobs.findByIdAndOwnerId(acceptedJobId, ownerId)
+                    .filter(job -> seasonId.equals(job.getSeasonId()))
+                    .orElseThrow(JobNotFoundException::new);
+            if (!accepted.hasOffer()) {
+                throw new NoOfferException();
+            }
+            accepted.acceptOffer();
+            jobs.save(accepted);
+        }
+        season.close(clock.instant(), acceptedJobId);
+        seasons.save(season);
+        return toResponse(season, jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId),
+                owner(ownerId));
+    }
+
+    @Transactional
+    public SeasonResponse reopen(Long ownerId, Long seasonId) {
+        Season season = find(ownerId, seasonId);
+        season.reopen();
+        seasons.save(season);
+        return toResponse(season, jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId),
+                owner(ownerId));
+    }
+
+    // Every change to a job checks this first, so a finished hunt can't shift under its summary.
+    public void requireOpen(Long seasonId) {
+        if (seasonId != null && seasons.findById(seasonId).map(Season::isClosed).orElse(false)) {
+            throw new SeasonClosedException();
+        }
+    }
+
+    public Season get(Long ownerId, Long seasonId) {
+        return find(ownerId, seasonId);
+    }
+
+    public List<Season> allOf(Long ownerId) {
+        return seasons.findByOwnerIdOrderByCreatedAtAsc(ownerId);
+    }
+
+    // A backup's closed season, put back as it was; acceptedJobId is already the restored job's id.
+    @Transactional
+    public void restoreEnding(Long seasonId, Instant closedAt, Long acceptedJobId) {
+        Season season = seasons.findById(seasonId).orElseThrow(SeasonNotFoundException::new);
+        season.close(closedAt, acceptedJobId);
+        seasons.save(season);
     }
 
     // Null when every season is showing.
@@ -108,15 +169,20 @@ public class SeasonService {
         return job -> active == null || active.equals(job.getSeasonId());
     }
 
-    // The season on screen, or the newest when every season is showing.
+    // The season on screen, or the newest when every season is showing. Never a closed one: adding, importing,
+    // and sample data all come through here.
     @Transactional
     public Long seasonForNewJob(Long ownerId) {
         User owner = owner(ownerId);
+        Long seasonId;
         if (owner.getActiveSeasonId() != null) {
-            return owner.getActiveSeasonId();
+            seasonId = owner.getActiveSeasonId();
+        } else {
+            List<Season> all = seasons.findByOwnerIdOrderByCreatedAtAsc(ownerId);
+            seasonId = all.isEmpty() ? startFirstSeason(owner) : all.getLast().getId();
         }
-        List<Season> all = seasons.findByOwnerIdOrderByCreatedAtAsc(ownerId);
-        return all.isEmpty() ? startFirstSeason(owner) : all.getLast().getId();
+        requireOpen(seasonId);
+        return seasonId;
     }
 
     // Matched by name, so a restore that fails part way and is retried reuses what it made.
@@ -155,8 +221,12 @@ public class SeasonService {
         return users.findById(ownerId).orElseThrow(InvalidCredentialsException::new);
     }
 
-    private SeasonResponse toResponse(Season season, long jobCount, User owner) {
-        return new SeasonResponse(season.getId(), season.getName(), season.getCreatedAt(), jobCount,
-                Objects.equals(season.getId(), owner.getActiveSeasonId()));
+    // The applications date a hunt: the season itself may have been made long after, as the upgrade's first one was.
+    private SeasonResponse toResponse(Season season, List<Job> seasonJobs, User owner) {
+        List<Instant> applied = seasonJobs.stream().map(Job::getCreatedAt).sorted().toList();
+        return new SeasonResponse(season.getId(), season.getName(), season.getCreatedAt(), seasonJobs.size(),
+                Objects.equals(season.getId(), owner.getActiveSeasonId()), season.getClosedAt(),
+                season.getAcceptedJobId(),
+                applied.isEmpty() ? null : applied.getFirst(), applied.isEmpty() ? null : applied.getLast());
     }
 }

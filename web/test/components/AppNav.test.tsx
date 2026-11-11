@@ -190,4 +190,22 @@ describe("AppNav keyboard shortcuts", () => {
     fireEvent.keyDown(field, { key: "k", ctrlKey: true });
     expect(screen.getByLabelText("Search jobs")).toBeInTheDocument();
   });
+
+  // A closed season takes no new job, so neither the button nor N offers the form core would refuse.
+  it("offers no way to add a job while the season shown is closed", async () => {
+    vi.stubGlobal("fetch", mockFetch({ updateAvailable: false }));
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <JobsProvider>
+            <AppNav onSeasonChanged={() => {}} readOnly />
+          </JobsProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "+ Add job" })).toBeDisabled();
+    fireEvent.keyDown(document.body, { key: "n" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

@@ -18,7 +18,8 @@ function offer(jobId: number, company: string, outcome: string, baseSalary: numb
     equityShares: null as number | null, sharePrice: null as number | null, equitySharesByYear: [] as number[],
     priceGrowthPercent: null as number | null, equityProjectedByYear: [] as number[], projectedCompByYear: [] as number[],
     annualBonus: null as number | null, equityByYear: [] as number[], equityPerYear: null as number | null,
-    averagePerYear: baseSalary, averagedOverYears: 4, compByYear: [] as number[], startDate: null, decisionDeadline: null, notes: null,
+    averagePerYear: baseSalary, averagedOverYears: 4, compByYear: [] as number[], startDate: null as string | null,
+    decisionDeadline: null, acceptedOn: null as string | null, notes: null,
     marketCheck: null as unknown,
     marketCheckStale: false,
   };
@@ -50,8 +51,10 @@ const DOWNLEVELED = {
   signOnByYear: [30000, 20000], signOnPaidByYear: [30000, 20000], averagePerYear: 178498, averagedOverYears: 4, compByYear: [167000, 167000, 172000, 172000],
   priceGrowthPercent: 15, projectedCompByYear: [167000, 169250, 184900, 192840],
 };
-const OFFERS = [offer(1, "Acme", "ACTIVE", 150000), offer(2, "Globex", "ACTIVE", null), DOWNLEVELED];
-const JOBS = [summary(1, "Acme", "ACTIVE"), summary(2, "Globex", "ACTIVE"), summary(3, "Initech", "OFFER_DECLINED")];
+const ACCEPTED = { ...offer(4, "Hooli", "OFFER_ACCEPTED", 170000), acceptedOn: "2026-10-20", startDate: "2026-11-16" };
+const OFFERS = [offer(1, "Acme", "ACTIVE", 150000), offer(2, "Globex", "ACTIVE", null), DOWNLEVELED, ACCEPTED];
+const JOBS = [summary(1, "Acme", "ACTIVE"), summary(2, "Globex", "ACTIVE"), summary(3, "Initech", "OFFER_DECLINED"),
+  summary(4, "Hooli", "OFFER_ACCEPTED")];
 
 let requests: { url: string; method: string; body: unknown }[];
 
@@ -109,14 +112,21 @@ beforeEach(() => {
 });
 
 describe("OffersPage", () => {
-  it("separates undecided offers from decided ones and totals what is known", async () => {
+  it("lists accepted offers first, then declined, then those still pending a decision", async () => {
     stubFetch(false);
     renderPage();
 
-    const undecided = (await screen.findByRole("heading", { name: "Undecided" })).closest("section")!;
+    const undecided = (await screen.findByRole("heading", { name: "Pending decision" })).closest("section")!;
+    const sectionTitles = ["Accepted", "Declined", "Pending decision"];
+    expect(screen.getAllByRole("heading", { level: 2 }).map(heading => heading.textContent)
+      .filter(text => sectionTitles.includes(text!))).toEqual(sectionTitles);
     expect(within(undecided).getByText("Acme")).toBeInTheDocument();
     expect(within(undecided).getByText("Globex")).toBeInTheDocument();
-    const decided = screen.getByRole("heading", { name: "Decided" }).closest("section")!;
+    const accepted = screen.getByRole("heading", { name: "Accepted" }).closest("section")!;
+    expect(within(accepted).getByText("Hooli")).toBeInTheDocument();
+    // Insights links to a section by its anchor.
+    expect(screen.getByRole("heading", { name: "Declined" }).closest("section")).toHaveAttribute("id", "declined");
+    const decided = screen.getByRole("heading", { name: "Declined" }).closest("section")!;
     expect(within(decided).getByText("Initech")).toBeInTheDocument();
     expect(within(decided).getByText("Offer Declined")).toBeInTheDocument();
     // An offer with no amounts yet asks for them rather than showing a zero.
@@ -127,7 +137,7 @@ describe("OffersPage", () => {
     stubFetch(false);
     renderPage();
 
-    const decided = (await screen.findByRole("heading", { name: "Decided" })).closest("section")!;
+    const decided = (await screen.findByRole("heading", { name: "Declined" })).closest("section")!;
     expect(within(decided).getByText("Offered as Engineer II")).toBeInTheDocument();
     expect(within(decided).getByText("$12,000 (10%)")).toBeInTheDocument();
     expect(within(decided).getByText(/500 shares at \$200\.00 \(\$100,000\) over 4 years: 25 \/ 75 \/ 200 \/ 200 shares by year/))
@@ -219,22 +229,48 @@ describe("OffersPage", () => {
     expect(await screen.findByText(/Every offer is paused/)).toBeInTheDocument();
   });
 
-  it("records a decision picked on the card, keeping the rest of the job", async () => {
+  // Accepting asks the two days the season summary is built on, starting from today and the offer's start date.
+  it("accepts an offer with the day accepted and the start date", async () => {
+    stubFetch(false);
+    OFFERS[0].startDate = "2026-12-01";
+    try {
+      renderPage();
+
+      await screen.findByText("Acme");
+      const decision = within(screen.getByText("Acme").closest("article")!).getByLabelText("Decision");
+      expect(decision).toHaveValue("ACTIVE");
+      fireEvent.change(decision, { target: { value: "OFFER_ACCEPTED" } });
+
+      const dialog = await screen.findByRole("dialog");
+      expect((within(dialog).getByLabelText("Day you accepted") as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(within(dialog).getByLabelText("Start date")).toHaveValue("2026-12-01");
+      fireEvent.change(within(dialog).getByLabelText("Day you accepted"), { target: { value: "2026-11-02" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Accept offer" }));
+
+      await waitFor(() => expect(requests.find(r => r.url === "/jobs/1/offer/acceptance")).toMatchObject({
+        method: "PUT", body: { acceptedOn: "2026-11-02", startDate: "2026-12-01" },
+      }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(requests.find(r => r.method === "PATCH")).toBeUndefined();
+      expect(window.confirm).not.toHaveBeenCalled();
+    } finally {
+      OFFERS[0].startDate = null;
+    }
+  });
+
+  it("leaves the offer undecided when accepting is cancelled", async () => {
     stubFetch(false);
     renderPage();
 
     await screen.findByText("Acme");
-    // Wait for the job list too, since deciding PATCHes back the whole job record.
-    await waitFor(() => expect(requests.some(r => r.url === "/jobs")).toBe(true));
-    const decision = within(screen.getByText("Acme").closest("article")!).getByLabelText("Decision");
-    expect(decision).toHaveValue("ACTIVE");
-    fireEvent.change(decision, { target: { value: "OFFER_ACCEPTED" } });
+    fireEvent.change(within(screen.getByText("Acme").closest("article")!).getByLabelText("Decision"), {
+      target: { value: "OFFER_ACCEPTED" },
+    });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
 
-    await waitFor(() => expect(requests.find(r => r.method === "PATCH")).toMatchObject({
-      url: "/jobs/1",
-      body: { outcome: "OFFER_ACCEPTED", currentStage: "OFFER_STAGE", interviewPhase: null },
-    }));
-    expect(window.confirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(requests.find(r => r.url === "/jobs/1/offer/acceptance")).toBeUndefined();
+    expect(within(screen.getByText("Acme").closest("article")!).getByLabelText("Decision")).toHaveValue("ACTIVE");
   });
 
   it("sets a decided offer back to undecided", async () => {

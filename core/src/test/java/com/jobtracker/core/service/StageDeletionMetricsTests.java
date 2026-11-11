@@ -59,9 +59,10 @@ class StageDeletionMetricsTests {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         when(seasons.inView(any())).thenReturn(job -> true);
-        JobLinkService jobLinkService = new JobLinkService(jobs, jobDetails);
+        JobLinkService jobLinkService = new JobLinkService(jobs, jobDetails, seasons);
         jobService = new JobService(jobs, users, jobDetails,
-                new JobDetailService(jobs, jobDetails, jobLinkService), jobLinkService, new JobImageService(jobs, jobImages),
+                new JobDetailService(jobs, jobDetails, jobLinkService, seasons), jobLinkService,
+                new JobImageService(jobs, jobImages, seasons),
                 seasons, Clock.systemUTC());
         metricsService = new MetricsService(jobs, jobDetails, seasons, Clock.systemUTC());
     }

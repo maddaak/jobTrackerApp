@@ -93,7 +93,9 @@ step("Insights counts the job, its week, and its resume", async () => {
   const metrics = await call("GET", "/metrics");
   hasKeys(metrics, ["summary", "funnel", "outcomeCounts", "interviewRoundCounts", "sankeyLinks", "sankeyNodeOrder",
     "sankeyPaths", "weeklyActivity", "resumeResponses"], "Insights");
-  hasKeys(metrics.sankeyPaths[0], ["nodes", "jobs", "applications"], "a Sankey route");
+  hasKeys(metrics.summary, ["totalJobs", "activeJobs", "inInterviews", "interviewsDone", "interviewsUpcoming",
+    "acceptedCompany"], "the Insights tiles");
+  hasKeys(metrics.sankeyPaths[0],["nodes", "jobs", "applications"], "a Sankey route");
   assert.deepEqual(metrics.sankeyPaths[0].applications, [{ jobId, company: "Smoke Co", role: "Engineer", postings: 1 }]);
   assert.equal(metrics.summary.totalJobs, 1);
   assert.equal(metrics.resumeResponses[0].resume, "smoke.pdf");
@@ -112,7 +114,10 @@ step("an offer lists with its yearly figures, and no comparison is saved for the
 });
 
 step("a new season starts empty, and all seasons brings the job back", async () => {
-  firstSeason = (await call("GET", "/seasons"))[0].id;
+  const [season] = await call("GET", "/seasons");
+  hasKeys(season, ["id", "name", "createdAt", "jobCount", "active", "closedAt", "acceptedJobId", "firstApplied",
+    "lastApplied"], "a season");
+  firstSeason = season.id;
   await call("POST", "/seasons", { name: "Second hunt" }, { expect: 201 });
   assert.deepEqual(await call("GET", "/jobs"), []);
   await call("PUT", "/seasons/active", { seasonId: null }, { expect: 204 });
@@ -133,6 +138,23 @@ step("downloads a backup holding every job and its season", async () => {
   assert.equal(backup.format, "job-tracker-backup");
   assert.equal(backup.jobs.length, 2);
   assert.ok(backup.jobs.every(job => job.season), "every job carries its season's name");
+});
+
+step("closing a season makes it read-only and sums it up, and Edit reopens it", async () => {
+  const accepted = await call("PUT", `/jobs/${jobId}/offer/acceptance`, { acceptedOn: "2026-10-20", startDate: "2026-11-16" });
+  hasKeys(accepted, ["outcome", "acceptedOn", "startDate"], "an accepted offer");
+  const closed = await call("POST", `/seasons/${firstSeason}/close`, { acceptedJobId: jobId });
+  hasKeys(closed, ["closedAt", "acceptedJobId"], "a closed season");
+  await call("PATCH", `/jobs/${jobId}`, {
+    company: "Changed Co", role: "Engineer", sourceCategory: "SELF_APPLIED", currentStage: "OFFER_STAGE", outcome: "ACTIVE",
+  }, { expect: 409 });
+  const summary = await call("GET", `/metrics/seasons/${firstSeason}/summary`);
+  hasKeys(summary, ["name", "closedAt", "firstApplied", "applications", "averageResponseDays", "responsesMeasured",
+    "closedApplications", "roundsPassed", "roundsFailed", "rounds", "acceptedOffer", "offers"], "a season summary");
+  hasKeys(summary.acceptedOffer, ["company", "role", "applied", "acceptedOn", "startsOn", "daysToAccept"], "the offer taken");
+  assert.equal(summary.acceptedOffer.company, "Smoke Co");
+  assert.equal(summary.acceptedOffer.acceptedOn, "2026-10-20");
+  assert.equal((await call("POST", `/seasons/${firstSeason}/reopen`)).closedAt, null);
 });
 
 // nginx sends a browser's page load to the app, not the API; curl-style requests never show this.

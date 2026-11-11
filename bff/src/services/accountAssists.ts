@@ -28,7 +28,7 @@ export async function briefCompany(userId: string, company: string, role: string
     content => saveAccountAi(userId, "company-brief", content, { company }), { company });
 }
 
-// Counts only, never company names: the patterns are about how the search goes, not where.
+// Counts and rejection reasons, never company names: the patterns are about how the search goes, not where.
 export async function findPatterns(userId: string): Promise<AssistOutcome> {
   const season = await seasonShown(userId);
   if (isServiceError(season)) return season;

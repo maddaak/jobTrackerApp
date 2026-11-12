@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
-import { createSeason, listSeasons, viewSeason, type Season } from "../api/seasonsApi";
+import { createSeason, listSeasons, seasonSpan, seasonYear, viewSeason, type Season } from "../api/seasonsApi";
 
 const ALL = "all";
 const NEW = "new";
@@ -39,6 +39,9 @@ export default function SeasonSwitcher({ onSwitched }: SeasonSwitcherProps) {
   }
 
   const active = seasons.find(season => season.active);
+  // Newest hunt first, filed under the year it started.
+  const started = (season: Season) => season.firstApplied ?? season.createdAt;
+  const byNewest = [...seasons].sort((a, b) => started(b).localeCompare(started(a)));
 
   async function choose(value: string) {
     if (value === NEW) {
@@ -97,8 +100,17 @@ export default function SeasonSwitcher({ onSwitched }: SeasonSwitcherProps) {
         onChange={e => choose(e.target.value)}
         className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1.5 text-sm font-medium dark:border-neutral-700 dark:bg-neutral-800"
       >
-        {seasons.map(season => (
-          <option key={season.id} value={season.id}>{season.name} ({season.jobCount})</option>
+        {[...new Set(byNewest.map(seasonYear))].map(year => (
+          <optgroup key={year} label={String(year)}>
+            {byNewest.filter(season => seasonYear(season) === year).map(season => {
+              const span = seasonSpan(season);
+              return (
+                <option key={season.id} value={season.id}>
+                  {season.name}{span && ` · ${span}`} ({season.jobCount})
+                </option>
+              );
+            })}
+          </optgroup>
         ))}
         {seasons.length > 1 && <option value={ALL}>All seasons</option>}
         <option value={NEW}>+ Start a new season…</option>

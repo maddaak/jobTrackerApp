@@ -46,6 +46,7 @@ export interface MetricsSummary {
   inInterviews: number;
   interviewsDone: number;
   interviewsUpcoming: number;
+  acceptedCompany: string | null;
 }
 
 export interface Metrics {
@@ -107,6 +108,38 @@ export interface SeasonStats {
 
 export async function getSeasonStats(): Promise<SeasonStats[]> {
   return request<SeasonStats[]>("/metrics/seasons", "failed to load season numbers");
+}
+
+// How one hunt went. A reposted role counts once, from its first application to its last posting's end.
+// The response average covers responsesMeasured of closedApplications: an import records no closing date.
+export interface SeasonSummary {
+  seasonId: number;
+  name: string;
+  closedAt: string | null;
+  firstApplied: string | null;
+  applications: number;
+  averageResponseDays: number | null;
+  responsesMeasured: number;
+  closedApplications: number;
+  roundsPassed: number;
+  roundsFailed: number;
+  rounds: InterviewRoundCount[];
+  acceptedOffer: {
+    jobId: number;
+    company: string;
+    role: string;
+    applied: string;
+    acceptedOn: string | null;
+    startsOn: string | null;
+    daysToAccept: number | null;
+  } | null;
+  // What closing the season can name as the offer taken, with the days saved on each.
+  offers: { jobId: number; company: string; role: string; accepted: boolean; acceptedOn: string | null;
+    startDate: string | null }[];
+}
+
+export async function getSeasonSummary(seasonId: number): Promise<SeasonSummary> {
+  return request<SeasonSummary>(`/metrics/seasons/${seasonId}/summary`, "failed to load the season summary");
 }
 
 export async function getMetrics(): Promise<Metrics> {

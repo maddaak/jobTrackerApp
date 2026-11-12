@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { toUpdateJobInput, updateJob } from "../api/jobsApi";
-import { lastComparison, listOffers, type Offer, type OfferDecision, type SavedComparison } from "../api/offersApi";
+import {
+  OFFER_SECTIONS, acceptOffer, lastComparison, listOffers, type Offer, type OfferDecision, type SavedComparison,
+} from "../api/offersApi";
 import JobDetailModal from "../components/JobDetailModal";
 import OfferCard from "../components/offers/OfferCard";
+import AcceptOfferDialog from "../components/offers/AcceptOfferDialog";
 import OfferComparisonPanel from "../components/offers/OfferComparisonPanel";
 import { useAuth } from "../hooks/useAuth";
 import { useJobs } from "../hooks/useJobs";
@@ -15,6 +19,8 @@ export default function OffersPage() {
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [comparison, setComparison] = useState<SavedComparison | null>(null);
   const [openJobId, setOpenJobId] = useState<number | null>(null);
+  // Accepting asks the day accepted and the start date first.
+  const [accepting, setAccepting] = useState<Offer | null>(null);
 
   // The saved comparison comes back with each load, so an edit or decision is reflected in whether it's stale.
   const loadOffers = useCallback(async () => {
@@ -33,12 +39,23 @@ export default function OffersPage() {
 
   useEffect(() => { loadOffers(); }, [loadOffers]);
 
+  // A link such as Insights' "2 declined" lands on its section, which only exists once the offers load.
+  const { hash } = useLocation();
+  const loaded = offers !== null;
+  useEffect(() => {
+    if (loaded && hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [loaded, hash]);
+
   async function refreshAll() {
     await Promise.all([loadOffers(), refreshJobs()]);
   }
 
   // No confirm: a decision is a choice in a picker and can be set back to Undecided.
   async function decide(offer: Offer, outcome: OfferDecision) {
+    if (outcome === "OFFER_ACCEPTED") {
+      setAccepting(offer);
+      return;
+    }
     const job = jobs.find(candidate => candidate.id === offer.jobId);
     // Deciding PATCHes the whole job back, so without it there's nothing safe to send.
     if (!job) {
@@ -54,9 +71,11 @@ export default function OffersPage() {
     }
   }
 
-  const pending = (offers ?? []).filter(offer => offer.outcome === "ACTIVE");
-  // A paused offer is neither undecided nor decided; it lives on the Paused page until resumed.
-  const decided = (offers ?? []).filter(offer => offer.outcome === "OFFER_ACCEPTED" || offer.outcome === "OFFER_DECLINED");
+  // A paused offer is in no section; it lives on the Paused page until resumed.
+  const sections = OFFER_SECTIONS.map(section => ({
+    ...section, offers: (offers ?? []).filter(offer => offer.outcome === section.outcome),
+  }));
+  const pending = sections.find(section => section.outcome === "ACTIVE")!.offers;
   // A stale verdict describes offers that have since changed, so the cards don't wear it.
   const current = comparison && !comparison.stale ? comparison : null;
   const assessments = current?.assessments ?? [];
@@ -96,40 +115,46 @@ export default function OffersPage() {
         </p>
       ) : (
         <>
-          {pending.length === 0 && decided.length === 0 && (
+          {sections.every(section => section.offers.length === 0) && (
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               Every offer is paused. Resume one from the Paused page to see it here.
             </p>
           )}
-          {aiConfigured && pending.length > 0 && (
-            <OfferComparisonPanel
-              // Remounted when a saved comparison arrives, so its priorities fill the box.
-              key={comparison?.createdAt ?? "none"}
-              pendingCount={pending.length}
-              comparison={comparison}
-              onCompared={setComparison}
-            />
-          )}
-          {pending.length > 0 && (
-            <section className="mb-8">
+          {sections.filter(section => section.offers.length > 0).map(section => (
+            <section key={section.outcome} id={section.anchor} className="mb-8 scroll-mt-6">
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Undecided
+                {section.title}
               </h2>
-              {renderCards(pending)}
+              {/* The comparison weighs only undecided offers, so it sits with them. */}
+              {aiConfigured && section.outcome === "ACTIVE" && (
+                <OfferComparisonPanel
+                  // Remounted when a saved comparison arrives, so its priorities fill the box.
+                  key={comparison?.createdAt ?? "none"}
+                  pendingCount={pending.length}
+                  comparison={comparison}
+                  onCompared={setComparison}
+                />
+              )}
+              {renderCards(section.offers)}
             </section>
-          )}
-          {decided.length > 0 && (
-            <section>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Decided
-              </h2>
-              {renderCards(decided)}
-            </section>
-          )}
+          ))}
         </>
       )}
 
       <JobDetailModal job={openJob} allJobs={jobs} onClose={() => setOpenJobId(null)} onSaved={refreshAll} />
+      {accepting && (
+        <AcceptOfferDialog
+          label={`${accepting.company}, ${accepting.offerTitle ?? accepting.role}`}
+          acceptedOn={accepting.acceptedOn}
+          startDate={accepting.startDate}
+          onAccept={async days => {
+            await acceptOffer(accepting.jobId, days);
+            setAccepting(null);
+            await refreshAll();
+          }}
+          onCancel={() => setAccepting(null)}
+        />
+      )}
     </div>
   );
 }

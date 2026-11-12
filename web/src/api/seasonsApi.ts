@@ -7,6 +7,31 @@ export interface Season {
   createdAt: string;
   jobCount: number;
   active: boolean;
+  // A closed season is read-only until it's reopened. The offer taken outlives a reopen, to fill the next close.
+  closedAt: string | null;
+  acceptedJobId: number | null;
+  // When the hunt actually ran, from its applications; null with none yet.
+  firstApplied: string | null;
+  lastApplied: string | null;
+}
+
+const MONTH = new Intl.DateTimeFormat(undefined, { month: "short" });
+
+// The year a hunt is filed under in the picker: when it started, or when it was made if nothing's in it yet.
+export function seasonYear(season: Season): number {
+  return new Date(season.firstApplied ?? season.createdAt).getFullYear();
+}
+
+// "Jan–Apr", or "Nov 2025–Feb 2026" across a new year. A closed hunt ends when it closed, an open one at
+// its latest application, so an old season left open never claims to run until now.
+export function seasonSpan(season: Season): string | null {
+  if (!season.firstApplied) return null;
+  const start = new Date(season.firstApplied);
+  const end = new Date(season.closedAt ?? season.lastApplied ?? season.firstApplied);
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${MONTH.format(start)} ${start.getFullYear()}–${MONTH.format(end)} ${end.getFullYear()}`;
+  }
+  return start.getMonth() === end.getMonth() ? MONTH.format(start) : `${MONTH.format(start)}–${MONTH.format(end)}`;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -43,6 +68,19 @@ export async function viewSeason(id: number | null): Promise<void> {
     headers: JSON_HEADERS,
     body: JSON.stringify({ seasonId: id }),
   });
+}
+
+// The offer taken is optional: a hunt can end without one. Its days are saved on the offer, not here.
+export async function closeSeason(id: number, ending: { acceptedJobId: number | null }): Promise<Season> {
+  return request<Season>(`/seasons/${id}/close`, "failed to close the season", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(ending),
+  });
+}
+
+export async function reopenSeason(id: number): Promise<Season> {
+  return request<Season>(`/seasons/${id}/reopen`, "failed to reopen the season", { method: "POST" });
 }
 
 export async function moveJobToSeason(seasonId: number, jobId: number): Promise<void> {

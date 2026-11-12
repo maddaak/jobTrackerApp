@@ -14,6 +14,7 @@ import com.jobtracker.core.model.JobImage;
 import com.jobtracker.core.model.Location;
 import com.jobtracker.core.model.ReminderSettings;
 import com.jobtracker.core.model.Resume;
+import com.jobtracker.core.model.Season;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.AccountAiResultRepository;
 import com.jobtracker.core.repository.JobDetailRepository;
@@ -99,8 +100,12 @@ public class BackupService {
                         job.getInterviewPhase(), job.getOutcome(), job.getCreatedAt(), detailByJob.get(job.getId()),
                         imagesByJob.getOrDefault(job.getId(), List.of()), seasonNames.get(job.getSeasonId())))
                 .toList();
+        List<Backup.SeasonEnding> endings = seasons.allOf(ownerId).stream()
+                .filter(Season::isClosed)
+                .map(season -> new Backup.SeasonEnding(season.getName(), season.getClosedAt(), season.getAcceptedJobId()))
+                .toList();
         Backup backup = new Backup(Backup.FORMAT, Backup.VERSION, clock.instant(), rows, resumes.findByOwnerId(ownerId),
-                reminderSettings.findByOwnerId(ownerId).orElse(null), accountAiResults.findByOwnerId(ownerId));
+                reminderSettings.findByOwnerId(ownerId).orElse(null), accountAiResults.findByOwnerId(ownerId), endings);
         return MAPPER.writeValueAsBytes(backup);
     }
 
@@ -171,6 +176,13 @@ public class BackupService {
                 List<AccountAiResult> kept = backup.aiResults().stream().filter(result -> !result.madeForOneSeason()).toList();
                 kept.forEach(result -> result.restoreAs(ownerId));
                 accountAiResults.saveAll(kept);
+            }
+            // Last, once the jobs are in: a closed season takes no new ones.
+            if (backup.seasons() != null) {
+                for (Backup.SeasonEnding ending : backup.seasons()) {
+                    seasons.restoreEnding(seasons.seasonNamed(ownerId, ending.name()), ending.closedAt(),
+                            newJobIds.get(ending.acceptedJobId()));
+                }
             }
             log.info("restored a backup into account {}: {} job(s), {} image(s), {} resume(s)", ownerId,
                     createdJobs.size(), imageCount, restoredResumes.size());

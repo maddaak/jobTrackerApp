@@ -10,7 +10,7 @@ const offer: Offer = {
   signOnPaidByYear: [],
   annualBonus: null,
   equityByYear: [], equitySharesByYear: [], equityProjectedByYear: [], equityPerYear: null, averagePerYear: 150000, averagedOverYears: 1,
-  compByYear: [150000], projectedCompByYear: [], startDate: null, decisionDeadline: null, notes: null,
+  compByYear: [150000], projectedCompByYear: [], startDate: null, decisionDeadline: null, acceptedOn: null, notes: null,
   marketCheck: null, marketCheckStale: false, negotiationDraft: null,
 };
 

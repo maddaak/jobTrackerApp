@@ -181,6 +181,13 @@ public class Job {
         return hasOffer() || furthestStage == Stage.OFFER_STAGE;
     }
 
+    // A decided offer stays at OFFER_STAGE, which the Sankey reads to route it.
+    public void acceptOffer() {
+        this.outcome = Outcome.OFFER_ACCEPTED;
+        this.currentStage = Stage.OFFER_STAGE;
+        this.interviewPhase = null;
+    }
+
     public void applyUpdate(String company, String role, SourceCategory sourceCategory, String url, Location location,
             Integer compMin, Integer compMax, Stage currentStage, InterviewPhase interviewPhase, Outcome outcome) {
         this.company = company;

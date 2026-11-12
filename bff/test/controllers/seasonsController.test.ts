@@ -78,4 +78,32 @@ describe("/seasons", () => {
     expect(res.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("closes a season with the offer taken, sending null when there isn't one", async () => {
+    const mockFetch = fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValue(fakeCoreResponse(200, { ...season, closedAt: "2026-11-11T00:00:00Z" }));
+
+    const res = await request().post("/seasons/3/close").set("Cookie", authCookie()).send({ acceptedJobId: 9 });
+    await request().post("/seasons/3/close").set("Cookie", authCookie()).send({});
+
+    expect(res.status).toBe(200);
+    expect(mockFetch.mock.calls[0][0]).toMatch(/\/seasons\/3\/close$/);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ acceptedJobId: 9 });
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ acceptedJobId: null });
+  });
+
+  it("reopens a season, and passes on core refusing a change to a closed one", async () => {
+    const mockFetch = fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce(fakeCoreResponse(200, { ...season, closedAt: null }));
+    mockFetch.mockResolvedValueOnce(
+      fakeCoreResponse(409, { error: "this season is closed; press Edit on it to make changes" }));
+
+    const reopened = await request().post("/seasons/3/reopen").set("Cookie", authCookie());
+    const refused = await request().put("/seasons/3/jobs/9").set("Cookie", authCookie());
+
+    expect(reopened.status).toBe(200);
+    expect(mockFetch.mock.calls[0][0]).toMatch(/\/seasons\/3\/reopen$/);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toContain("closed");
+  });
 });

@@ -12,6 +12,9 @@ export interface SeasonCardProps {
   onDelete: () => void;
   // Shows this season on the given page: "/" for the board, "/insights" for its numbers.
   onOpen: (path: string) => void;
+  onCloseSeason: () => void;
+  onReopen: () => void;
+  onSummary: () => void;
 }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -27,7 +30,9 @@ function Stat({ label, value, detail }: { label: string; value: number | string;
   );
 }
 
-export default function SeasonCard({ season, stats, onlyOne, onRename, onDelete, onOpen }: SeasonCardProps) {
+export default function SeasonCard({
+  season, stats, onlyOne, onRename, onDelete, onOpen, onCloseSeason, onReopen, onSummary,
+}: SeasonCardProps) {
   const [editing, setEditing] = useState(false);
   const applications = stats?.applications ?? 0;
   // core refuses these too; saying why up front beats a refusal after the click.
@@ -58,6 +63,7 @@ export default function SeasonCard({ season, stats, onlyOne, onRename, onDelete,
               ? `${day(stats.firstApplied)} to ${day(stats.lastApplied)}`
               : "No jobs yet"}
             {season.active && <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">Showing now</span>}
+            {season.closedAt && <span className="ml-2 rounded bg-neutral-200 px-1.5 py-0.5 font-medium text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200">Closed {day(season.closedAt)}</span>}
           </p>
         </div>
         {!editing && (
@@ -97,6 +103,25 @@ export default function SeasonCard({ season, stats, onlyOne, onRename, onDelete,
           className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
           See Insights
         </button>
+        <span className="flex-1" />
+        {season.closedAt ? (
+          <>
+            <button type="button" onClick={onSummary}
+              className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
+              See summary
+            </button>
+            <button type="button" aria-label={`Edit ${season.name}`} title="Reopen it so its jobs can change"
+              onClick={onReopen}
+              className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
+              Edit
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={onCloseSeason}
+            className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
+            Close season
+          </button>
+        )}
       </div>
     </article>
   );

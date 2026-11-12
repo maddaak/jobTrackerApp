@@ -35,6 +35,9 @@ class JobLinkServiceTests {
     @Mock
     private JobDetailRepository jobDetails;
 
+    @Mock
+    private SeasonService seasons;
+
     private JobLinkService jobLinkService;
 
     // Stands in for the collection so a read sees what a save wrote.
@@ -43,7 +46,7 @@ class JobLinkServiceTests {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        jobLinkService = new JobLinkService(jobs, jobDetails);
+        jobLinkService = new JobLinkService(jobs, jobDetails, seasons);
         stored.clear();
 
         User owner = new User("alice", "hash");

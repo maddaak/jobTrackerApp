@@ -16,8 +16,14 @@ import java.util.List;
 // account that already has its own password, and old reminders shouldn't block or repeat new ones.
 // aiResults holds the company briefs and Insights; a job's own AI results travel inside its detail. Null in a
 // backup made before they existed.
+// seasons carries how each closed hunt ended, null in a backup made before seasons could close.
 public record Backup(String format, int version, Instant exportedAt, List<Job> jobs, List<Resume> resumes,
-        ReminderSettings reminderSettings, List<AccountAiResult> aiResults) {
+        ReminderSettings reminderSettings, List<AccountAiResult> aiResults, List<SeasonEnding> seasons) {
+
+    // acceptedJobId is the old id, like Job.id, so it can be pointed at the job's new one. The offer's days
+    // travel with the offer, in the job's detail.
+    public record SeasonEnding(String name, Instant closedAt, Long acceptedJobId) {
+    }
 
     public static final String FORMAT = "job-tracker-backup";
     public static final int VERSION = 1;

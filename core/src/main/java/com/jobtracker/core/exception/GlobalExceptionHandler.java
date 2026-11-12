@@ -44,7 +44,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
-    @ExceptionHandler({RestoreRefusedException.class, SampleDataRefusedException.class, SeasonInUseException.class})
+    @ExceptionHandler({RestoreRefusedException.class, SampleDataRefusedException.class, SeasonInUseException.class,
+            SeasonClosedException.class})
     public ResponseEntity<Map<String, String>> handleRestoreRefused(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
     }

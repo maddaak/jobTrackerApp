@@ -22,19 +22,21 @@ public class JobLinkService {
 
     private final JobRepository jobs;
     private final JobDetailRepository jobDetails;
+    private final SeasonService seasons;
 
-    public JobLinkService(JobRepository jobs, JobDetailRepository jobDetails) {
+    public JobLinkService(JobRepository jobs, JobDetailRepository jobDetails, SeasonService seasons) {
         this.jobs = jobs;
         this.jobDetails = jobDetails;
+        this.seasons = seasons;
     }
 
     public List<JobLinkResponse> link(Long ownerId, Long jobId, Long targetJobId, JobRelation relation) {
         if (jobId.equals(targetJobId)) {
             throw new InvalidJobLinkException("a job cannot be linked to itself");
         }
-        // Both owned, so a guessed target id can't attach another user's job.
-        requireOwnedJob(ownerId, jobId);
-        requireOwnedJob(ownerId, targetJobId);
+        // Both owned, so a guessed target id can't attach another user's job; a link changes both ends.
+        seasons.requireOpen(requireOwnedJob(ownerId, jobId).getSeasonId());
+        seasons.requireOpen(requireOwnedJob(ownerId, targetJobId).getSeasonId());
 
         // linkTo replaces rather than appends, so a rollback has to put back what was replaced.
         JobRelation replaced = currentRelation(jobId, targetJobId);
@@ -54,7 +56,8 @@ public class JobLinkService {
     }
 
     public List<JobLinkResponse> unlink(Long ownerId, Long jobId, Long targetJobId) {
-        requireOwnedJob(ownerId, jobId);
+        seasons.requireOpen(requireOwnedJob(ownerId, jobId).getSeasonId());
+        jobs.findByIdAndOwnerId(targetJobId, ownerId).ifPresent(target -> seasons.requireOpen(target.getSeasonId()));
         // Target end first: if the second write fails the link is still listed here, so retrying heals it.
         removeEdge(ownerId, targetJobId, jobId);
         removeEdge(ownerId, jobId, targetJobId);

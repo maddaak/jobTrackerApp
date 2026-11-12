@@ -52,6 +52,8 @@ public record OfferResponse(
         List<Integer> projectedCompByYear,
         LocalDate startDate,
         LocalDate decisionDeadline,
+        // Set once accepted, with the start date beside it.
+        LocalDate acceptedOn,
         String notes,
         MarketCheck marketCheck,
         // The offer's title, pay, or location changed after the check, so it describes something else.

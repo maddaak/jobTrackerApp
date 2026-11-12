@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { createSeason, deleteSeason, listSeasons, renameSeason, viewSeason, type Season } from "../api/seasonsApi";
+import {
+  createSeason, deleteSeason, listSeasons, renameSeason, reopenSeason, viewSeason, type Season,
+} from "../api/seasonsApi";
 import { getSeasonStats, type SeasonStats } from "../api/metricsApi";
 import SeasonCard from "../components/seasons/SeasonCard";
+import CloseSeasonDialog from "../components/seasons/CloseSeasonDialog";
 import SeasonNameForm from "../components/seasons/SeasonNameForm";
 import type { SeasonOutlet } from "../routes/ProtectedRoute";
 
@@ -14,6 +17,7 @@ export default function SeasonsPage() {
   const [stats, setStats] = useState<SeasonStats[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [closing, setClosing] = useState<Season | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -55,6 +59,12 @@ export default function SeasonsPage() {
       navigate(path);
     });
   };
+
+  // Closing or reopening changes what every page may edit, so the whole app reloads, as switching seasons does.
+  function replaced(saved: Season) {
+    setSeasons(current => current && current.map(other => (other.id === saved.id ? saved : other)));
+    onSeasonChanged();
+  }
 
   // Newest first: the search you're in now is the one you came here for.
   const newestFirst = seasons ? [...seasons].reverse() : null;
@@ -103,9 +113,19 @@ export default function SeasonsPage() {
               onRename={rename(season)}
               onDelete={() => { run(async () => { await deleteSeason(season.id); onSeasonChanged(); }); }}
               onOpen={open(season)}
+              onCloseSeason={() => setClosing(season)}
+              onReopen={() => { run(async () => replaced(await reopenSeason(season.id))); }}
+              onSummary={() => navigate(`/seasons/${season.id}/summary`)}
             />
           ))}
         </div>
+        {closing && (
+          <CloseSeasonDialog
+            season={closing}
+            onClose={() => setClosing(null)}
+            onClosed={saved => { setClosing(null); replaced(saved); navigate(`/seasons/${saved.id}/summary`); }}
+          />
+        )}
       </div>
     </div>
   );

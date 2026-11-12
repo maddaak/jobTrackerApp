@@ -77,9 +77,10 @@ on its own:
   your browser would.
 - **The daily update check.** It asks GitHub for this project's list of released versions and sends
   nothing about you or your data. `UPDATE_CHECK=false` in `.env` turns it off.
-- **AI, only if you set up a provider and press an AI button.** What that feature needs (a job
-  description, your notes, a resume, or offer numbers) goes to the provider you chose, on your own
-  account. With Ollama or LM Studio it stays on the machine.
+- **AI, only if you set up a provider and press an AI button.** What that feature needs goes to the
+  provider you chose, on your own account: usually the company and role, plus a job description, a
+  resume, your notes, interviewers' names, rejection reasons, or offer numbers. With Ollama or LM
+  Studio it stays on the machine.
 - **Email, only if you set up a mail account.** Reminders, with the job, company, and interview time,
   go out through the account you configured.
 
@@ -121,7 +122,8 @@ reply: open it and drag one onto a column when they answer, or drag a card back 
   and can be marked ghosted, alone or all together.
 - **Offers**: each offer's base, bonus (in dollars or as a percent of base), equity, sign-on, start
   date, and decision deadline, with an average per year (everything it pays, sign-on included, over the
-  same years for every offer), and a **Decision** (Undecided, Accepted, Declined) you can change later. Equity is entered
+  same years for every offer), and a **Decision** (Undecided, Accepted, Declined) you can change later,
+  which files it under Accepted, Declined, or Pending decision on the page. Equity is entered
   as the letter gives it: shares and a share price, or a dollar value, the years it vests over, and an
   even or custom schedule. The sign-on is entered per year, for one paid over two years. **Pay by
   year** shows what each year actually pays with that year's vesting and sign-on. An **Offered title** records a different title or level than
@@ -142,7 +144,7 @@ reply: open it and drag one onto a column when they answer, or drag a card back 
   book anything. **Add to calendar** downloads a round, or every upcoming one, as a file your own
   calendar app opens.
 - **Insights**: headline numbers (applications, response rate, interviews done and upcoming, round
-  pass rate), a stage funnel, how each interview type tends to go, applications and interviews per
+  pass rate, and offers, with how many you accepted and declined and which one you took), a stage funnel, how each interview type tends to go, applications and interviews per
   week, which resume gets the most replies, and a pipeline-flow chart. With AI
   set up, **Find patterns in my search** says what stands out, sending counts and rejection reasons
   but never company names.
@@ -155,10 +157,20 @@ reply: open it and drag one onto a column when they answer, or drag a card back 
 
 **Seasons.** Each job hunt is a season. Starting a new one from the sidebar's season picker gives you
 an empty board, calendar, and Insights for the new search, while the last one's jobs stay, out of
-view, until you switch back or choose **All seasons**. A job filed under the wrong one moves from its
+view, until you switch back or choose **All seasons**. The picker files each hunt under the year it
+started, with the months it ran, taken from its applications. A job filed under the wrong one moves from its
 dialog. The **Seasons** page, opened from the picker's **Season** heading, compares your hunts side by side (applications, replies, interviews,
 offers), renames them, and opens any one's board or Insights. Upgrading puts every job you already
 have into a first season called "My job hunt".
+
+When a hunt is over, **Close season** on its card asks which offer you accepted, with the day you
+accepted it and your start date filled in from the offer (choosing **Accepted** on the Offers page asks
+for both). The season then turns read-only and gets a **summary** of the whole run: when
+it started and closed, the average time from applying to being rejected, the role closing, or marking it
+ghosted, how many interview rounds
+you passed and didn't (and at which companies), and the offer taken, from the day you applied to the
+day you said yes. A role reposted and linked as replacing the last counts as one, from its first
+application. **Edit** reopens a closed season if something needs changing.
 
 **Keyboard.** `/` or Ctrl K finds a job by company, role, or city; `N` adds one; `G` then `B`, `C`,
 `I`, or `A` goes to the board, calendar, Insights, or all jobs; `?` lists them all.
@@ -350,8 +362,10 @@ The market check, company brief, and interview prep search the web when the prov
 the result is labelled as such. Each makes a few searches, billed by Anthropic on top of the answer.
 
 Each feature runs only when you press its button, and its answer is saved with the job, round, or
-account, so looking at it again costs nothing. What's sent is what the feature needs: the job
-description, your notes or resume, or offer numbers. A local model keeps all of it on your machine.
+account, so looking at it again costs nothing. What's sent is what the feature needs: usually the
+company and role, plus the job description, a resume, your notes, interviewers' names, or offer
+numbers. Patterns sends counts and your rejection reasons, never company names. A local model keeps
+all of it on your machine.
 
 A `.env` from before V4, with `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, keeps working. After
 changing any AI setting, recreate the scraper so it picks up the new values:

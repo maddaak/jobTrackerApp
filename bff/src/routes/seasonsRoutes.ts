@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { create, list, moveJob, remove, rename, view } from "../controllers/seasonsController.js";
+import { close, create, list, moveJob, remove, rename, reopen, view } from "../controllers/seasonsController.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { validateRouteId, NUMERIC_ID } from "../middleware/validateRouteId.js";
 
@@ -13,6 +13,8 @@ router.post("/", create);
 router.put("/active", view);
 router.patch("/:id", rename);
 router.delete("/:id", remove);
+router.post("/:id/close", close);
+router.post("/:id/reopen", reopen);
 router.put("/:id/jobs/:jobId", moveJob);
 
 export default router;

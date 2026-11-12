@@ -53,6 +53,28 @@ describe("SeasonSwitcher", () => {
     expect(screen.getByRole("option", { name: "All seasons" })).toBeInTheDocument();
   });
 
+  // The name alone doesn't say when a hunt was, so each is filed under the year it started, with its months.
+  it("groups seasons by the year their applications started, newest first, with the months they ran", async () => {
+    vi.stubGlobal("fetch", mockFetch([
+      // Made at upgrade in 2026, but its applications are from 2025, which is what dates it.
+      { ...SEASONS[0], name: "My job hunt", createdAt: "2026-06-01T00:00:00Z", closedAt: null,
+        firstApplied: "2025-03-10T12:00:00Z", lastApplied: "2025-06-20T12:00:00Z" },
+      { ...SEASONS[1], name: "Winter search", closedAt: "2026-02-15T12:00:00Z",
+        firstApplied: "2025-11-03T12:00:00Z", lastApplied: "2026-01-30T12:00:00Z" },
+      { id: 3, name: "Fall search", createdAt: "2026-09-01T00:00:00Z", jobCount: 0, active: false, closedAt: null,
+        firstApplied: null, lastApplied: null },
+    ]));
+
+    render(<SeasonSwitcher onSwitched={() => {}} />);
+
+    await screen.findByLabelText("Season");
+    const groups = screen.getAllByRole("group");
+    expect(groups.map(group => group.getAttribute("label"))).toEqual(["2026", "2025"]);
+    expect(screen.getByRole("option", { name: "Fall search (0)" }).parentElement).toBe(groups[0]);
+    expect(Array.from(groups[1].querySelectorAll("option")).map(option => option.textContent))
+      .toEqual(["Winter search · Nov 2025–Feb 2026 (3)", "My job hunt · Mar–Jun (40)"]);
+  });
+
   // With one season, "All seasons" would show exactly the same thing.
   it("offers all seasons only once there is more than one", async () => {
     vi.stubGlobal("fetch", mockFetch([{ ...SEASONS[0], active: true }]));

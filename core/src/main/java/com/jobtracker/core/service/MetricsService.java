@@ -5,14 +5,19 @@ import com.jobtracker.core.dto.MetricsResponse;
 import com.jobtracker.core.dto.MetricsSummary;
 import com.jobtracker.core.dto.OutcomeCount;
 import com.jobtracker.core.dto.ResumeResponseRate;
+import com.jobtracker.core.dto.InterviewRoundCount;
 import com.jobtracker.core.dto.SeasonStats;
+import com.jobtracker.core.dto.SeasonSummary;
 import com.jobtracker.core.dto.WeeklyActivity;
 import com.jobtracker.core.model.InterviewRound;
 import com.jobtracker.core.model.Job;
+import com.jobtracker.core.model.JobDetail;
 import com.jobtracker.core.model.JobJourney;
 import com.jobtracker.core.model.JobLink;
 import com.jobtracker.core.model.JobResume;
+import com.jobtracker.core.model.Offer;
 import com.jobtracker.core.model.Outcome;
+import com.jobtracker.core.model.Season;
 import com.jobtracker.core.model.Stage;
 import com.jobtracker.core.model.StageHistoryEntry;
 import com.jobtracker.core.repository.JobDetailRepository;
@@ -21,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -28,10 +34,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -134,6 +142,92 @@ public class MetricsService {
         return new SeasonStats(seasonId, seasonJobs.size(), active, heardBack, interviewed, offers, first, last);
     }
 
+    public SeasonSummary seasonSummary(Long ownerId, Long seasonId) {
+        Season season = seasons.get(ownerId, seasonId);
+        List<Job> seasonJobs = jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId);
+        Map<Long, JobJourney> detailsByJobId = jobDetails.findJourneysByOwnerId(ownerId).stream()
+                .collect(Collectors.toMap(JobJourney::jobId, Function.identity(), (a, b) -> a));
+        // Only the jobs with an offer: the journeys projection leaves offers out.
+        Map<Long, Offer> offersByJobId = jobDetails.findByOwnerIdAndJobIdIn(ownerId,
+                        seasonJobs.stream().filter(Job::hasOffer).map(Job::getId).toList()).stream()
+                .filter(detail -> detail.getOffer() != null)
+                .collect(Collectors.toMap(JobDetail::getJobId, JobDetail::getOffer, (a, b) -> a));
+        return seasonSummary(season, seasonJobs, detailsByJobId, offersByJobId,
+                furthestStagesByJobId(seasonJobs, detailsByJobId), clock.instant());
+    }
+
+    // An import knows when a job was applied to but not when it closed, so it stamps the closure a moment
+    // after; nothing real answers that fast, so a closure inside this is no date at all.
+    static final Duration NO_REAL_CLOSURE = Duration.ofMinutes(1);
+    private static final Set<Outcome> ANSWERED = EnumSet.of(Outcome.REJECTED, Outcome.POSITION_CLOSED, Outcome.GHOSTED);
+
+    static SeasonSummary seasonSummary(Season season, List<Job> seasonJobs, Map<Long, JobJourney> detailsByJobId,
+            Map<Long, Offer> offersByJobId, Map<Long, Stage> furthestByJobId, Instant now) {
+        Map<Long, List<JobLink>> linksByJobId = detailsByJobId.values().stream()
+                .collect(Collectors.toMap(JobJourney::jobId, JobJourney::relatedJobs));
+        // Each journey leads with its newest posting, which is where it ended.
+        List<List<Job>> journeys = SankeyBuilder.journeys(seasonJobs, linksByJobId);
+
+        long closed = 0;
+        List<Double> responseDays = new ArrayList<>();
+        for (List<Job> journey : journeys) {
+            Job last = journey.get(0);
+            if (!ANSWERED.contains(last.getOutcome())) continue;
+            closed++;
+            JobJourney detail = detailsByJobId.get(last.getId());
+            Instant answered = detail == null ? null : detail.stageHistory().stream()
+                    .filter(entry -> entry.getStage() == Stage.FINALIZED)
+                    .map(StageHistoryEntry::getEnteredAt)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+            if (answered == null || Duration.between(last.getCreatedAt(), answered).compareTo(NO_REAL_CLOSURE) < 0) {
+                continue;
+            }
+            responseDays.add(Duration.between(firstApplied(journey), answered).toMinutes() / (60.0 * 24));
+        }
+        Double averageDays = responseDays.isEmpty() ? null
+                : Math.round(responseDays.stream().mapToDouble(Double::doubleValue).average().orElseThrow() * 10) / 10.0;
+
+        Map<Long, List<InterviewRound>> roundsByJobId = seasonJobs.stream()
+                .filter(job -> detailsByJobId.containsKey(job.getId()))
+                .collect(Collectors.toMap(Job::getId, job -> detailsByJobId.get(job.getId()).interviews()));
+        List<InterviewRoundCount> rounds = RoundOutcomes.count(seasonJobs, roundsByJobId, furthestByJobId, now);
+
+        SeasonSummary.AcceptedOffer accepted = journeys.stream()
+                .filter(journey -> journey.stream().anyMatch(job -> job.getId().equals(season.getAcceptedJobId())))
+                .findFirst()
+                .map(journey -> {
+                    Job job = journey.get(0);
+                    Instant applied = firstApplied(journey);
+                    Offer offer = offersByJobId.get(season.getAcceptedJobId());
+                    LocalDate acceptedOn = offer == null ? null : offer.getAcceptedOn();
+                    Long days = acceptedOn == null ? null
+                            : ChronoUnit.DAYS.between(applied.atZone(ZoneOffset.UTC).toLocalDate(), acceptedOn);
+                    return new SeasonSummary.AcceptedOffer(job.getId(), job.getCompany(), job.getRole(), applied,
+                            acceptedOn, offer == null ? null : offer.getStartDate(), days);
+                })
+                .orElse(null);
+
+        return new SeasonSummary(season.getId(), season.getName(), season.getClosedAt(),
+                seasonJobs.stream().map(Job::getCreatedAt).min(Comparator.naturalOrder()).orElse(null),
+                journeys.size(), averageDays, responseDays.size(), closed,
+                rounds.stream().mapToLong(InterviewRoundCount::passed).sum(),
+                rounds.stream().mapToLong(InterviewRoundCount::notPassed).sum(),
+                rounds, accepted,
+                journeys.stream().map(journey -> journey.get(0)).filter(Job::hasOffer)
+                        .map(job -> {
+                            Offer offer = offersByJobId.get(job.getId());
+                            return new SeasonSummary.OfferMade(job.getId(), job.getCompany(), job.getRole(),
+                                    job.getOutcome() == Outcome.OFFER_ACCEPTED,
+                                    offer == null ? null : offer.getAcceptedOn(), offer == null ? null : offer.getStartDate());
+                        })
+                        .toList());
+    }
+
+    private static Instant firstApplied(List<Job> journey) {
+        return journey.stream().map(Job::getCreatedAt).min(Comparator.naturalOrder()).orElseThrow();
+    }
+
     static final int ACTIVITY_WEEKS = 12;
 
     // createdAt is when the job was applied to (an import sets it from the sheet); a round counts once held.
@@ -190,7 +284,10 @@ public class MetricsService {
                 active.size(),
                 active.stream().filter(job -> job.getCurrentStage().isOnBoard()).count(),
                 done,
-                upcoming);
+                upcoming,
+                // Jobs come newest first.
+                ownerJobs.stream().filter(job -> job.getOutcome() == Outcome.OFFER_ACCEPTED)
+                        .map(Job::getCompany).findFirst().orElse(null));
     }
 
     // Excludes FINALIZED so a rejected job isn't counted as having reached later pipeline stages.

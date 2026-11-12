@@ -117,6 +117,7 @@ public class JobService {
     @Transactional
     public JobSummaryResponse updateJob(Long ownerId, Long jobId, UpdateJobRequest request) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
 
         Stage previousStage = job.getCurrentStage();
         job.applyUpdate(request.company(), request.role(), request.sourceCategory(), request.url(),
@@ -160,6 +161,7 @@ public class JobService {
     @Transactional
     public List<StageEventResponse> deleteStageEvent(Long ownerId, Long jobId, Instant enteredAt, Stage stage) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         JobDetail detail = jobDetails.findByJobId(jobId).orElseThrow(JobNotFoundException::new);
         if (detail.getStageHistory().size() <= 1) {
             throw new InvalidStageHistoryException("a job must keep at least one stage history entry");
@@ -186,6 +188,7 @@ public class JobService {
     @Transactional
     public void deleteJob(Long ownerId, Long jobId) {
         Job job = jobs.findByIdAndOwnerId(jobId, ownerId).orElseThrow(JobNotFoundException::new);
+        seasons.requireOpen(job.getSeasonId());
         jobs.delete(job);
         // Only the edges go; the jobs on the other end stay.
         jobLinkService.removeLinksTo(ownerId, job.getId());

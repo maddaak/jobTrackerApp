@@ -52,4 +52,17 @@ describe("GET /metrics", () => {
     expect(res.body).toEqual(stats);
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/\/metrics\/seasons$/);
   });
+
+  it("returns one season's summary, refusing an id that isn't a number before calling core", async () => {
+    const summary = { seasonId: 3, name: "Spring hunt", applications: 12, averageResponseDays: 9.5 };
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeCoreResponse(200, summary));
+
+    const res = await request().get("/metrics/seasons/3/summary").set("Cookie", authCookie("42"));
+    const bad = await request().get("/metrics/seasons/abc/summary").set("Cookie", authCookie("42"));
+
+    expect(res.body).toEqual(summary);
+    expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/\/metrics\/seasons\/3\/summary$/);
+    expect(bad.status).toBe(400);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });

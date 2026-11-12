@@ -55,7 +55,7 @@ class JobServiceTests {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         when(seasons.inView(any())).thenReturn(job -> true);
-        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService, new JobLinkService(jobs, jobDetailRepo),
+        jobService = new JobService(jobs, users, jobDetailRepo, jobDetailService, new JobLinkService(jobs, jobDetailRepo, seasons),
                 jobImageService, seasons, Clock.systemUTC());
         // updateJob creates the document when one is missing, so a stage change never drops its entry.
         when(jobDetailService.createDetail(anyLong(), anyLong(), any()))

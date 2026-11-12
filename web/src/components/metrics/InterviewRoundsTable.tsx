@@ -37,7 +37,8 @@ function RoundCountCell({ label, verdictLabel, value, onOpen }: RoundCountCellPr
       type="button"
       onClick={onOpen}
       aria-label={`Show the ${value} ${label} rounds ${verdictLabel}`}
-      className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+      title={`See which jobs ${verdictLabel === "passed" ? "you passed" : "you didn't pass"}`}
+      className="-mx-1 rounded px-1 underline decoration-dotted underline-offset-2 hover:bg-neutral-100 hover:decoration-solid dark:hover:bg-neutral-800"
     >
       {value}
     </button>

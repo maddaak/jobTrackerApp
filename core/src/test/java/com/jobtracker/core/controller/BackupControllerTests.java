@@ -242,4 +242,38 @@ class BackupControllerTests {
         restore(other, backup.replace("REMOTE", "MOON_BASE").getBytes(StandardCharsets.UTF_8))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error", containsString("unknown location")));
     }
+
+    // A finished hunt comes back finished, its offer pointing at the restored job rather than the old id.
+    @Test
+    void aClosedSeasonRestoresClosedWithItsOfferAndDates() throws Exception {
+        Long from = users.save(new User("backup-closed-from", "hash")).getId();
+        Long offer = createJob(from, "Initech");
+        as(from, patch("/jobs/" + offer).contentType("application/json")
+                .content("{\"company\":\"Initech\",\"role\":\"Engineer\",\"sourceCategory\":\"SELF_APPLIED\",\"currentStage\":\"OFFER_STAGE\",\"outcome\":\"ACTIVE\"}"))
+            .andExpect(status().isOk());
+        Long season = ((Number) JsonPath.read(as(from, get("/seasons")).andReturn().getResponse().getContentAsString(),
+                "$[0].id")).longValue();
+        as(from, put("/jobs/" + offer + "/offer/acceptance").contentType("application/json")
+                .content("{\"acceptedOn\":\"2026-10-20\",\"startDate\":\"2026-11-16\"}"))
+            .andExpect(status().isOk());
+        as(from, post("/seasons/" + season + "/close").contentType("application/json")
+                .content("{\"acceptedJobId\":" + offer + "}"))
+            .andExpect(status().isOk());
+
+        Long to = users.save(new User("backup-closed-to", "hash")).getId();
+        restore(to, exportOf(from)).andExpect(status().isOk());
+
+        String restoredJobs = as(to, get("/jobs")).andReturn().getResponse().getContentAsString();
+        Long restoredOffer = ((Number) JsonPath.read(restoredJobs, "$[0].id")).longValue();
+        assertThat(restoredOffer).isNotEqualTo(offer);
+        List<Number> closedIds = JsonPath.read(as(to, get("/seasons")).andReturn().getResponse().getContentAsString(),
+                "$[?(@.closedAt != null)].id");
+        Long restoredSeason = closedIds.get(0).longValue();
+        as(to, get("/seasons"))
+            .andExpect(jsonPath("$[?(@.closedAt != null)]", hasSize(1)))
+            .andExpect(jsonPath("$[?(@.closedAt != null)].acceptedJobId").value(restoredOffer.intValue()));
+        as(to, get("/metrics/seasons/" + restoredSeason + "/summary"))
+            .andExpect(jsonPath("$.acceptedOffer.acceptedOn").value("2026-10-20"))
+            .andExpect(jsonPath("$.acceptedOffer.startsOn").value("2026-11-16"));
+    }
 }

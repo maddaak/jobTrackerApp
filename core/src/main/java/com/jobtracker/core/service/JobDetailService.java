@@ -20,11 +20,14 @@ public class JobDetailService {
     private final JobRepository jobs;
     private final JobDetailRepository jobDetails;
     private final JobLinkService jobLinkService;
+    private final SeasonService seasons;
 
-    public JobDetailService(JobRepository jobs, JobDetailRepository jobDetails, JobLinkService jobLinkService) {
+    public JobDetailService(JobRepository jobs, JobDetailRepository jobDetails, JobLinkService jobLinkService,
+            SeasonService seasons) {
         this.jobs = jobs;
         this.jobDetails = jobDetails;
         this.jobLinkService = jobLinkService;
+        this.seasons = seasons;
     }
 
     public JobDetailDocumentResponse getDetail(Long ownerId, Long jobId) {
@@ -52,6 +55,7 @@ public class JobDetailService {
 
     public JobDetailDocumentResponse updateDetail(Long ownerId, Long jobId, UpdateJobDetailRequest request) {
         Job job = requireOwnedJob(ownerId, jobId);
+        seasons.requireOpen(job.getSeasonId());
         try {
             return toResponse(ownerId, saveDetail(job, request));
         } catch (DuplicateKeyException race) {

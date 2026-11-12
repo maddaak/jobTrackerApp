@@ -87,18 +87,19 @@ on its own:
 Installing and updating download the app's public images; nothing is sent the other way. A link you
 click in the app, such as a meeting link or a map, opens in your browser like any other link.
 
-**Setting it up with an AI assistant**, such as Claude Code with this repo's `CLAUDE.md`: the commands
+**Setting it up with an AI assistant**, such as Claude Code, Codex, Cursor, or Gemini CLI: the commands
 it runs work on your machine. `sh setup.sh` makes random secrets locally and makes no network calls
 (CI runs it with networking switched off to prove it), and it reports each secret as made or kept
 without ever printing one. `docker compose` downloads the app's images and starts them. Neither sends
 your data anywhere. The assistant is a separate tool: what it reads and runs goes to its own AI
 provider, as with any task you give it. So this repo keeps your keys out of it:
 
-- `.claude/settings.json` makes Claude Code refuse to read `.env`, `certs/`, or a backup file, and
+- `AGENTS.md` tells it never to look at your job data, and never to ask you to paste a key or password
+  into the chat: you put those in `.env` yourself, in an editor. Most assistants read it on their own,
+  and `CLAUDE.md` points Claude Code to it.
+- `.claude/settings.json` also makes Claude Code refuse to read `.env`, `certs/`, or a backup file, and
   refuse the commands that would print your settings (`printenv`, `docker inspect`,
   `docker compose config`).
-- `CLAUDE.md` tells it never to look at your job data, and never to ask you to paste a key or password
-  into the chat: you put those in `.env` yourself, in an editor.
 
 ## What it does
 

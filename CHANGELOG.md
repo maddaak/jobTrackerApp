@@ -4,6 +4,19 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V4.1.1
+
+Setting the app up with any AI coding assistant, not only Claude Code, now gets the same instructions.
+Nothing in the app changed.
+
+### Upgrading
+- Nothing to do.
+
+### Setup
+- **The agent instructions are in `AGENTS.md`**, the file most coding assistants read on their own
+  (Codex, Cursor, Copilot, Windsurf, and others). `CLAUDE.md` is one line pointing Claude Code to it, so
+  every tool follows one set of rules.
+
 ## V4.1.0
 
 A finished job hunt can be closed: it becomes read-only and gets a summary of the whole run, from the

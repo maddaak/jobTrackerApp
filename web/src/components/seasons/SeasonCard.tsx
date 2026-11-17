@@ -60,11 +60,15 @@ export default function SeasonCard({
           )}
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
             {stats?.firstApplied && stats.lastApplied
-              ? `${day(stats.firstApplied)} to ${day(stats.lastApplied)}`
+              // A hunt still open runs until today; its latest application is only where it has got to.
+              ? `${day(stats.firstApplied)} to ${season.closedAt ? day(stats.lastApplied) : "now"}`
               : "No jobs yet"}
             {season.active && <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">Showing now</span>}
             {season.closedAt && <span className="ml-2 rounded bg-neutral-200 px-1.5 py-0.5 font-medium text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200">Closed {day(season.closedAt)}</span>}
           </p>
+          {!season.closedAt && stats?.lastApplied && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Last applied {day(stats.lastApplied)}</p>
+          )}
         </div>
         {!editing && (
           <div className="flex shrink-0 items-center gap-3 text-sm">

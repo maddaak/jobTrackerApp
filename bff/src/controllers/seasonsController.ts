@@ -33,7 +33,7 @@ export async function view(req: AuthedRequest, res: Response) {
 }
 
 export async function close(req: AuthedRequest, res: Response) {
-  sendUpstream(res, await closeSeason(req.userId!, req.params.id as string, req.body ?? {}));
+  sendUpstream(res, await closeSeason(req.userId!, req.params.id as string));
 }
 
 export async function reopen(req: AuthedRequest, res: Response) {

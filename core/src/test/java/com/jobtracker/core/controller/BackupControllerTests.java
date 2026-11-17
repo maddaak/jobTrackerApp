@@ -256,9 +256,7 @@ class BackupControllerTests {
         as(from, put("/jobs/" + offer + "/offer/acceptance").contentType("application/json")
                 .content("{\"acceptedOn\":\"2026-10-20\",\"startDate\":\"2026-11-16\"}"))
             .andExpect(status().isOk());
-        as(from, post("/seasons/" + season + "/close").contentType("application/json")
-                .content("{\"acceptedJobId\":" + offer + "}"))
-            .andExpect(status().isOk());
+        as(from, post("/seasons/" + season + "/close")).andExpect(status().isOk());
 
         Long to = users.save(new User("backup-closed-to", "hash")).getId();
         restore(to, exportOf(from)).andExpect(status().isOk());

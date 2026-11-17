@@ -108,8 +108,8 @@ public class GlobalExceptionHandler {
     }
 
     // 409: the request is fine, the job's state is what refuses it.
-    @ExceptionHandler(NoOfferException.class)
-    public ResponseEntity<Map<String, String>> handleNoOffer(NoOfferException ex) {
+    @ExceptionHandler({NoOfferException.class, UndecidedOfferException.class})
+    public ResponseEntity<Map<String, String>> handleNoOffer(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
     }
 

@@ -124,6 +124,7 @@ export default function SeasonsPage() {
             season={closing}
             onClose={() => setClosing(null)}
             onClosed={saved => { setClosing(null); replaced(saved); navigate(`/seasons/${saved.id}/summary`); }}
+            onOpenOffers={section => { setClosing(null); open(closing)(`/offers#${section}`); }}
           />
         )}
       </div>

@@ -143,17 +143,19 @@ step("downloads a backup holding every job and its season", async () => {
 step("closing a season makes it read-only and sums it up, and Edit reopens it", async () => {
   const accepted = await call("PUT", `/jobs/${jobId}/offer/acceptance`, { acceptedOn: "2026-10-20", startDate: "2026-11-16" });
   hasKeys(accepted, ["outcome", "acceptedOn", "startDate"], "an accepted offer");
-  const closed = await call("POST", `/seasons/${firstSeason}/close`, { acceptedJobId: jobId });
+  const closed = await call("POST", `/seasons/${firstSeason}/close`);
   hasKeys(closed, ["closedAt", "acceptedJobId"], "a closed season");
+  assert.equal(closed.acceptedJobId, jobId, "closing took the offer accepted on the Offers page");
   await call("PATCH", `/jobs/${jobId}`, {
     company: "Changed Co", role: "Engineer", sourceCategory: "SELF_APPLIED", currentStage: "OFFER_STAGE", outcome: "ACTIVE",
   }, { expect: 409 });
   const summary = await call("GET", `/metrics/seasons/${firstSeason}/summary`);
   hasKeys(summary, ["name", "closedAt", "firstApplied", "applications", "averageResponseDays", "responsesMeasured",
-    "closedApplications", "roundsPassed", "roundsFailed", "rounds", "acceptedOffer", "offers"], "a season summary");
+    "closedApplications", "openApplications", "roundsPassed", "roundsFailed", "rounds", "acceptedOffer", "offers"], "a season summary");
   hasKeys(summary.acceptedOffer, ["company", "role", "applied", "acceptedOn", "startsOn", "daysToAccept"], "the offer taken");
   assert.equal(summary.acceptedOffer.company, "Smoke Co");
   assert.equal(summary.acceptedOffer.acceptedOn, "2026-10-20");
+  assert.equal(summary.openApplications, 0, "closing left an application open");
   assert.equal((await call("POST", `/seasons/${firstSeason}/reopen`)).closedAt, null);
 });
 

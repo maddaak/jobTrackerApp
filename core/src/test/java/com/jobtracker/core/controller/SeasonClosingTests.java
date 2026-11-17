@@ -1,7 +1,9 @@
 package com.jobtracker.core.controller;
 
 import com.jayway.jsonpath.JsonPath;
+import com.jobtracker.core.model.Job;
 import com.jobtracker.core.model.Outcome;
+import com.jobtracker.core.model.Stage;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.JobDetailRepository;
 import com.jobtracker.core.repository.JobRepository;
@@ -22,6 +24,7 @@ import org.springframework.test.web.servlet.request.AbstractMockHttpServletReque
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -99,8 +102,15 @@ class SeasonClosingTests {
                 + "\"currentStage\":\"" + stage + "\",\"outcome\":\"ACTIVE\"}";
     }
 
-    private ResultActions close(String body) throws Exception {
-        return as(post("/seasons/" + seasonId + "/close").contentType("application/json").content(body));
+    private ResultActions close() throws Exception {
+        return as(post("/seasons/" + seasonId + "/close"));
+    }
+
+    // As the Offers page does; closing refuses while the offer is undecided.
+    private void declineTheOffer() throws Exception {
+        as(patch("/jobs/" + offerJob).contentType("application/json")
+                .content(jobPatch("Initech", "OFFER_STAGE").replace("\"ACTIVE\"", "\"OFFER_DECLINED\"")))
+                .andExpect(status().isOk());
     }
 
     // Every request that changes a job, a round, or what hangs off them. A new one belongs here, or a closed
@@ -148,7 +158,8 @@ class SeasonClosingTests {
 
     @Test
     void aClosedSeasonRefusesEveryChange() throws Exception {
-        close("{}").andExpect(status().isOk()).andExpect(jsonPath("$.closedAt").isNotEmpty());
+        declineTheOffer();
+        close().andExpect(status().isOk()).andExpect(jsonPath("$.closedAt").isNotEmpty());
 
         for (Map.Entry<String, AbstractMockHttpServletRequestBuilder<?>> write : everyWrite().entrySet()) {
             int status = as(write.getValue()).andReturn().getResponse().getStatus();
@@ -160,7 +171,8 @@ class SeasonClosingTests {
 
     @Test
     void editReopensItAndChangesGoThroughAgain() throws Exception {
-        close("{}").andExpect(status().isOk());
+        declineTheOffer();
+        close().andExpect(status().isOk());
 
         as(post("/seasons/" + seasonId + "/reopen")).andExpect(status().isOk()).andExpect(jsonPath("$.closedAt").isEmpty());
 
@@ -174,7 +186,8 @@ class SeasonClosingTests {
                 .content("{\"name\":\"Next hunt\"}"))), "$.id")).longValue();
         as(put("/seasons/active").contentType("application/json").content("{\"seasonId\":" + next + "}"));
         Long later = addJob("Hooli");
-        close("{}").andExpect(status().isOk());
+        declineTheOffer();
+        close().andExpect(status().isOk());
 
         as(put("/seasons/" + next + "/jobs/" + offerJob)).andExpect(status().isConflict());
         as(put("/seasons/" + seasonId + "/jobs/" + later)).andExpect(status().isConflict());
@@ -190,11 +203,10 @@ class SeasonClosingTests {
                 .andExpect(jsonPath("$.acceptedOn").value("2026-10-20"))
                 .andExpect(jsonPath("$.startDate").value("2026-11-16"));
 
-        close("{\"acceptedJobId\":" + offerJob + "}")
+        close()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.acceptedJobId").value(offerJob));
 
-        assertThat(jobs.findById(offerJob).orElseThrow().getOutcome()).isEqualTo(Outcome.OFFER_ACCEPTED);
         as(get("/metrics/seasons/" + seasonId + "/summary"))
                 .andExpect(jsonPath("$.acceptedOffer.company").value("Initech"))
                 .andExpect(jsonPath("$.acceptedOffer.acceptedOn").value("2026-10-20"))
@@ -223,13 +235,37 @@ class SeasonClosingTests {
                 .andExpect(status().isConflict());
     }
 
+    // Ending the hunt steps away from the rest, a paused one too, and withdrawing is no reply from the employer.
     @Test
-    void theOfferTakenMustBeAnOfferInThisSeason() throws Exception {
-        close("{\"acceptedJobId\":" + otherJob + "}").andExpect(status().isConflict());
+    void closingWithdrawsWhatIsStillOpenOrPaused() throws Exception {
+        declineTheOffer();
+        Long paused = addJob("Hooli");
+        as(patch("/jobs/" + paused).contentType("application/json")
+                .content(jobPatch("Hooli", "RESUME_CHECK").replace("\"ACTIVE\"", "\"PAUSED\"")))
+                .andExpect(status().isOk());
+        as(get("/metrics/seasons/" + seasonId + "/summary")).andExpect(jsonPath("$.openApplications").value(2));
 
-        Long next = ((Number) JsonPath.read(body(as(post("/seasons").contentType("application/json")
-                .content("{\"name\":\"Next hunt\"}"))), "$.id")).longValue();
-        as(put("/seasons/" + next + "/jobs/" + offerJob)).andExpect(status().isNoContent());
-        close("{\"acceptedJobId\":" + offerJob + "}").andExpect(status().isNotFound());
+        close().andExpect(status().isOk());
+
+        for (Long id : List.of(otherJob, paused)) {
+            Job withdrawn = jobs.findById(id).orElseThrow();
+            assertThat(withdrawn.getOutcome()).isEqualTo(Outcome.WITHDRAWN);
+            assertThat(withdrawn.getCurrentStage()).isEqualTo(Stage.FINALIZED);
+        }
+        assertThat(jobs.findById(offerJob).orElseThrow().getOutcome()).isEqualTo(Outcome.OFFER_DECLINED);
+        as(get("/metrics/seasons/" + seasonId + "/summary"))
+                .andExpect(jsonPath("$.openApplications").value(0))
+                .andExpect(jsonPath("$.closedApplications").value(0));
+    }
+
+    // Closing reports the Offers page's decisions, so an offer still open there must be settled first.
+    @Test
+    void anUndecidedOfferHoldsUpClosingAndADeclinedOneEndsWithNoneTaken() throws Exception {
+        close().andExpect(status().isConflict());
+        assertThat(seasons.list(owner).getFirst().closedAt()).isNull();
+
+        declineTheOffer();
+
+        close().andExpect(status().isOk()).andExpect(jsonPath("$.acceptedJobId").isEmpty());
     }
 }

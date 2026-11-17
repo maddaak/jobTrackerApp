@@ -147,11 +147,31 @@ class SeasonSummaryTests {
         job("Hooli", 5, Outcome.REJECTED, 4.0);
 
         assertThat(summary(season()).offers())
-                .extracting(SeasonSummary.OfferMade::company, SeasonSummary.OfferMade::accepted,
+                .extracting(SeasonSummary.OfferMade::company, SeasonSummary.OfferMade::outcome,
                         SeasonSummary.OfferMade::acceptedOn, SeasonSummary.OfferMade::startDate)
                 .containsExactlyInAnyOrder(
-                        tuple("Initech", true, LocalDate.parse("2026-04-15"), LocalDate.parse("2026-05-04")),
-                        tuple("Globex", false, null, null));
+                        tuple("Initech", Outcome.OFFER_ACCEPTED, LocalDate.parse("2026-04-15"), LocalDate.parse("2026-05-04")),
+                        tuple("Globex", Outcome.ACTIVE, null, null));
+    }
+
+    // A downlevel is what was taken, so the summary and closing name the offer by it, not by the posting.
+    @Test
+    void anOfferIsNamedByTheTitleOfferedWhenItHasOne() {
+        Job downleveled = job("Initech", 0, Outcome.OFFER_ACCEPTED, null);
+        Offer offer = new Offer("Engineer II", null, null, null, null, null, null, null, null, null);
+        offer.accept(LocalDate.parse("2026-04-15"), LocalDate.parse("2026-05-04"));
+        offers.put(downleveled.getId(), offer);
+        Job asPosted = job("Globex", 3, Outcome.ACTIVE, null);
+        asPosted.restoreState(Stage.OFFER_STAGE, null, Outcome.ACTIVE, asPosted.getCreatedAt());
+        Season season = season();
+        season.close(NOW, downleveled.getId());
+
+        SeasonSummary summary = summary(season);
+
+        assertThat(summary.acceptedOffer().role()).isEqualTo("Engineer II");
+        assertThat(summary.offers())
+                .extracting(SeasonSummary.OfferMade::company, SeasonSummary.OfferMade::role)
+                .containsExactlyInAnyOrder(tuple("Initech", "Engineer II"), tuple("Globex", "Engineer"));
     }
 
     @Test

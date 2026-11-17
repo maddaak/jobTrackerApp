@@ -121,6 +121,8 @@ export interface SeasonSummary {
   averageResponseDays: number | null;
   responsesMeasured: number;
   closedApplications: number;
+  // Still open or paused, so closing the season withdraws them.
+  openApplications: number;
   roundsPassed: number;
   roundsFailed: number;
   rounds: InterviewRoundCount[];
@@ -133,8 +135,8 @@ export interface SeasonSummary {
     startsOn: string | null;
     daysToAccept: number | null;
   } | null;
-  // What closing the season can name as the offer taken, with the days saved on each.
-  offers: { jobId: number; company: string; role: string; accepted: boolean; acceptedOn: string | null;
+  // Each offer as the Offers page decided it, which closing the season reports.
+  offers: { jobId: number; company: string; role: string; outcome: Outcome; acceptedOn: string | null;
     startDate: string | null }[];
 }
 

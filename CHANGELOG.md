@@ -4,6 +4,37 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V4.1.2
+
+Closing a season reports how the hunt ended instead of asking, and withdraws whatever is still open. A
+finished hunt names the job you took by its offered title, and dropdowns line up with the fields around
+them. Upgrading is a pull and a restart.
+
+### Upgrading
+- Nothing to do.
+
+### Seasons
+- **Closing a season shows how it ended rather than asking.** Offers are accepted and declined on the
+  Offers page only, so **Close season** no longer has a dropdown of offers or its own date boxes. It
+  says which offer you accepted, when, and when you start, with a link to change it on the Offers page;
+  or that you declined every offer; or that the hunt ended without one.
+- **An undecided offer holds up closing.** The dialog names it and links to the Offers page to accept or
+  decline it, and `core` refuses to close the season until you do. Closing takes the offer you accepted
+  there, and no longer accepts one named in the request.
+- **Closing withdraws what's still open.** Ending the hunt means stepping away from the rest, so every
+  application still open or paused when a season closes becomes Withdrawn, and the dialog says how many
+  first. A finished hunt has nothing active. Reopening the season leaves them withdrawn; change any back
+  from the Closed page.
+- **A season still open runs "to now"** on its card, with "Last applied" and the day below, instead of
+  ending at its latest application as if it had stopped there.
+- **An offer is named by the title offered.** Closing a season, and its summary, showed the posting's
+  title even when the offer came in under another one, such as after a downlevel. They now show the
+  offered title, and the posting's when the offer has none.
+
+### Look and feel
+- **Dropdowns match the fields beside them.** Every dropdown has one arrow, set in from the edge, and
+  lines up its text with the text and date boxes around it, instead of the browser's own arrow.
+
 ## V4.1.1
 
 Setting the app up with any AI coding assistant, not only Claude Code, now gets the same instructions.

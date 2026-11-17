@@ -79,17 +79,16 @@ describe("/seasons", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("closes a season with the offer taken, sending null when there isn't one", async () => {
+  // The Offers page decides the offer taken, so nothing a caller sends can name one.
+  it("closes a season without passing on an offer", async () => {
     const mockFetch = fetch as ReturnType<typeof vi.fn>;
     mockFetch.mockResolvedValue(fakeCoreResponse(200, { ...season, closedAt: "2026-11-11T00:00:00Z" }));
 
     const res = await request().post("/seasons/3/close").set("Cookie", authCookie()).send({ acceptedJobId: 9 });
-    await request().post("/seasons/3/close").set("Cookie", authCookie()).send({});
 
     expect(res.status).toBe(200);
     expect(mockFetch.mock.calls[0][0]).toMatch(/\/seasons\/3\/close$/);
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ acceptedJobId: 9 });
-    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ acceptedJobId: null });
+    expect(mockFetch.mock.calls[0][1].body).toBeUndefined();
   });
 
   it("reopens a season, and passes on core refusing a change to a closed one", async () => {

@@ -7,7 +7,7 @@ export interface SeasonData {
   createdAt: string;
   jobCount: number;
   active: boolean;
-  // Null while the season runs. The offer taken outlives a reopen, to fill the next close.
+  // Null while the season runs.
   closedAt: string | null;
   acceptedJobId: number | null;
   // From the season's applications; null with none yet.
@@ -44,12 +44,9 @@ export function viewSeason(userId: string, seasonId: unknown) {
   return callCore<void>("/seasons/active", { method: "PUT", userId, body: { seasonId: seasonId ?? null } });
 }
 
-// Core checks the job is an offer in this season and marks it accepted; a hunt can end without one. Its days
-// are set on the offer itself.
-export function closeSeason(userId: string, seasonId: string, body: { acceptedJobId?: unknown }) {
-  return callCore<SeasonData>(`/seasons/${encodeURIComponent(seasonId)}/close`, {
-    method: "POST", userId, body: { acceptedJobId: body.acceptedJobId ?? null },
-  });
+// Core reads the offer taken from the Offers page's decisions, and refuses while one is undecided.
+export function closeSeason(userId: string, seasonId: string) {
+  return callCore<SeasonData>(`/seasons/${encodeURIComponent(seasonId)}/close`, { method: "POST", userId });
 }
 
 export function reopenSeason(userId: string, seasonId: string) {

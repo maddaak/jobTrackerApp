@@ -352,7 +352,9 @@ Conventions worth knowing before changing anything:
 - **A closed season is read-only, enforced in `core`**: every write to a job, a round, or what hangs off
   them calls `SeasonService.requireOpen` with the job's season first (new jobs go through
   `seasonForNewJob`, which does). A new write endpoint goes in `SeasonClosingTests.everyWrite`, which
-  checks each is refused; one left out can change a closed season.
+  checks each is refused; one left out can change a closed season. Closing decides nothing itself:
+  `SeasonService.close` refuses while an offer is undecided, takes the offer accepted on the Offers page,
+  and withdraws every job still open or paused.
 - **A new BFF route prefix must be added to `web/nginx.conf.template`'s allowlist regex**, or it
   405s through the real proxy while every test still passes.
 - **A new interview type touches four places**: the enum in `core/.../model/InterviewType.java`

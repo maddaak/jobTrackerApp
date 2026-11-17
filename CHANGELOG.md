@@ -4,6 +4,29 @@ This file is the single source of truth for what changed between released
 versions. Each merge into main references the version it ships, so the commit
 history stays readable and the detail lives here.
 
+## V4.1.3
+
+A finished hunt stops being where the app opens, and its summary leads to everything about it.
+Upgrading is a pull and a restart.
+
+### Upgrading
+- Nothing to do.
+
+### Seasons
+- **The Seasons page is now a lobby, outside any one hunt.** It has no sidebar, since the sidebar's
+  pages belong to a season you're in. Starting a new hunt is front and center; below it, **Active** lists
+  the hunts still open, with Open board, See Insights, Close season, and Rename, and **Past** lists the
+  finished ones. Clicking a past hunt opens its summary, with the whole app back on that hunt. The
+  picker's **Season** heading, the **Job Tracker** logo, the closed-season banner's **Start a new hunt**
+  link, and **← All hunts** on a summary all lead here.
+- **Opening the app on a closed season lands on the lobby**, not its read-only board. Opening a closed
+  season's board on purpose still works once you're in.
+- **A closed season opens on its summary** when picked in the sidebar.
+- **The summary links to the season's pages.** **See Insights**, **Open board**, and **See offers** sit
+  under its title, each switching to that season first, so a closed hunt's pages are one click away.
+- **The offer you accepted opens in full.** Clicking its card on the summary goes to it on the Offers
+  page, in that season.
+
 ## V4.1.2
 
 Closing a season reports how the hunt ended instead of asking, and withdraws whatever is still open. A

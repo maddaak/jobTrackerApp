@@ -1,5 +1,5 @@
-import { Suspense, useEffect, useState } from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import AppNav from "../components/AppNav";
 import { JobsProvider } from "../context/JobsContext";
@@ -22,16 +22,31 @@ export default function ProtectedRoute() {
   // The season shown when it's closed: read-only, which the banner says and the sidebar's Add job follows.
   const [closed, setClosed] = useState<Season | null>(null);
 
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  // The lobby stands alone: until a season is opened there's no board or calendar to go to.
+  const inLobby = pathname === "/seasons";
+  // Where the app opened, cleared once used, so only the first load can land elsewhere.
+  const openedAt = useRef<string | null>(pathname);
+
   // Closing and reopening go through onSeasonChanged, so this reloads with everything else.
   useEffect(() => {
     if (!username) return;
     let ignore = false;
     listSeasons()
-      .then(seasons => { if (!ignore) setClosed(seasons.find(s => s.active && s.closedAt) ?? null); })
+      .then(seasons => {
+        if (ignore) return;
+        const shownClosed = seasons.find(s => s.active && s.closedAt) ?? null;
+        setClosed(shownClosed);
+        // Signing in onto a finished hunt's board is a dead end; the lobby offers a new hunt or a past one.
+        // Only on opening the app, so a closed season's board can still be opened on purpose.
+        if (shownClosed && openedAt.current === "/") navigate("/seasons", { replace: true });
+        openedAt.current = null;
+      })
       // The pages report their own load errors; this is only a heads-up.
       .catch(() => {});
     return () => { ignore = true; };
-  }, [username, season]);
+  }, [username, season, navigate]);
 
   if (loading) {
     return null;
@@ -45,6 +60,13 @@ export default function ProtectedRoute() {
     onSeasonChanged: () => setSeason(version => version + 1),
     onSeasonsRenamed: () => setNames(version => version + 1),
   };
+  if (inLobby) {
+    return (
+      <Suspense fallback={<p className="p-6 text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>}>
+        <Outlet context={seasons} />
+      </Suspense>
+    );
+  }
   return (
     <JobsProvider key={season}>
       <div className="flex h-screen flex-col md:flex-row">

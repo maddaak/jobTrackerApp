@@ -174,10 +174,11 @@ export default function AppNav({ onSeasonChanged, seasonsVersion = 0, readOnly =
       aria-label="Main"
       className="flex shrink-0 flex-col gap-4 border-b border-neutral-200 bg-neutral-50 px-3 py-4 md:w-60 md:border-b-0 md:border-r dark:border-neutral-800 dark:bg-neutral-900/40"
     >
-      <span className="flex items-center gap-2 px-1 text-lg font-semibold">
+      {/* Back to the lobby, where a new hunt starts and the past ones are. */}
+      <Link to="/seasons" title="All job hunts" className="flex items-center gap-2 rounded px-1 text-lg font-semibold hover:opacity-80">
         <span aria-hidden="true" className="grid size-7 place-items-center rounded-md bg-blue-600 text-sm font-bold text-white">J</span>
         Job Tracker
-      </span>
+      </Link>
 
       <SeasonSwitcher key={seasonsVersion} onSwitched={onSeasonChanged} />
 

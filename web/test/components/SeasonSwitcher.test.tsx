@@ -97,6 +97,21 @@ describe("SeasonSwitcher", () => {
     expect(JSON.parse(put!.init!.body as string)).toEqual({ seasonId: null });
   });
 
+  // A finished hunt is looked back on, so picking one shows its summary; an open one stays on the page.
+  it("opens a closed season's summary, and leaves an open one where you are", async () => {
+    vi.stubGlobal("fetch", mockFetch([{ ...SEASONS[0], closedAt: "2026-04-01T00:00:00Z" }, SEASONS[1]]));
+    const onSwitched = vi.fn();
+    render(<SeasonSwitcher onSwitched={onSwitched} />);
+
+    fireEvent.change(await screen.findByLabelText("Season"), { target: { value: "1" } });
+
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/seasons/1/summary"));
+    expect(onSwitched).toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Season"), { target: { value: "2" } });
+    await waitFor(() => expect(onSwitched).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("where")).toHaveTextContent("/seasons/1/summary");
+  });
+
   it("starts a new season by name", async () => {
     vi.stubGlobal("fetch", mockFetch(SEASONS));
     const onSwitched = vi.fn();

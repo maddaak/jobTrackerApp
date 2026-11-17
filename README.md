@@ -160,11 +160,13 @@ reply: open it and drag one onto a column when they answer, or drag a card back 
 an empty board, calendar, and Insights for the new search, while the last one's jobs stay, out of
 view, until you switch back or choose **All seasons**. The picker files each hunt under the year it
 started, with the months it ran, taken from its applications. A job filed under the wrong one moves from its
-dialog. The **Seasons** page, opened from the picker's **Season** heading, compares your hunts side by side (applications, replies, interviews,
-offers), renames them, and opens any one's board or Insights. Upgrading puts every job you already
-have into a first season called "My job hunt".
+dialog. The **Seasons** page is a lobby outside any one hunt, with no sidebar, reached from the
+picker's **Season** heading or the **Job Tracker** logo: start a new hunt at the top, then **Active**
+hunts (applications, replies, interviews, offers, with their board, Insights, Close season, and
+Rename) and **Past** ones, each opening on its summary with the whole app back on it. Upgrading puts
+every job you already have into a first season called "My job hunt".
 
-When a hunt is over, **Close season** on its card shows how it ended, as the Offers page has it: the
+When a hunt is over, **Close season** on its Active card shows how it ended, as the Offers page has it: the
 offer you accepted, with the day you accepted it and your start date, or that you took none. You decide
 offers on the Offers page, not here, so an offer still undecided holds closing until you accept or
 decline it there. Every application still open or paused is marked Withdrawn, since you've ended
@@ -173,7 +175,10 @@ it started and closed, the average time from applying to being rejected, the rol
 ghosted, how many interview rounds
 you passed and didn't (and at which companies), and the offer taken, from the day you applied to the
 day you said yes. A role reposted and linked as replacing the last counts as one, from its first
-application. **Edit** reopens a closed season if something needs changing.
+application. The summary links straight to that season's Insights, board, and offers, and clicking
+the offer taken opens it in full. A closed season opens on its summary when picked in the sidebar,
+and opening the app while one is shown lands on the Seasons lobby. **Edit**, on the closed-season
+banner, reopens it if something needs changing.
 
 **Keyboard.** `/` or Ctrl K finds a job by company, role, or city; `N` adds one; `G` then `B`, `C`,
 `I`, or `A` goes to the board, calendar, Insights, or all jobs; `?` lists them all.

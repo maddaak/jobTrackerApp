@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SeasonSummaryPage from "../../src/pages/SeasonSummaryPage";
 import type { SeasonSummary } from "../../src/api/metricsApi";
@@ -24,12 +24,25 @@ const SUMMARY: SeasonSummary = {
   offers: [],
 };
 
+const onSeasonChanged = vi.fn();
+
+function Where() {
+  const location = useLocation();
+  return <p data-testid="where">{location.pathname + location.hash}</p>;
+}
+
+// Inside a route with the context ProtectedRoute hands its pages.
 function renderPage(summary: SeasonSummary) {
-  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(summary) })));
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({
+    ok: true, status: url === "/seasons/active" ? 204 : 200, json: () => Promise.resolve(summary),
+  })));
   return render(
     <MemoryRouter initialEntries={["/seasons/4/summary"]}>
       <Routes>
-        <Route path="/seasons/:id/summary" element={<SeasonSummaryPage />} />
+        <Route element={<><Outlet context={{ onSeasonChanged }} /><Where /></>}>
+          <Route path="/seasons/:id/summary" element={<SeasonSummaryPage />} />
+          <Route path="*" element={null} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   );
@@ -37,6 +50,7 @@ function renderPage(summary: SeasonSummary) {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  onSeasonChanged.mockClear();
 });
 
 describe("SeasonSummaryPage", () => {
@@ -66,6 +80,28 @@ describe("SeasonSummaryPage", () => {
     expect(within(offer).getByText(day("2026-04-15"))).toBeInTheDocument();
     expect(within(offer).getByText(day("2026-05-04"))).toBeInTheDocument();
   });
+
+  // The Offers page shows the season on screen, so this season is switched to before going there.
+  it("opens the offer taken on the Offers page, switching to its season first", async () => {
+    renderPage(SUMMARY);
+
+    fireEvent.click(await screen.findByRole("link", { name: /Globex/ }));
+
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/offers#accepted"));
+    expect(vi.mocked(fetch).mock.calls.find(([url]) => url === "/seasons/active")?.[1]?.body)
+      .toBe(JSON.stringify({ seasonId: 4 }));
+    expect(onSeasonChanged).toHaveBeenCalled();
+  });
+
+  it.each([["See Insights", "/insights"], ["Open board", "/"], ["See offers", "/offers"]])(
+    "%s opens that page for this season", async (label, path) => {
+      renderPage(SUMMARY);
+
+      fireEvent.click(await screen.findByRole("link", { name: label }));
+
+      await waitFor(() => expect(screen.getByTestId("where").textContent).toBe(path));
+      expect(onSeasonChanged).toHaveBeenCalled();
+    });
 
   it("says when a hunt ended without an offer, and when nothing has been measured yet", async () => {
     renderPage({ ...SUMMARY, acceptedOffer: null, averageResponseDays: null, responsesMeasured: 0 });

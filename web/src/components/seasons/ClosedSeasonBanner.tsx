@@ -24,6 +24,7 @@ export default function ClosedSeasonBanner({ season, onReopened }: { season: Sea
         {error && <span className="ml-2 text-red-700 dark:text-red-300">{error}</span>}
       </span>
       <Link to={`/seasons/${season.id}/summary`} className="font-medium underline">See summary</Link>
+      <Link to="/seasons" className="font-medium underline">Start a new hunt</Link>
       <button type="button" onClick={reopen}
         className="rounded border border-amber-400 px-2 py-0.5 font-medium hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40">
         Edit

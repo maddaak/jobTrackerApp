@@ -56,6 +56,9 @@ export default function SeasonSwitcher({ onSwitched }: SeasonSwitcherProps) {
     try {
       await viewSeason(value === ALL ? null : Number(value));
       onSwitched();
+      // A finished hunt is looked back on, not worked: its summary says how it went.
+      const chosen = seasons?.find(season => String(season.id) === value);
+      if (chosen?.closedAt) navigate(`/seasons/${chosen.id}/summary`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to switch season");
     }

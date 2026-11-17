@@ -13,11 +13,11 @@ export interface SeasonCardProps {
   // Shows this season on the given page: "/" for the board, "/insights" for its numbers.
   onOpen: (path: string) => void;
   onCloseSeason: () => void;
-  onReopen: () => void;
-  onSummary: () => void;
 }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const PRIMARY = "rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700";
+const SECONDARY = "rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800";
 const percent = (part: number, whole: number) => (whole === 0 ? undefined : `${Math.round((part / whole) * 100)}% of applications`);
 
 function Stat({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
@@ -30,9 +30,8 @@ function Stat({ label, value, detail }: { label: string; value: number | string;
   );
 }
 
-export default function SeasonCard({
-  season, stats, onlyOne, onRename, onDelete, onOpen, onCloseSeason, onReopen, onSummary,
-}: SeasonCardProps) {
+// A hunt still open, in the lobby's Active list. Finished ones are a line under Past instead.
+export default function SeasonCard({ season, stats, onlyOne, onRename, onDelete, onOpen, onCloseSeason }: SeasonCardProps) {
   const [editing, setEditing] = useState(false);
   const applications = stats?.applications ?? 0;
   // core refuses these too; saying why up front beats a refusal after the click.
@@ -59,14 +58,11 @@ export default function SeasonCard({
             <h2 className="truncate text-lg font-semibold" title={season.name}>{season.name}</h2>
           )}
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-            {stats?.firstApplied && stats.lastApplied
-              // A hunt still open runs until today; its latest application is only where it has got to.
-              ? `${day(stats.firstApplied)} to ${season.closedAt ? day(stats.lastApplied) : "now"}`
-              : "No jobs yet"}
+            {/* Still open, so it runs until today; its latest application is only where it has got to. */}
+            {stats?.firstApplied ? `${day(stats.firstApplied)} to now` : "No jobs yet"}
             {season.active && <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">Showing now</span>}
-            {season.closedAt && <span className="ml-2 rounded bg-neutral-200 px-1.5 py-0.5 font-medium text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200">Closed {day(season.closedAt)}</span>}
           </p>
-          {!season.closedAt && stats?.lastApplied && (
+          {stats?.lastApplied && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Last applied {day(stats.lastApplied)}</p>
           )}
         </div>
@@ -98,34 +94,11 @@ export default function SeasonCard({
         <Stat label="Still active" value={stats?.active ?? 0} />
       </div>
 
-      <div className="flex gap-2">
-        <button type="button" onClick={() => onOpen("/")}
-          className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
-          Open board
-        </button>
-        <button type="button" onClick={() => onOpen("/insights")}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
-          See Insights
-        </button>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => onOpen("/")} className={PRIMARY}>Open board</button>
+        <button type="button" onClick={() => onOpen("/insights")} className={SECONDARY}>See Insights</button>
         <span className="flex-1" />
-        {season.closedAt ? (
-          <>
-            <button type="button" onClick={onSummary}
-              className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
-              See summary
-            </button>
-            <button type="button" aria-label={`Edit ${season.name}`} title="Reopen it so its jobs can change"
-              onClick={onReopen}
-              className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
-              Edit
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={onCloseSeason}
-            className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800">
-            Close season
-          </button>
-        )}
+        <button type="button" onClick={onCloseSeason} className={SECONDARY}>Close season</button>
       </div>
     </article>
   );

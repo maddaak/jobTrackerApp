@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthProvider } from "../../src/context/AuthContext";
 import SeasonsPage from "../../src/pages/SeasonsPage";
 import type { Season } from "../../src/api/seasonsApi";
 
@@ -57,12 +58,14 @@ function Where() {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/seasons"]}>
-      <Routes>
-        <Route element={<><Outlet context={{ onSeasonChanged, onSeasonsRenamed }} /><Where /></>}>
-          <Route path="/seasons" element={<SeasonsPage />} />
-          <Route path="*" element={null} />
-        </Route>
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route element={<><Outlet context={{ onSeasonChanged, onSeasonsRenamed }} /><Where /></>}>
+            <Route path="/seasons" element={<SeasonsPage />} />
+            <Route path="*" element={null} />
+          </Route>
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -123,9 +126,8 @@ describe("SeasonsPage", () => {
     await waitFor(() => expect(onSeasonChanged).toHaveBeenCalledTimes(1));
     expect(requests.find(r => r.url === "/seasons/2")?.method).toBe("DELETE");
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Start a new season" }));
-    fireEvent.change(screen.getByLabelText("Name for the new season"), { target: { value: "Summer search" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start season" }));
+    fireEvent.change(screen.getByLabelText("Name for the new hunt"), { target: { value: "Summer search" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start hunt" }));
     await waitFor(() => expect(onSeasonChanged).toHaveBeenCalledTimes(2));
     expect(requests.find(r => r.url === "/seasons" && r.method === "POST")?.body).toEqual({ name: "Summer search" });
   });
@@ -177,19 +179,22 @@ describe("SeasonsPage", () => {
     expect(screen.getByRole("button", { name: "Close season" })).toBeEnabled();
   });
 
-  // A closed season offers its summary and Edit, which reopens it, instead of closing again.
-  it("shows a closed season as closed, with its summary and an Edit that reopens it", async () => {
+  // The lobby leads with a new hunt, then splits the open hunts from the finished ones.
+  it("leads with a new hunt, then lists hunts as Active and Past", async () => {
     SEASONS[0] = { ...SEASONS[0], closedAt: "2026-04-01T12:00:00Z" };
     try {
       renderPage();
-      const fall = await screen.findByRole("article", { name: "Fall search" });
 
-      expect(within(fall).getByText(/^Closed /)).toBeInTheDocument();
-      expect(within(fall).queryByRole("button", { name: "Close season" })).not.toBeInTheDocument();
-      fireEvent.click(within(fall).getByRole("button", { name: "Edit Fall search" }));
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Start a new job hunt");
+      const active = await screen.findByRole("region", { name: "Active" });
+      expect(within(active).getAllByRole("article").map(card => card.getAttribute("aria-label"))).toEqual(["Spring search"]);
+      const past = screen.getByRole("region", { name: "Past" });
+      expect(within(past).queryByRole("button")).not.toBeInTheDocument();
 
-      await waitFor(() => expect(requests.find(r => r.url === "/seasons/1/reopen")?.method).toBe("POST"));
-      await waitFor(() => expect(within(fall).getByRole("button", { name: "Close season" })).toBeInTheDocument());
+      // Straight to its summary, switched to it first so the sidebar's pages are that hunt's.
+      fireEvent.click(within(past).getByRole("link", { name: /Fall search/ }));
+      await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/seasons/1/summary"));
+      expect(requests.find(r => r.url === "/seasons/active")?.body).toEqual({ seasonId: 1 });
       expect(onSeasonChanged).toHaveBeenCalled();
     } finally {
       SEASONS[0] = { ...SEASONS[0], ...OPEN };

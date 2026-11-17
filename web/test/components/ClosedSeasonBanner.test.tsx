@@ -15,6 +15,7 @@ describe("ClosedSeasonBanner", () => {
 
     expect(screen.getByText(/is closed, so it's read-only/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See summary" })).toHaveAttribute("href", "/seasons/4/summary");
+    expect(screen.getByRole("link", { name: "Start a new hunt" })).toHaveAttribute("href", "/seasons");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     await waitFor(() => expect(onReopened).toHaveBeenCalled());

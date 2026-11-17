@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
-import {
-  createSeason, deleteSeason, listSeasons, renameSeason, reopenSeason, viewSeason, type Season,
-} from "../api/seasonsApi";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { createSeason, deleteSeason, listSeasons, renameSeason, seasonSpan, viewSeason, type Season } from "../api/seasonsApi";
 import { getSeasonStats, type SeasonStats } from "../api/metricsApi";
+import LobbyFrame from "../components/LobbyFrame";
 import SeasonCard from "../components/seasons/SeasonCard";
 import CloseSeasonDialog from "../components/seasons/CloseSeasonDialog";
 import SeasonNameForm from "../components/seasons/SeasonNameForm";
 import type { SeasonOutlet } from "../routes/ProtectedRoute";
 
-// Every job hunt side by side: how each went, and a way into any of them.
+// The lobby: every job hunt, outside any one of them. A new hunt first, then the ones still open, then the
+// finished ones, each opening on its summary. Opening a hunt is what brings the sidebar back.
 export default function SeasonsPage() {
   const { onSeasonChanged, onSeasonsRenamed } = useOutletContext<SeasonOutlet>();
   const navigate = useNavigate();
   const [seasons, setSeasons] = useState<Season[] | null>(null);
   const [stats, setStats] = useState<SeasonStats[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
   const [closing, setClosing] = useState<Season | null>(null);
 
   useEffect(() => {
@@ -60,74 +59,87 @@ export default function SeasonsPage() {
     });
   };
 
-  // Closing or reopening changes what every page may edit, so the whole app reloads, as switching seasons does.
-  function replaced(saved: Season) {
-    setSeasons(current => current && current.map(other => (other.id === saved.id ? saved : other)));
-    onSeasonChanged();
-  }
-
   // Newest first: the search you're in now is the one you came here for.
-  const newestFirst = seasons ? [...seasons].reverse() : null;
+  const started = (season: Season) => season.firstApplied ?? season.createdAt;
+  const newestFirst = seasons ? [...seasons].sort((a, b) => started(b).localeCompare(started(a))) : null;
+  const active = newestFirst?.filter(season => !season.closedAt) ?? [];
+  const past = newestFirst?.filter(season => season.closedAt) ?? [];
 
   return (
-    <div className="min-w-0 p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-2 flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold">Seasons</h1>
-          {!starting && (
-            <button type="button" onClick={() => setStarting(true)}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
-              + Start a new season
-            </button>
-          )}
-        </div>
-        <p className="mb-6 text-sm text-neutral-600 dark:text-neutral-300">
-          Each season is one job hunt. The board, calendar, offers, and Insights show one season at a time; the
-          others keep every job until you open them again. A job filed under the wrong one moves from its own dialog.
+    <LobbyFrame>
+      <section aria-labelledby="start-hunt" className="rounded-xl border border-blue-200 bg-blue-50 p-8 text-center dark:border-blue-900 dark:bg-blue-950/30">
+        <h1 id="start-hunt" className="text-2xl font-semibold">Start a new job hunt</h1>
+        <p className="mb-5 mt-1 text-sm text-neutral-600 dark:text-neutral-300">
+          Give it a name, like the role or the year, and your board starts empty.
         </p>
-
-        {starting && (
-          <div className="mb-6 rounded-lg border border-neutral-200 p-5 dark:border-neutral-800">
-            <p className="mb-2 text-sm font-medium">Name the new season</p>
-            <SeasonNameForm
-              label="Name for the new season"
-              initial=""
-              submitLabel="Start season"
-              // Starting one shows it, so the whole app reloads onto the new, empty search.
-              onSave={async name => { await run(async () => { await createSeason(name); onSeasonChanged(); navigate("/"); }); }}
-              onCancel={() => setStarting(false)}
-            />
-          </div>
-        )}
-
-        {error && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
-        {!newestFirst && !error && <p className="text-sm">Loading…</p>}
-
-        <div className="space-y-4">
-          {newestFirst?.map(season => (
-            <SeasonCard
-              key={season.id}
-              season={season}
-              stats={stats.find(entry => entry.seasonId === season.id)}
-              onlyOne={newestFirst.length === 1}
-              onRename={rename(season)}
-              onDelete={() => { run(async () => { await deleteSeason(season.id); onSeasonChanged(); }); }}
-              onOpen={open(season)}
-              onCloseSeason={() => setClosing(season)}
-              onReopen={() => { run(async () => replaced(await reopenSeason(season.id))); }}
-              onSummary={() => navigate(`/seasons/${season.id}/summary`)}
-            />
-          ))}
+        <div className="mx-auto max-w-md">
+          <SeasonNameForm label="Name for the new hunt" initial="" submitLabel="Start hunt"
+            // Starting one shows it, so the whole app reloads onto the new, empty search.
+            onSave={async name => { await run(async () => { await createSeason(name); onSeasonChanged(); navigate("/"); }); }} />
         </div>
-        {closing && (
-          <CloseSeasonDialog
-            season={closing}
-            onClose={() => setClosing(null)}
-            onClosed={saved => { setClosing(null); replaced(saved); navigate(`/seasons/${saved.id}/summary`); }}
-            onOpenOffers={section => { setClosing(null); open(closing)(`/offers#${section}`); }}
-          />
-        )}
-      </div>
-    </div>
+      </section>
+
+      {error && <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {!newestFirst && !error && <p className="mt-4 text-sm">Loading…</p>}
+
+      {active.length > 0 && (
+        <section aria-labelledby="active-hunts">
+          <h2 id="active-hunts" className="mb-3 mt-10 text-lg font-medium">Active</h2>
+          <div className="space-y-4">
+            {active.map(season => (
+              <SeasonCard
+                key={season.id}
+                season={season}
+                stats={stats.find(entry => entry.seasonId === season.id)}
+                onlyOne={newestFirst?.length === 1}
+                onRename={rename(season)}
+                onDelete={() => { run(async () => {
+                  await deleteSeason(season.id);
+                  setSeasons(current => current && current.filter(other => other.id !== season.id));
+                  onSeasonChanged();
+                }); }}
+                onOpen={open(season)}
+                onCloseSeason={() => setClosing(season)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {past.length > 0 && (
+        <section aria-labelledby="past-hunts">
+          <h2 id="past-hunts" className="mb-3 mt-10 text-lg font-medium">Past</h2>
+          <ul className="space-y-2">
+            {past.map(season => {
+              const span = seasonSpan(season);
+              return (
+                <li key={season.id}>
+                  <Link to={`/seasons/${season.id}/summary`}
+                    onClick={e => { e.preventDefault(); open(season)(`/seasons/${season.id}/summary`); }}
+                    className="flex items-center justify-between gap-4 rounded-lg border border-neutral-200 px-4 py-3 hover:border-blue-400 dark:border-neutral-800 dark:hover:border-blue-500">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{season.name}</span>
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                        {span ? `${span} · ` : ""}{season.jobCount} {season.jobCount === 1 ? "application" : "applications"}
+                      </span>
+                    </span>
+                    <span aria-hidden="true" className="text-neutral-400">→</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {closing && (
+        <CloseSeasonDialog
+          season={closing}
+          onClose={() => setClosing(null)}
+          onClosed={saved => { setClosing(null); onSeasonChanged(); navigate(`/seasons/${saved.id}/summary`); }}
+          onOpenOffers={section => { setClosing(null); open(closing)(`/offers#${section}`); }}
+        />
+      )}
+    </LobbyFrame>
   );
 }

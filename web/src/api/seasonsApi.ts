@@ -7,7 +7,7 @@ export interface Season {
   createdAt: string;
   jobCount: number;
   active: boolean;
-  // A closed season is read-only until it's reopened. The offer taken outlives a reopen, to fill the next close.
+  // A closed season is read-only until it's reopened.
   closedAt: string | null;
   acceptedJobId: number | null;
   // When the hunt actually ran, from its applications; null with none yet.
@@ -70,13 +70,9 @@ export async function viewSeason(id: number | null): Promise<void> {
   });
 }
 
-// The offer taken is optional: a hunt can end without one. Its days are saved on the offer, not here.
-export async function closeSeason(id: number, ending: { acceptedJobId: number | null }): Promise<Season> {
-  return request<Season>(`/seasons/${id}/close`, "failed to close the season", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(ending),
-  });
+// Core takes the offer accepted on the Offers page, and refuses while one is still undecided.
+export async function closeSeason(id: number): Promise<Season> {
+  return request<Season>(`/seasons/${id}/close`, "failed to close the season", { method: "POST" });
 }
 
 export async function reopenSeason(id: number): Promise<Season> {

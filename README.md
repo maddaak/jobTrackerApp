@@ -164,9 +164,11 @@ dialog. The **Seasons** page, opened from the picker's **Season** heading, compa
 offers), renames them, and opens any one's board or Insights. Upgrading puts every job you already
 have into a first season called "My job hunt".
 
-When a hunt is over, **Close season** on its card asks which offer you accepted, with the day you
-accepted it and your start date filled in from the offer (choosing **Accepted** on the Offers page asks
-for both). The season then turns read-only and gets a **summary** of the whole run: when
+When a hunt is over, **Close season** on its card shows how it ended, as the Offers page has it: the
+offer you accepted, with the day you accepted it and your start date, or that you took none. You decide
+offers on the Offers page, not here, so an offer still undecided holds closing until you accept or
+decline it there. Every application still open or paused is marked Withdrawn, since you've ended
+the hunt, so nothing is left open. The season then turns read-only and gets a **summary** of the whole run: when
 it started and closed, the average time from applying to being rejected, the role closing, or marking it
 ghosted, how many interview rounds
 you passed and didn't (and at which companies), and the offer taken, from the day you applied to the

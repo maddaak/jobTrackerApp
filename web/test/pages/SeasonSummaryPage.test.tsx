@@ -13,6 +13,7 @@ const SUMMARY: SeasonSummary = {
   averageResponseDays: 9.5,
   responsesMeasured: 6,
   closedApplications: 9,
+  openApplications: 0,
   roundsPassed: 7,
   roundsFailed: 3,
   rounds: [{ roundNode: "BEHAVIOR", count: 4, passed: 3, notPassed: 1, passedJobs: [], notPassedJobs: [] }],

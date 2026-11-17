@@ -3,11 +3,12 @@ package com.jobtracker.core.service;
 import com.jobtracker.core.dto.SeasonResponse;
 import com.jobtracker.core.exception.InvalidCredentialsException;
 import com.jobtracker.core.exception.JobNotFoundException;
-import com.jobtracker.core.exception.NoOfferException;
 import com.jobtracker.core.exception.SeasonClosedException;
 import com.jobtracker.core.exception.SeasonInUseException;
 import com.jobtracker.core.exception.SeasonNotFoundException;
+import com.jobtracker.core.exception.UndecidedOfferException;
 import com.jobtracker.core.model.Job;
+import com.jobtracker.core.model.Outcome;
 import com.jobtracker.core.model.Season;
 import com.jobtracker.core.model.User;
 import com.jobtracker.core.repository.JobRepository;
@@ -104,25 +105,26 @@ public class SeasonService {
         jobs.save(job);
     }
 
-    // The offer taken, when there is one, is marked accepted here, so the summary and the Offers page agree.
-    // Its days are set on the offer before this, by the same call the Offers page makes.
+    // Closing records what the Offers page decided, so an offer still undecided has to be settled there first.
     @Transactional
-    public SeasonResponse close(Long ownerId, Long seasonId, Long acceptedJobId) {
+    public SeasonResponse close(Long ownerId, Long seasonId) {
         Season season = find(ownerId, seasonId);
-        if (acceptedJobId != null) {
-            Job accepted = jobs.findByIdAndOwnerId(acceptedJobId, ownerId)
-                    .filter(job -> seasonId.equals(job.getSeasonId()))
-                    .orElseThrow(JobNotFoundException::new);
-            if (!accepted.hasOffer()) {
-                throw new NoOfferException();
-            }
-            accepted.acceptOffer();
-            jobs.save(accepted);
+        List<Job> seasonJobs = jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId);
+        if (seasonJobs.stream().anyMatch(job -> job.hasOffer() && job.getOutcome() == Outcome.ACTIVE)) {
+            throw new UndecidedOfferException();
         }
+        // Ending the hunt steps away from whatever is still open or paused, even a freeze that might lift.
+        List<Job> leftOpen = seasonJobs.stream().filter(Job::isStillOpen).toList();
+        leftOpen.forEach(Job::withdraw);
+        jobs.saveAll(leftOpen);
+        Long acceptedJobId = seasonJobs.stream()
+                .filter(job -> job.getOutcome() == Outcome.OFFER_ACCEPTED)
+                .map(Job::getId)
+                .findFirst()
+                .orElse(null);
         season.close(clock.instant(), acceptedJobId);
         seasons.save(season);
-        return toResponse(season, jobs.findByOwnerIdAndSeasonIdOrderByCreatedAtDesc(ownerId, seasonId),
-                owner(ownerId));
+        return toResponse(season, seasonJobs, owner(ownerId));
     }
 
     @Transactional

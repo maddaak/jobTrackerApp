@@ -10,9 +10,10 @@ const SEASONS: Season[] = [
   { id: 2, name: "Spring search", createdAt: "2026-06-01T00:00:00Z", jobCount: 0, active: true, ...OPEN },
 ];
 const OFFERS = [
-  { jobId: 7, company: "Initech", role: "Engineer", accepted: false, acceptedOn: null, startDate: null },
-  { jobId: 8, company: "Globex", role: "Staff Engineer", accepted: true, acceptedOn: "2026-10-18", startDate: "2026-11-16" },
+  { jobId: 7, company: "Initech", role: "Engineer", outcome: "OFFER_DECLINED", acceptedOn: null, startDate: null },
+  { jobId: 8, company: "Globex", role: "Staff Engineer", outcome: "OFFER_ACCEPTED", acceptedOn: "2026-10-18", startDate: "2026-11-16" },
 ];
+let summaryOffers: unknown[] = OFFERS;
 
 const STATS = [
   { seasonId: 1, applications: 12, active: 2, heardBack: 6, interviewed: 3, offers: 1,
@@ -29,6 +30,7 @@ function reply(status: number, body: unknown) {
 
 beforeEach(() => {
   requests = [];
+  summaryOffers = OFFERS;
   onSeasonChanged.mockClear();
   onSeasonsRenamed.mockClear();
   vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => {
@@ -36,9 +38,8 @@ beforeEach(() => {
     const body = typeof options?.body === "string" ? JSON.parse(options.body) : null;
     requests.push({ url, method, body });
     if (url === "/metrics/seasons") return reply(200, STATS);
-    if (url === "/metrics/seasons/1/summary") return reply(200, { offers: OFFERS });
-    if (url === "/seasons/1/close") return reply(200, { ...SEASONS[0], closedAt: "2026-11-11T00:00:00Z", ...body });
-    if (url.endsWith("/offer/acceptance")) return reply(200, {});
+    if (url === "/metrics/seasons/1/summary") return reply(200, { offers: summaryOffers, openApplications: 12 });
+    if (url === "/seasons/1/close") return reply(200, { ...SEASONS[0], closedAt: "2026-11-11T00:00:00Z", acceptedJobId: 8 });
     if (url === "/seasons/1/reopen") return reply(200, { ...SEASONS[0], closedAt: null });
     if (url === "/seasons" && method === "GET") return reply(200, SEASONS);
     if (url === "/seasons" && method === "POST") return reply(201, { ...SEASONS[1], id: 3, ...body });
@@ -75,6 +76,9 @@ describe("SeasonsPage", () => {
     const fall = within(cards[1]);
     expect(fall.getByText("Applications").nextSibling).toHaveTextContent("12");
     expect(fall.getByText("50% of applications")).toBeInTheDocument();
+    // Still open, so it runs to now; its latest application is shown on its own.
+    expect(fall.getByText("Jan 5, 2026 to now")).toBeInTheDocument();
+    expect(fall.getByText("Last applied Mar 20, 2026")).toBeInTheDocument();
     expect(within(cards[0]).getByText("No jobs yet")).toBeInTheDocument();
     expect(within(cards[0]).getByText("Showing now")).toBeInTheDocument();
   });
@@ -126,52 +130,51 @@ describe("SeasonsPage", () => {
     expect(requests.find(r => r.url === "/seasons" && r.method === "POST")?.body).toEqual({ name: "Summer search" });
   });
 
-  // The offer already accepted is the likely answer, with the days the Offers page saved on it. A change here
-  // goes back to the offer, so there's one accepted day and one start date.
-  it("closes a season with the offer taken, starting from the days saved on it, then shows its summary", async () => {
-    renderPage();
-    const fall = await screen.findByRole("article", { name: "Fall search" });
-
+  function openCloseDialog(fall: HTMLElement) {
     fireEvent.click(within(fall).getByRole("button", { name: "Close season" }));
-    const offer = await screen.findByLabelText("Offer you accepted");
-    await waitFor(() => expect(offer).toHaveValue("8"));
-    expect(screen.getByLabelText("Day you accepted")).toHaveValue("2026-10-18");
-    expect(screen.getByLabelText("Start date")).toHaveValue("2026-11-16");
-    fireEvent.change(screen.getByLabelText("Day you accepted"), { target: { value: "2026-10-20" } });
+    return screen.findByRole("region", { name: "Job search result" });
+  }
+
+  // The Offers page decides; closing only reports what it decided, so the request names no offer.
+  it("closes a season reporting the offer accepted, then shows its summary", async () => {
+    renderPage();
+    const result = await openCloseDialog(await screen.findByRole("article", { name: "Fall search" }));
+
+    expect(result).toHaveTextContent("You accepted Globex, Staff Engineer on Oct 18, 2026.");
+    expect(result).toHaveTextContent("Starting Nov 16, 2026. You declined 1 other offer.");
+    expect(result).toHaveTextContent("12 applications are still open or paused. Closing marks them Withdrawn, since the hunt is over.");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close season" }));
 
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/seasons/1/summary"));
-    expect(requests.find(r => r.url === "/jobs/8/offer/acceptance")).toMatchObject({
-      method: "PUT", body: { acceptedOn: "2026-10-20", startDate: "2026-11-16" },
-    });
-    expect(requests.find(r => r.url === "/seasons/1/close")?.body).toEqual({ acceptedJobId: 8 });
+    expect(requests.find(r => r.url === "/seasons/1/close")).toMatchObject({ method: "POST", body: null });
     expect(onSeasonChanged).toHaveBeenCalled();
   });
 
-  // An offer with nothing saved yet starts the day accepted at today and leaves the start date blank.
-  it("starts an offer with no days yet at today", async () => {
+  it("holds closing while an offer is undecided and sends you to decide it", async () => {
+    summaryOffers = [{ ...OFFERS[0], outcome: "ACTIVE" }];
     renderPage();
-    fireEvent.click(within(await screen.findByRole("article", { name: "Fall search" })).getByRole("button", { name: "Close season" }));
-    await waitFor(() => expect(screen.getByLabelText("Offer you accepted")).toHaveValue("8"));
+    const result = await openCloseDialog(await screen.findByRole("article", { name: "Fall search" }));
 
-    fireEvent.change(screen.getByLabelText("Offer you accepted"), { target: { value: "7" } });
+    expect(result).toHaveTextContent("Initech, Engineer is still undecided.");
+    expect(screen.getByRole("button", { name: "Close season" })).toBeDisabled();
+    fireEvent.click(within(result).getByRole("button", { name: "Go to the Offers page" }));
 
-    expect((screen.getByLabelText("Day you accepted") as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(screen.getByLabelText("Start date")).toHaveValue("");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/offers"));
+    expect(requests.find(r => r.url === "/seasons/active")?.body).toEqual({ seasonId: 1 });
+    expect(requests.find(r => r.url === "/seasons/1/close")).toBeUndefined();
   });
 
-  it("closes without an offer, touching no offer", async () => {
+  it.each([
+    [[OFFERS[0]], "You didn't accept an offer: you declined the one you got."],
+    [[], "This hunt ended without an offer."],
+  ])("says how a hunt ended without an offer taken", async (offers, said) => {
+    summaryOffers = offers;
     renderPage();
-    const fall = await screen.findByRole("article", { name: "Fall search" });
+    const result = await openCloseDialog(await screen.findByRole("article", { name: "Fall search" }));
 
-    fireEvent.click(within(fall).getByRole("button", { name: "Close season" }));
-    await waitFor(() => expect(screen.getByLabelText("Offer you accepted")).toHaveValue("8"));
-    fireEvent.change(screen.getByLabelText("Offer you accepted"), { target: { value: "" } });
-    expect(screen.queryByLabelText("Day you accepted")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close season" }));
-
-    await waitFor(() => expect(requests.find(r => r.url === "/seasons/1/close")?.body).toEqual({ acceptedJobId: null }));
-    expect(requests.find(r => r.url.endsWith("/offer/acceptance"))).toBeUndefined();
+    expect(result).toHaveTextContent(said);
+    expect(screen.getByRole("button", { name: "Close season" })).toBeEnabled();
   });
 
   // A closed season offers its summary and Edit, which reopens it, instead of closing again.

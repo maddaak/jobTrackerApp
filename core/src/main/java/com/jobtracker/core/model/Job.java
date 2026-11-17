@@ -188,6 +188,17 @@ public class Job {
         this.interviewPhase = null;
     }
 
+    // An offer is decided on the Offers page, so it's never one of these.
+    public boolean isStillOpen() {
+        return (outcome == Outcome.ACTIVE || outcome == Outcome.PAUSED) && !hasOffer();
+    }
+
+    public void withdraw() {
+        this.outcome = Outcome.WITHDRAWN;
+        this.currentStage = Stage.FINALIZED;
+        this.interviewPhase = null;
+    }
+
     public void applyUpdate(String company, String role, SourceCategory sourceCategory, String url, Location location,
             Integer compMin, Integer compMax, Stage currentStage, InterviewPhase interviewPhase, Outcome outcome) {
         this.company = company;

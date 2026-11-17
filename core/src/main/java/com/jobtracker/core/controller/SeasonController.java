@@ -1,7 +1,6 @@
 package com.jobtracker.core.controller;
 
 import com.jobtracker.core.dto.ActiveSeasonRequest;
-import com.jobtracker.core.dto.CloseSeasonRequest;
 import com.jobtracker.core.dto.SeasonRequest;
 import com.jobtracker.core.dto.SeasonResponse;
 import com.jobtracker.core.service.SeasonService;
@@ -50,9 +49,8 @@ public class SeasonController {
     }
 
     @PostMapping("/{id}/close")
-    public SeasonResponse close(@RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id,
-            @RequestBody CloseSeasonRequest request) {
-        return seasons.close(ownerId, id, request.acceptedJobId());
+    public SeasonResponse close(@RequestHeader("X-User-Id") Long ownerId, @PathVariable Long id) {
+        return seasons.close(ownerId, id);
     }
 
     @PostMapping("/{id}/reopen")

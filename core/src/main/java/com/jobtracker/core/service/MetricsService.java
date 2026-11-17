@@ -203,7 +203,7 @@ public class MetricsService {
                     LocalDate acceptedOn = offer == null ? null : offer.getAcceptedOn();
                     Long days = acceptedOn == null ? null
                             : ChronoUnit.DAYS.between(applied.atZone(ZoneOffset.UTC).toLocalDate(), acceptedOn);
-                    return new SeasonSummary.AcceptedOffer(job.getId(), job.getCompany(), job.getRole(), applied,
+                    return new SeasonSummary.AcceptedOffer(job.getId(), job.getCompany(), offeredRole(job, offer), applied,
                             acceptedOn, offer == null ? null : offer.getStartDate(), days);
                 })
                 .orElse(null);
@@ -211,17 +211,22 @@ public class MetricsService {
         return new SeasonSummary(season.getId(), season.getName(), season.getClosedAt(),
                 seasonJobs.stream().map(Job::getCreatedAt).min(Comparator.naturalOrder()).orElse(null),
                 journeys.size(), averageDays, responseDays.size(), closed,
+                seasonJobs.stream().filter(Job::isStillOpen).count(),
                 rounds.stream().mapToLong(InterviewRoundCount::passed).sum(),
                 rounds.stream().mapToLong(InterviewRoundCount::notPassed).sum(),
                 rounds, accepted,
                 journeys.stream().map(journey -> journey.get(0)).filter(Job::hasOffer)
                         .map(job -> {
                             Offer offer = offersByJobId.get(job.getId());
-                            return new SeasonSummary.OfferMade(job.getId(), job.getCompany(), job.getRole(),
-                                    job.getOutcome() == Outcome.OFFER_ACCEPTED,
-                                    offer == null ? null : offer.getAcceptedOn(), offer == null ? null : offer.getStartDate());
+                            return new SeasonSummary.OfferMade(job.getId(), job.getCompany(), offeredRole(job, offer),
+                                    job.getOutcome(), offer == null ? null : offer.getAcceptedOn(), offer == null ? null : offer.getStartDate());
                         })
                         .toList());
+    }
+
+    // A hunt ends with the job as offered, which a downlevel makes different from the posting.
+    private static String offeredRole(Job job, Offer offer) {
+        return offer != null && offer.getTitle() != null ? offer.getTitle() : job.getRole();
     }
 
     private static Instant firstApplied(List<Job> journey) {
